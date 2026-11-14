@@ -7,7 +7,10 @@ APP="build/Melcolm All-in-One.app"
 rm -rf "$APP"; mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp .build/release/MelcolmAIO "$APP/Contents/MacOS/MelcolmAIO"
 cp Info.plist "$APP/Contents/Info.plist"
-codesign --force --deep --sign - "$APP"
+# Sign with the local certificate if it exists (run ./make-cert.sh once), so macOS
+# remembers permissions between builds. Falls back to ad-hoc signing.
+ID=$(security find-identity -p codesigning | grep "Melcolm Local Signing" | head -1 | awk '{print $2}')
+codesign --force --deep --sign "${ID:--}" "$APP"
 echo "Built $APP"
 if [[ "$1" == "--install" ]]; then
   pkill -x MelcolmAIO || true

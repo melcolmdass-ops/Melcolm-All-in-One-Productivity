@@ -3,6 +3,7 @@ import CoreAudio
 import CoreWLAN
 import IOBluetooth
 import IOKit.ps
+import IOKit.pwr_mgt
 
 // MARK: - Sound
 
@@ -24,6 +25,27 @@ final class SoundModel: ObservableObject {
     @Published var inputs: [OutputDevice] = []
     @Published var currentInput: AudioDeviceID = 0
     @Published var inputAdjustable = true
+
+    var onDeviceChange: ((String) -> Void)?
+
+    init() {
+        refresh()
+        var a = Self.addr(kAudioHardwarePropertyDefaultOutputDevice)
+        AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &a, .main) { [weak self] _, _ in
+            guard let self else { return }
+            refresh()
+            if let n = devices.first(where: { $0.id == self.currentDevice })?.name { onDeviceChange?(n) }
+        }
+    }
+
+    /// Small step up/down from the real current volume (used by scrolling on the island).
+    func nudge(_ d: Double) {
+        currentDevice = Self.defaultDevice(input: false)
+        let now = Self.getVolume(currentDevice, Self.out).map(Double.init) ?? volume
+        setVolume(min(1, max(0, now + d)))
+    }
+
+    var outputName: String { devices.first { $0.id == currentDevice }?.name ?? "Output" }
 
     private static let out = kAudioDevicePropertyScopeOutput
     private static let inp = kAudioDevicePropertyScopeInput
@@ -151,29 +173,63 @@ final class NowPlayingModel: ObservableObject {
     @Published var artist = ""
     @Published var app = ""
     @Published var playing = false
+    @Published var position: Double = 0
+    @Published var duration: Double = 0
+    @Published var artwork: NSImage?
+    var onTrackChange: ((String, String) -> Void)?
+    private var artURL = ""
+
+    init() {
+        // Move the progress bar smoothly between the 3-second refreshes.
+        Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            guard let self, playing, duration > 0 else { return }
+            position = min(duration, position + 1)
+        }
+    }
+
+    var appIcon: NSImage? {
+        guard !app.isEmpty, let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: app == "Spotify" ? "com.spotify.client" : "com.apple.Music") else { return nil }
+        return NSWorkspace.shared.icon(forFile: url.path)
+    }
 
     /// Reads Spotify or Music (the two apps that expose their track to scripts).
     /// Controls use the system media keys, so they also drive YouTube in a browser.
     func refresh() {
         for player in ["Spotify", "Music"] {
             guard NSWorkspace.shared.runningApplications.contains(where: { $0.localizedName == player }) else { continue }
+            let extra = player == "Spotify"
+                ? "((duration of current track) / 1000) & \"\\n\" & (artwork url of current track)"
+                : "(duration of current track) & \"\\n\""
             let src = """
             tell application "\(player)"
               if player state is stopped then return ""
-              return (name of current track) & "\\n" & (artist of current track) & "\\n" & (player state as string)
+              return (name of current track) & "\\n" & (artist of current track) & "\\n" & (player state as string) & "\\n" & (player position) & "\\n" & \(extra)
             end tell
             """
             var err: NSDictionary?
             if let out = NSAppleScript(source: src)?.executeAndReturnError(&err).stringValue, !out.isEmpty {
-                let parts = out.components(separatedBy: "\n")
-                title = parts[0]
-                artist = parts.count > 1 ? parts[1] : ""
-                playing = parts.count > 2 && parts[2] == "playing"
-                app = player
+                let p = out.components(separatedBy: "\n")
+                func at(_ i: Int) -> String { p.count > i ? p[i] : "" }
+                let changed = at(0) != title
+                title = at(0); artist = at(1); playing = at(2) == "playing"; app = player
+                position = Double(at(3).replacingOccurrences(of: ",", with: ".")) ?? 0
+                duration = Double(at(4).replacingOccurrences(of: ",", with: ".")) ?? 0
+                loadArt(at(5))
+                if changed, !title.isEmpty { onTrackChange?(title, artist) }
                 return
             }
         }
-        if app.isEmpty == false { title = ""; artist = ""; app = "" }
+        if !app.isEmpty { title = ""; artist = ""; app = ""; duration = 0; artwork = nil; artURL = "" }
+    }
+
+    private func loadArt(_ url: String) {
+        guard url != artURL else { return }
+        artURL = url; artwork = nil
+        guard let u = URL(string: url), !url.isEmpty else { return }
+        URLSession.shared.dataTask(with: u) { d, _, _ in
+            guard let d, let img = NSImage(data: d) else { return }
+            DispatchQueue.main.async { if self.artURL == url { self.artwork = img } }
+        }.resume()
     }
 
     func playPause() { Self.mediaKey(16); playing.toggle(); later() }
@@ -209,6 +265,7 @@ final class TimerModel: ObservableObject {
     @Published var running = false
     @Published var finished = false
     private var tick: Timer?
+    var onFinish: (() -> Void)?
     private var lastTick = Date()
 
     var isActive: Bool { running || remaining > 0 || elapsed > 0 }
@@ -236,6 +293,7 @@ final class TimerModel: ObservableObject {
         if remaining == 0 {
             pause(); finished = true
             NSSound(named: "Glass")?.play()
+            onFinish?()
         }
     }
 
@@ -258,6 +316,10 @@ final class SystemModel: ObservableObject {
     @Published var wifiOn = false
     @Published var wifiName: String?
     @Published var bluetoothOn = false
+    @Published var awake = false
+    @Published var dark = false
+    @Published var brightness: Double?
+    private var assertion: IOPMAssertionID = 0
 
     func refresh() {
         if let info = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
@@ -271,6 +333,39 @@ final class SystemModel: ObservableObject {
         wifiOn = wifi?.powerOn() ?? false
         wifiName = wifi?.ssid()
         bluetoothOn = IOBluetoothHostController.default()?.powerState == kBluetoothHCIPowerStateON
+        dark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        brightness = Brightness.get().map(Double.init)
+    }
+
+    func toggleBluetooth() {
+        typealias SetPower = @convention(c) (Int32) -> Void
+        if let h = dlopen("/System/Library/Frameworks/IOBluetooth.framework/IOBluetooth", RTLD_LAZY),
+           let f = dlsym(h, "IOBluetoothPreferenceSetControllerPowerState") {
+            unsafeBitCast(f, to: SetPower.self)(bluetoothOn ? 0 : 1)
+            bluetoothOn.toggle()
+        } else { Self.open("com.apple.BluetoothSettings") }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { self.refresh() }
+    }
+
+    /// Keeps the screen from sleeping until turned off again.
+    func toggleAwake() {
+        if awake { IOPMAssertionRelease(assertion) }
+        else { IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleDisplaySleep as CFString,
+                                           IOPMAssertionLevel(kIOPMAssertionLevelOn), "Melcolm Keep Awake" as CFString, &assertion) }
+        awake.toggle()
+    }
+
+    func toggleDark() {
+        var err: NSDictionary?
+        NSAppleScript(source: "tell application \"System Events\" to tell appearance preferences to set dark mode to not dark mode")?
+            .executeAndReturnError(&err)
+        if err == nil { dark.toggle() }
+    }
+
+    func setBrightness(_ v: Double) { brightness = v; Brightness.set(Float(v)) }
+
+    static func screenshot() {
+        NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Utilities/Screenshot.app"))
     }
 
     func toggleWifi() {
@@ -280,5 +375,29 @@ final class SystemModel: ObservableObject {
 
     static func open(_ pane: String) {
         if let url = URL(string: "x-apple.systempreferences:\(pane)") { NSWorkspace.shared.open(url) }
+    }
+}
+
+/// Built-in screen brightness via the private DisplayServices framework (external monitors don't support it).
+enum Brightness {
+    private typealias Get = @convention(c) (UInt32, UnsafeMutablePointer<Float>) -> Int32
+    private typealias Set = @convention(c) (UInt32, Float) -> Int32
+    private static let lib = dlopen("/System/Library/PrivateFrameworks/DisplayServices.framework/DisplayServices", RTLD_LAZY)
+
+    private static var builtIn: UInt32? {
+        var ids = [CGDirectDisplayID](repeating: 0, count: 8); var n: UInt32 = 0
+        CGGetOnlineDisplayList(8, &ids, &n)
+        return ids.prefix(Int(n)).first { CGDisplayIsBuiltin($0) != 0 }
+    }
+
+    static func get() -> Float? {
+        guard let lib, let f = dlsym(lib, "DisplayServicesGetBrightness"), let d = builtIn else { return nil }
+        var v: Float = 0
+        return unsafeBitCast(f, to: Get.self)(d, &v) == 0 ? v : nil
+    }
+
+    static func set(_ v: Float) {
+        guard let lib, let f = dlsym(lib, "DisplayServicesSetBrightness"), let d = builtIn else { return }
+        _ = unsafeBitCast(f, to: Set.self)(d, v)
     }
 }

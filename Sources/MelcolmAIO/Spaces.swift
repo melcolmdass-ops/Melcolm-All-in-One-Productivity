@@ -24,12 +24,32 @@ struct SpaceItem: Identifiable, Equatable {
     let isFullscreen: Bool
 }
 
+/// A display and its Spaces, numbered left to right like the screens are arranged.
+struct DisplayGroup: Identifiable, Equatable {
+    let id: String
+    let number: Int
+    let spaces: [SpaceItem]
+    let currentID: Int
+}
+
 final class SpacesModel: ObservableObject {
+    @Published var displays: [DisplayGroup] = []
     @Published var spaces: [SpaceItem] = []
     @Published var currentID: Int = 0
     @Published var apps: [Int: [SpaceApp]] = [:]   // space id -> apps, front-most first
 
-    init() {
+    @Published var frontPID: pid_t = 0
+    let screen: () -> NSScreen?
+
+    init(screen: @escaping () -> NSScreen? = { NSScreen.screens.first }) {
+        self.screen = screen
+        frontPID = NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
+        ) { [weak self] n in
+            let pid = (n.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.processIdentifier ?? 0
+            if pid != ProcessInfo.processInfo.processIdentifier { self?.frontPID = pid }
+        }
         refresh()
         NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main
@@ -47,8 +67,9 @@ final class SpacesModel: ObservableObject {
     func refresh() {
         guard let raw = CGSCopyManagedDisplaySpaces(_CGSDefaultConnection())?.takeRetainedValue() as? [NSDictionary],
               !raw.isEmpty else { return }
-        let wanted = Self.uuid(of: NSScreen.screens.first)
+        let wanted = Self.uuid(of: screen())
         let display = raw.first { ($0["Display Identifier"] as? String) == wanted }
+            ?? raw.first { ($0["Display Identifier"] as? String) == "Main" && screen() == NSScreen.screens.first }
             ?? raw.first { ($0["Display Identifier"] as? String) == "Main" }
             ?? raw[0]
         let list = (display["Spaces"] as? [NSDictionary]) ?? []
@@ -63,7 +84,26 @@ final class SpacesModel: ObservableObject {
         let cur = ((display["Current Space"] as? NSDictionary)?["ManagedSpaceID"] as? Int) ?? 0
         if items != spaces { spaces = items }
         if cur != currentID { currentID = cur }
-        let a = Self.appsBySpace(Set(items.map(\.id)))
+        // Every display, ordered left to right.
+        let screens = NSScreen.screens.sorted { $0.frame.minX < $1.frame.minX }
+        let order = screens.compactMap { Self.uuid(of: $0) }
+        var groups: [DisplayGroup] = []
+        var allIDs = Set<Int>()
+        let sorted = raw.sorted {
+            (order.firstIndex(of: ($0["Display Identifier"] as? String) ?? "") ?? 99) < (order.firstIndex(of: ($1["Display Identifier"] as? String) ?? "") ?? 99)
+        }
+        for (i, d) in sorted.enumerated() {
+            var list: [SpaceItem] = []
+            for (j, sp) in ((d["Spaces"] as? [NSDictionary]) ?? []).enumerated() {
+                guard let id = (sp["ManagedSpaceID"] as? Int) ?? (sp["id64"] as? Int) else { continue }
+                list.append(SpaceItem(id: id, number: j + 1, isFullscreen: (sp["type"] as? Int) == 4))
+                allIDs.insert(id)
+            }
+            let c = ((d["Current Space"] as? NSDictionary)?["ManagedSpaceID"] as? Int) ?? 0
+            groups.append(DisplayGroup(id: (d["Display Identifier"] as? String) ?? "\(i)", number: i + 1, spaces: list, currentID: c))
+        }
+        if groups != displays { displays = groups }
+        let a = Self.appsBySpace(allIDs)
         if a != apps { apps = a }
     }
 
@@ -94,7 +134,8 @@ final class SpacesModel: ObservableObject {
 
     /// Goes to the Space, then brings the app forward there.
     func focus(_ app: SpaceApp, on space: SpaceItem) {
-        let moved = space.id != currentID
+        // Spaces on this island's display are stepped to; on other displays macOS follows the app.
+        let moved = space.id != currentID && spaces.contains(space)
         if moved { switchTo(space) }
         DispatchQueue.main.asyncAfter(deadline: .now() + (moved ? 0.45 : 0)) {
             NSRunningApplication(processIdentifier: app.pid)?.activate()
@@ -115,6 +156,9 @@ final class SpacesModel: ObservableObject {
     /// Steps left/right with the "Move left/right a space" shortcuts, which is
     /// the route WhichSpace uses on macOS 27. Needs Accessibility permission.
     func switchTo(_ space: SpaceItem) {
+        if !spaces.contains(space), let app = apps[space.id]?.first {
+            NSRunningApplication(processIdentifier: app.pid)?.activate(); return
+        }
         guard let from = currentIndex, let to = spaces.firstIndex(of: space), from != to else { return }
         guard Self.ensureAccessibility() else { return }
         let right = to > from

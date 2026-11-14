@@ -5,24 +5,20 @@ import SwiftUI
 
 final class IslandState: ObservableObject {
     @Published var expanded = false
-    @Published var tab: Tab = .sound
+    @Published var showSettings = false
     @Published var notchWidth: CGFloat = 0     // 0 = this screen has no notch
     @Published var barHeight: CGFloat = 32
     @Published var leftWing: CGFloat = 130
     @Published var rightWing: CGFloat = 130
+    @Published var peek: Peek?
+    @Published var iconSize: CGFloat = 20
     var collapsedWidth: CGFloat { leftWing + notchWidth + rightWing }
 
-    enum Tab: String, CaseIterable, Identifiable {
-        case sound = "Sound", timer = "Timer", status = "Status", settings = "Settings"
-        var id: String { rawValue }
-        var icon: String {
-            switch self {
-            case .sound: "speaker.wave.2.fill"
-            case .timer: "timer"
-            case .status: "battery.75percent"
-            case .settings: "gearshape.fill"
-            }
-        }
+    struct Peek: Equatable {
+        var text: String
+        var icon: String
+        var value: Double? = nil
+        var image: NSImage? = nil
     }
 }
 
@@ -36,12 +32,98 @@ final class IslandPanel: NSPanel {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    let state = IslandState()
-    let spaces = SpacesModel()
     let sound = SoundModel()
     let playing = NowPlayingModel()
     let timer = TimerModel()
     let system = SystemModel()
+    var islands: [Island] = []
+    var bag = Set<AnyCancellable>()
+    static let expandedSize = CGSize(width: 480, height: 480)
+    static let peekHeight: CGFloat = 28
+
+    func applicationDidFinishLaunching(_ note: Notification) {
+        Prefs.register()
+        NSApp.setActivationPolicy(.accessory)
+        rebuildIslands()
+        NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.rebuildIslands()
+        }
+        NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
+            .debounce(for: .milliseconds(200), scheduler: RunLoop.main)
+            .sink { [weak self] _ in self?.reloadHotkeys(); self?.rebuildIslands() }
+            .store(in: &bag)
+        reloadHotkeys()
+
+        // Live activities: a short pop-up under the bar when something changes.
+        playing.onTrackChange = { [weak self] title, artist in
+            guard let self, Prefs.bool("liveActivities") else { return }
+            islands.forEach { $0.peek(.init(text: artist.isEmpty ? title : "\(title) · \(artist)", icon: "music.note", image: self.playing.artwork)) }
+        }
+        sound.onDeviceChange = { [weak self] name in
+            guard let self, Prefs.bool("liveActivities") else { return }
+            islands.forEach { $0.peek(.init(text: "Sound now on \(name)", icon: name.localizedCaseInsensitiveContains("airpods") ? "airpodspro" : "speaker.wave.2.fill")) }
+        }
+        timer.onFinish = { [weak self] in self?.islands.forEach { $0.peek(.init(text: "Timer done", icon: "bell.fill"), for: 5) } }
+
+        // Keyboard control while a panel is open from ⌃⌥Space.
+        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
+            guard let open = self?.islands.first(where: { $0.state.expanded }) else { return e }
+            return open.handleKey(e) ? nil : e
+        }
+        // Scrolling over an island: left = Spaces, right = volume.
+        NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] e in
+            self?.islands.first { $0.panel.frame.contains(NSEvent.mouseLocation) }?.scrolled(e); return e
+        }
+        // Light polling for the bits macOS doesn't notify about.
+        Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            playing.refresh()
+            if islands.contains(where: { $0.state.expanded }) { system.refresh(); sound.refresh() }
+        }
+        playing.refresh()
+        _ = SpacesModel.ensureAccessibility()
+        // For testing: `open … --args -debugOpen Settings` opens the panel on launch (not saved).
+        if let t = UserDefaults.standard.string(forKey: "debugOpen"), let i = islands.first {
+            i.state.showSettings = t == "Settings"; i.setExpanded(true)
+        }
+    }
+
+    /// One island on the main display, or one on every display if that setting is on.
+    func rebuildIslands() {
+        let wanted = Prefs.bool("allDisplays") ? NSScreen.screens : Array(NSScreen.screens.prefix(1))
+        let ids = wanted.map(Island.id(of:))
+        islands.filter { !ids.contains($0.screenID) }.forEach { $0.close() }
+        islands.removeAll { !ids.contains($0.screenID) }
+        for s in wanted where !islands.contains(where: { $0.screenID == Island.id(of: s) }) {
+            islands.append(Island(screen: s, app: self))
+        }
+        islands.forEach { $0.measureScreen(); $0.relayout() }
+    }
+
+    func closeOthers(except keep: Island) { islands.filter { $0 !== keep && $0.state.expanded }.forEach { $0.setExpanded(false) } }
+
+    /// The island on the screen the mouse is on (for ⌃⌥ shortcuts).
+    var activeIsland: Island? {
+        let m = NSEvent.mouseLocation
+        return islands.first { $0.screen?.frame.contains(m) == true } ?? islands.first
+    }
+
+    func reloadHotkeys() {
+        Hotkeys.reload(toggle: { [weak self] in self?.activeIsland?.toggle() },
+                       jump: { [weak self] n in self?.activeIsland?.spaces.jump(toNumber: n) })
+    }
+}
+
+/// One island on one display. Sound, music, timer and status are shared; Spaces are per display.
+final class Island: NSObject {
+    let screenID: CGDirectDisplayID
+    let state = IslandState()
+    let spaces: SpacesModel
+    unowned let app: AppDelegate
+    var sound: SoundModel { app.sound }
+    var playing: NowPlayingModel { app.playing }
+    var timer: TimerModel { app.timer }
+    var system: SystemModel { app.system }
     var panel: IslandPanel!
     var clickMonitor: Any?
 
@@ -52,11 +134,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var lastScrollSwitch = Date.distantPast
     var bag = Set<AnyCancellable>()
 
-    static let expandedSize = CGSize(width: 480, height: 470)
+    static var expandedSize: CGSize { AppDelegate.expandedSize }
+    var peekToken = 0
+    var hoverPeek = false
+    var previousApp: NSRunningApplication?
 
-    func applicationDidFinishLaunching(_ note: Notification) {
-        Prefs.register()
-        NSApp.setActivationPolicy(.accessory)
+    var screen: NSScreen? { NSScreen.screens.first { Island.id(of: $0) == screenID } }
+    static func id(of s: NSScreen) -> CGDirectDisplayID { (s.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID) ?? 0 }
+
+    init(screen: NSScreen, app: AppDelegate) {
+        let sid = Island.id(of: screen)
+        screenID = sid
+        self.app = app
+        spaces = SpacesModel(screen: { NSScreen.screens.first { Island.id(of: $0) == sid } })
+        super.init()
         panel = IslandPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.isOpaque = false
         panel.backgroundColor = .clear
@@ -64,59 +155,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.level = .statusBar + 1
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
         panel.isMovable = false
-
         let root = IslandView(toggle: { [weak self] in self?.toggle() },
                               hover: { [weak self] in self?.hover($0) })
-            .environmentObject(state).environmentObject(spaces).environmentObject(sound)
-            .environmentObject(playing).environmentObject(timer).environmentObject(system)
+            .environmentObject(state).environmentObject(spaces).environmentObject(app.sound)
+            .environmentObject(app.playing).environmentObject(app.timer).environmentObject(app.system)
         panel.contentView = FirstClickHostingView(rootView: root)
         measureScreen()
         relayout()
         panel.orderFrontRegardless()
-
-        NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
-            self?.measureScreen(); self?.relayout()
-        }
-        // Re-fit the island whenever what it shows changes.
         Publishers.MergeMany(
             spaces.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
-            timer.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
-            playing.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
+            app.timer.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
+            app.playing.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
             NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification).map { _ in () }.eraseToAnyPublisher()
         )
         .receive(on: RunLoop.main)
         .sink { [weak self] in self?.relayout() }
         .store(in: &bag)
-        NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
-            .debounce(for: .milliseconds(200), scheduler: RunLoop.main)
-            .sink { [weak self] _ in self?.reloadHotkeys() }
-            .store(in: &bag)
-        reloadHotkeys()
-
-        // Scroll over the island to move between Spaces.
-        NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] e in
-            self?.scrolled(e); return e
-        }
-        // Light polling for the bits macOS doesn't notify about.
-        Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
-            self?.playing.refresh()
-            if self?.state.expanded == true { self?.system.refresh(); self?.sound.refresh() }
-        }
-        playing.refresh()
-        _ = SpacesModel.ensureAccessibility()
-        // For testing: `open … --args -debugOpen Settings` opens that tab on launch (not saved).
-        if let t = UserDefaults.standard.string(forKey: "debugOpen"), let tab = IslandState.Tab(rawValue: t) {
-            state.tab = tab; setExpanded(true)
-        }
     }
 
-    func reloadHotkeys() {
-        Hotkeys.reload(toggle: { [weak self] in self?.toggle() },
-                       jump: { [weak self] n in self?.spaces.jump(toNumber: n) })
-    }
+    func close() { setExpanded(false); panel.orderOut(nil); bag.removeAll() }
 
     func measureScreen() {
-        guard let screen = NSScreen.screens.first else { return }
+        guard let screen else { return }
         let top = screen.safeAreaInsets.top
         if top > 0, let l = screen.auxiliaryTopLeftArea, let r = screen.auxiliaryTopRightArea {
             state.notchWidth = screen.frame.width - l.width - r.width
@@ -128,12 +189,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Sizes the collapsed island to fit the Spaces strip and the live bits on the right.
+    var icon: CGFloat = 20
+    var barH: CGFloat { Prefs.d.string(forKey: "heightMode") == "custom" ? CGFloat(Prefs.d.double(forKey: "customHeight")) : screenBar }
+
     func relayout() {
-        let left = 14 + Layout.stripWidth(spaces) + 12
+        state.iconSize = Layout.icon(forBar: barH)
+        let left = 14 + Layout.stripWidth(spaces, icon: Layout.icon(forBar: barH)) + 12
         var right: CGFloat = 10 + 24 + 12                     // chevron
         if timer.isActive && Prefs.bool("barShowTimer") { right += 74 }
         else if playing.playing && Prefs.bool("barShowMusic") { right += 22 }
-        let h = max(screenBar, Layout.icon + 12)
+        if !playing.title.isEmpty { right += 28 }            // mini play button
+        let h = Prefs.d.string(forKey: "heightMode") == "custom" ? CGFloat(Prefs.d.double(forKey: "customHeight")) : screenBar
+        icon = Layout.icon(forBar: h)
         if state.notchWidth > 0 {
             let wing = max(left, right, 120)                   // symmetric around the notch
             set(&state.leftWing, wing); set(&state.rightWing, wing)
@@ -141,6 +208,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             set(&state.leftWing, left); set(&state.rightWing, right)
         }
         set(&state.barHeight, h)
+        if state.peek != nil, state.notchWidth == 0, state.collapsedWidth < 300 {
+            // Give the pop-up room on screens without a notch.
+            let extra = (300 - state.collapsedWidth) / 2
+            state.leftWing += extra; state.rightWing += extra
+        }
         let f = frame(expanded: state.expanded)
         if !state.expanded, f != panel.frame { panel.setFrame(f, display: true) }
     }
@@ -148,19 +220,79 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func set(_ v: inout CGFloat, _ n: CGFloat) { if abs(v - n) > 0.5 { v = n } }
 
     func frame(expanded: Bool) -> NSRect {
-        guard let screen = NSScreen.screens.first else { return .zero }
+        guard let screen else { return .zero }
         let size = expanded
-            ? CGSize(width: max(Self.expandedSize.width, state.collapsedWidth), height: Self.expandedSize.height)
-            : CGSize(width: state.collapsedWidth, height: state.barHeight)
+            ? CGSize(width: max(AppDelegate.expandedSize.width, state.collapsedWidth), height: AppDelegate.expandedSize.height)
+            : CGSize(width: max(state.collapsedWidth, state.peek != nil ? 300 : 0),
+                     height: state.barHeight + (state.peek != nil ? AppDelegate.peekHeight : 0))
         return NSRect(x: (screen.frame.midX - size.width / 2).rounded(), y: screen.frame.maxY - size.height,
                       width: size.width.rounded(), height: size.height)
     }
 
-    func toggle() { openedByHover = false; setExpanded(!state.expanded) }
+    func toggle() {
+        openedByHover = false
+        let opening = !state.expanded
+        setExpanded(opening)
+        if opening { app.closeOthers(except: self); previousApp = NSWorkspace.shared.frontmostApplication; panel.makeKey() }
+    }
+
+    /// Shows a short pop-up under the bar. `for: 0` keeps it until hover ends.
+    func peek(_ p: IslandState.Peek, for seconds: Double = 2.5) {
+        guard !state.expanded else { return }
+        peekToken += 1; let token = peekToken
+        state.peek = p
+        relayout()
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { objectWillChangeIsland() }
+        guard seconds > 0 else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in
+            guard let self, peekToken == token, !hoverPeek else { return }
+            endPeek()
+        }
+    }
+
+    func endPeek() {
+        guard state.peek != nil else { return }
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) { state.peek = nil }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in self?.relayout() }
+    }
+
+    private func objectWillChangeIsland() { state.objectWillChange.send() }
+
+    /// What the island says when you rest the mouse on it.
+    var summary: IslandState.Peek {
+        if timer.isActive { return .init(text: "\(timer.mode.rawValue) · \(timer.display)", icon: "timer") }
+        if !playing.title.isEmpty { return .init(text: "\(playing.title) · \(playing.artist)", icon: "music.note", image: playing.artwork) }
+        system.refresh()
+        let b = system.battery.map { "Battery \($0)%" } ?? "Power adapter"
+        return .init(text: "\(b) · \(sound.outputName)", icon: system.charging ? "battery.100percent.bolt" : "battery.75percent")
+    }
+
+    func handleKey(_ e: NSEvent) -> Bool {
+        switch e.keyCode {
+        case 53: setExpanded(false); return true                       // esc
+        case 49: playing.playPause(); return true                       // space
+        case 126: sound.nudge(0.06); return true                        // up
+        case 125: sound.nudge(-0.06); return true                       // down
+        case 123: spaces.step(-1); return true                          // left
+        case 124: spaces.step(1); return true                           // right
+        default:
+            if let c = e.charactersIgnoringModifiers, let n = Int(c), n > 0 { spaces.jump(toNumber: n); return true }
+            if e.charactersIgnoringModifiers == "," { withAnimation(.snappy) { state.showSettings.toggle() }; return true }
+            return false
+        }
+    }
 
     func hover(_ inside: Bool) {
         hovering = inside
-        guard Prefs.bool("hoverToOpen") else { return }
+        if !Prefs.bool("hoverToOpen") {
+            // Hover to peek: rest on the island for a moment to see a one-line summary.
+            DispatchQueue.main.asyncAfter(deadline: .now() + (inside ? 0.6 : 0.15)) { [weak self] in
+                guard let self, hovering == inside, Prefs.bool("hoverPeek"), !state.expanded else { return }
+                if inside { hoverPeek = true; peek(summary, for: 0) }
+                else if hoverPeek { hoverPeek = false; endPeek() }
+            }
+            return
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + (inside ? 0.25 : 0.5)) { [weak self] in
             guard let self, hovering == inside else { return }
             if inside, !state.expanded { openedByHover = true; setExpanded(true) }
@@ -169,7 +301,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func scrolled(_ e: NSEvent) {
-        guard Prefs.bool("scrollSwitches"), !state.expanded, panel.frame.contains(NSEvent.mouseLocation) else { return }
+        guard !state.expanded, panel.frame.contains(NSEvent.mouseLocation) else { return }
+        // Right half of the island = volume, left half = Spaces.
+        if NSEvent.mouseLocation.x > panel.frame.midX + state.notchWidth / 2 {
+            guard Prefs.bool("scrollVolume") else { return }
+            let d = abs(e.scrollingDeltaY) >= abs(e.scrollingDeltaX) ? e.scrollingDeltaY : -e.scrollingDeltaX
+            sound.nudge((e.hasPreciseScrollingDeltas ? d / 300 : d / 30) * (e.isDirectionInvertedFromDevice ? 1 : -1) * -1)
+            hoverPeek = false
+            peek(.init(text: "", icon: sound.muted ? "speaker.slash.fill" : "speaker.wave.2.fill", value: sound.volume), for: 1.2)
+            return
+        }
+        guard Prefs.bool("scrollSwitches") else { return }
         let d = abs(e.scrollingDeltaX) > abs(e.scrollingDeltaY) ? -e.scrollingDeltaX : -e.scrollingDeltaY
         scrollAccum += e.hasPreciseScrollingDeltas ? d : d * 10
         guard abs(scrollAccum) > 30, Date().timeIntervalSince(lastScrollSwitch) > 0.45 else { return }
@@ -179,6 +321,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func setExpanded(_ open: Bool) {
         if open {
+            state.peek = nil; hoverPeek = false
             sound.refresh(); system.refresh(); playing.refresh()
             panel.setFrame(frame(expanded: true), display: true)
             withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) { state.expanded = true }
@@ -188,7 +331,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         } else {
             if let m = clickMonitor { NSEvent.removeMonitor(m); clickMonitor = nil }
-            withAnimation(.spring(response: 0.32, dampingFraction: 0.9)) { state.expanded = false }
+            if panel.isKeyWindow { panel.resignKey(); previousApp?.activate(); previousApp = nil }
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.9)) { state.expanded = false; state.showSettings = false }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.33) { [weak self] in
                 guard let self, !state.expanded else { return }
                 panel.setFrame(frame(expanded: false), display: true)

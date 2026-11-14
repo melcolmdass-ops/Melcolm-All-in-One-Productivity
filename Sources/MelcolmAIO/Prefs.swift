@@ -5,17 +5,24 @@ import Carbon
 enum Prefs {
     static let defaults: [String: Any] = [
         // Menu bar
-        "islandSize": "medium",        // small / medium / large
+        "islandSize": "large",         // icon size: small / medium / large (capped by the bar height)
+        "heightMode": "menu",          // menu = match the menu bar, custom = customHeight
+        "customHeight": 34.0,
+        "allDisplays": false,          // one island on every display
         "barShowTimer": true,
         "barShowMusic": true,
+        "liveActivities": true,        // song / output / timer pop-ups under the bar
         // Spaces
         "indicatorStyle": "glow",      // glow / box
         "showNumbers": true,
         "showAppIcons": true,
+        "dimOthers": false,            // false = every icon bright, the app in use underlined
         "maxIcons": 4,
         "iconClick": "app",            // app = open that app, space = only go to the Space
         // Mouse
         "hoverToOpen": false,
+        "hoverPeek": true,             // rest on the island to see a one-line summary
+        "scrollVolume": true,          // scroll on the right half = volume
         "scrollSwitches": true,
         "closeOnClickOutside": true,
         // Keyboard
@@ -32,27 +39,39 @@ enum Prefs {
 
 /// Sizes shared by the view and the window, so the window always fits the strip exactly.
 enum Layout {
-    static func iconSize(_ size: String) -> CGFloat { size == "small" ? 16 : size == "large" ? 26 : 20 }
-    static var icon: CGFloat { iconSize(Prefs.d.string(forKey: "islandSize") ?? "medium") }
-    static let chipGap: CGFloat = 5
+    static func iconSize(_ size: String) -> CGFloat { size == "small" ? 16 : size == "large" ? 24 : 20 }
+    /// The chosen icon size, shrunk if needed so it fits inside the bar.
+    static func icon(forBar h: CGFloat) -> CGFloat {
+        min(iconSize(Prefs.d.string(forKey: "islandSize") ?? "large"), max(14, h - 5))
+    }
+    static let chipGap: CGFloat = 8
+    static let iconGap: CGFloat = 7
     static let numberWidth: CGFloat = 12
     static let overflowWidth: CGFloat = 18
 
-    /// Width of one Space box: [number] [icons…] [+n]
-    static func chipWidth(_ space: SpaceItem, apps: Int) -> CGFloat {
-        let showIcons = Prefs.bool("showAppIcons")
-        let shown = showIcons ? min(apps, Prefs.d.integer(forKey: "maxIcons")) : 0
-        let overflow = showIcons && apps > shown
-        var parts: [CGFloat] = []
-        if !space.isFullscreen || shown == 0 { parts.append(Prefs.bool("showNumbers") ? numberWidth : 6) }
-        parts += Array(repeating: icon, count: shown)
-        if overflow { parts.append(overflowWidth) }
-        let inner = parts.reduce(0, +) + CGFloat(max(0, parts.count - 1)) * 4
-        return max(icon + 10, inner + 14)
+    static let dividerGap: CGFloat = 9
+
+    static func shownCount(_ apps: Int) -> Int {
+        Prefs.bool("showAppIcons") ? min(apps, Prefs.d.integer(forKey: "maxIcons")) : 0
     }
 
-    static func stripWidth(_ m: SpacesModel) -> CGFloat {
-        let w = m.spaces.map { chipWidth($0, apps: m.apps[$0.id]?.count ?? 0) }
+    /// One Space inside a display box: its icons (or a dot if empty), plus +n.
+    static func segmentWidth(apps: Int, icon: CGFloat) -> CGFloat {
+        let n = shownCount(apps)
+        var w = n == 0 ? 8 : CGFloat(n) * icon + CGFloat(n - 1) * iconGap
+        if Prefs.bool("showAppIcons") && apps > n { w += iconGap + overflowWidth }
+        return w + 10
+    }
+
+    /// One display box: number, then each Space separated by a thin divider.
+    static func groupWidth(_ g: DisplayGroup, _ m: SpacesModel, icon: CGFloat) -> CGFloat {
+        let segs = g.spaces.map { segmentWidth(apps: m.apps[$0.id]?.count ?? 0, icon: icon) }
+        let num = Prefs.bool("showNumbers") ? numberWidth : 6
+        return 10 + num + 6 + segs.reduce(0, +) + CGFloat(max(0, segs.count - 1)) * dividerGap + 6
+    }
+
+    static func stripWidth(_ m: SpacesModel, icon: CGFloat) -> CGFloat {
+        let w = m.displays.map { groupWidth($0, m, icon: icon) }
         return w.reduce(0, +) + CGFloat(max(0, w.count - 1)) * chipGap
     }
 }

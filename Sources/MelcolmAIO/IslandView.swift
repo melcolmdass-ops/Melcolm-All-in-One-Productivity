@@ -1,7 +1,7 @@
 import CoreAudio
 import SwiftUI
 
-private let accent = Color(red: 0.45, green: 0.62, blue: 1.0)
+let accent = Color(red: 0.45, green: 0.62, blue: 1.0)
 
 struct IslandView: View {
     @EnvironmentObject var state: IslandState
@@ -11,15 +11,19 @@ struct IslandView: View {
     var body: some View {
         let collapsedW = state.collapsedWidth
         let w = state.expanded ? max(AppDelegate.expandedSize.width, collapsedW) : collapsedW
-        let h = state.expanded ? AppDelegate.expandedSize.height : state.barHeight
-        let radius: CGFloat = state.expanded ? 26 : min(14, state.barHeight / 2.2)
+        let h = state.expanded ? AppDelegate.expandedSize.height : state.barHeight + (state.peek != nil ? AppDelegate.peekHeight : 0)
+        let radius: CGFloat = state.expanded ? 26 : state.peek != nil ? 16 : min(14, state.barHeight / 2.2)
         let shape = UnevenRoundedRectangle(bottomLeadingRadius: radius, bottomTrailingRadius: radius, style: .continuous)
 
         VStack(spacing: 0) {
             TopBar(toggle: toggle)
                 .frame(height: state.barHeight)
             if state.expanded {
-                ExpandedContent()
+                PanelView()
+                    .transition(.asymmetric(insertion: .opacity.combined(with: .scale(scale: 0.96, anchor: .top)),
+                                            removal: .opacity))
+            } else if let p = state.peek {
+                PeekRow(peek: p).frame(height: AppDelegate.peekHeight)
                     .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
@@ -64,6 +68,13 @@ struct TopBar: View {
                     Image(systemName: "waveform").font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(accent).symbolEffect(.variableColor.iterative, isActive: true)
                 }
+                if !playing.title.isEmpty && !state.expanded {
+                    Button { playing.playPause() } label: {
+                        Image(systemName: playing.playing ? "pause.fill" : "play.fill")
+                            .font(.system(size: 9, weight: .bold)).frame(width: 20, height: 20)
+                            .background(Circle().fill(.white.opacity(0.08)))
+                    }.buttonStyle(PressStyle()).help(playing.title)
+                }
                 Button(action: toggle) {
                     Image(systemName: "chevron.down")
                         .font(.system(size: 10, weight: .bold))
@@ -81,115 +92,104 @@ struct TopBar: View {
     }
 }
 
-/// One rounded box per Space: number on the left, then the icons of the apps on it.
+/// One rounded box per display: its number, then each of its Spaces as a group of app icons.
+/// The Space showing on that display is lit; the app you're using is underlined.
 struct SpacesStrip: View {
     @EnvironmentObject var spaces: SpacesModel
+    @EnvironmentObject var state: IslandState
     @AppStorage("indicatorStyle") var style = "glow"
     @AppStorage("showNumbers") var showNumbers = true
     @AppStorage("showAppIcons") var showIcons = true
     @AppStorage("maxIcons") var maxIcons = 4
     @AppStorage("iconClick") var iconClick = "app"
-    @AppStorage("islandSize") var size = "medium"
-    @Namespace private var ns
+    @AppStorage("dimOthers") var dimOthers = false
 
     var body: some View {
-        let icon = Layout.iconSize(size)
+        let icon = state.iconSize
+        let h = min(icon + 6, state.barHeight - 2)
         HStack(spacing: Layout.chipGap) {
-            ForEach(spaces.spaces) { s in
-                let on = s.id == spaces.currentID
-                let apps = spaces.apps[s.id] ?? []
-                let shown = showIcons ? Array(apps.prefix(maxIcons)) : []
-                Button { spaces.switchTo(s) } label: {
-                    HStack(spacing: 4) {
-                        if !s.isFullscreen || shown.isEmpty {
-                            Group {
-                                if showNumbers {
-                                    Text("\(s.number)")
-                                        .font(.system(size: icon * 0.6, weight: .bold, design: .rounded))
-                                        .foregroundStyle(on ? .white : .white.opacity(0.5))
-                                } else {
-                                    Circle().fill(on ? .white : .white.opacity(0.4)).frame(width: 6, height: 6)
-                                }
-                            }
-                            .frame(width: showNumbers ? Layout.numberWidth : 6)
-                        }
-                        ForEach(shown) { app in
-                            Image(nsImage: app.icon).resizable().interpolation(.high)
-                                .frame(width: icon, height: icon)
-                                .opacity(on ? 1 : 0.6)
-                                .saturation(on ? 1 : 0.6)
-                                .contentShape(Rectangle())
-                                .onTapGesture {
-                                    if iconClick == "app" { spaces.focus(app, on: s) } else { spaces.switchTo(s) }
-                                }
-                                .help(app.name)
-                        }
-                        if showIcons && apps.count > shown.count {
-                            Text("+\(apps.count - shown.count)")
-                                .font(.system(size: 9, weight: .semibold, design: .rounded))
-                                .foregroundStyle(.white.opacity(0.5))
-                                .frame(width: Layout.overflowWidth)
+            ForEach(spaces.displays) { g in
+                HStack(spacing: 0) {
+                    Group {
+                        if showNumbers {
+                            Text("\(g.number)")
+                                .font(.system(size: max(10, icon * 0.55), weight: .heavy, design: .rounded))
+                                .foregroundStyle(accent)
+                        } else {
+                            Circle().fill(accent).frame(width: 6, height: 6)
                         }
                     }
-                    .frame(width: Layout.chipWidth(s, apps: apps.count), height: icon + 6)
-                    .background {
-                        RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .fill(on ? accent.opacity(style == "box" ? 0.22 : 0.12) : .white.opacity(0.06))
-                        RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .stroke(on && style == "box" ? accent : .white.opacity(on ? 0.18 : 0.08), lineWidth: on && style == "box" ? 1.3 : 0.6)
-                    }
-                    .overlay(alignment: .bottom) {
-                        if on && style == "glow" {
-                            Capsule().fill(accent).frame(width: 16, height: 2.5)
-                                .shadow(color: accent, radius: 5)
-                                .offset(y: 2)
-                                .matchedGeometryEffect(id: "sel", in: ns)
+                    .frame(width: showNumbers ? Layout.numberWidth : 6)
+                    .padding(.leading, 10).padding(.trailing, 6)
+                    ForEach(Array(g.spaces.enumerated()), id: \.element.id) { i, s in
+                        if i > 0 {
+                            Rectangle().fill(.white.opacity(0.14)).frame(width: 1, height: icon * 0.7)
+                                .frame(width: Layout.dividerGap)
                         }
+                        segment(s, current: s.id == g.currentID, icon: icon, h: h - 4)
                     }
-                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-                .help(s.isFullscreen ? "Full-screen: \(apps.first?.name ?? "app")" : "Desktop \(s.number)")
+                .padding(.trailing, 6)
+                .frame(width: Layout.groupWidth(g, spaces, icon: icon), height: h, alignment: .leading)
+                .background {
+                    let r = RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    r.fill(.white.opacity(0.06))
+                    r.strokeBorder(.white.opacity(0.1), lineWidth: 0.7)
+                }
+                .help("Display \(g.number) · \(g.spaces.count) Space\(g.spaces.count == 1 ? "" : "s")")
             }
         }
-        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: spaces.currentID)
+        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: spaces.displays)
+        .animation(.easeOut(duration: 0.15), value: spaces.frontPID)
     }
-}
 
-// MARK: - Expanded
-
-struct ExpandedContent: View {
-    @EnvironmentObject var state: IslandState
-
-    var body: some View {
-        VStack(spacing: 12) {
-            HStack(spacing: 4) {
-                ForEach(IslandState.Tab.allCases) { t in
-                    Button { state.tab = t } label: {
-                        VStack(spacing: 3) {
-                            Image(systemName: t.icon).font(.system(size: 13, weight: .semibold))
-                            Text(t.rawValue).font(.system(size: 10, weight: .medium))
+    func segment(_ s: SpaceItem, current: Bool, icon: CGFloat, h: CGFloat) -> some View {
+        let apps = spaces.apps[s.id] ?? []
+        let shown = showIcons ? Array(apps.prefix(maxIcons)) : []
+        let dim = dimOthers && !current
+        return Button { spaces.switchTo(s) } label: {
+            HStack(spacing: Layout.iconGap) {
+                if shown.isEmpty {
+                    Circle().fill(.white.opacity(current ? 0.9 : 0.35)).frame(width: 6, height: 6)
+                }
+                ForEach(shown) { app in
+                    let front = app.pid == spaces.frontPID && current
+                    Image(nsImage: app.icon).resizable().interpolation(.high)
+                        .frame(width: icon, height: icon)
+                        .opacity(dim ? 0.5 : 1)
+                        .saturation(dim ? 0.4 : 1)
+                        .overlay(alignment: .bottom) {
+                            if front {
+                                Capsule().fill(accent).frame(width: icon * 0.7, height: 2.5)
+                                    .shadow(color: accent, radius: 3)
+                                    .offset(y: 4)
+                            }
                         }
-                        .foregroundStyle(state.tab == t ? .white : .white.opacity(0.5))
-                        .frame(maxWidth: .infinity).padding(.vertical, 6)
-                        .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(state.tab == t ? Color.white.opacity(0.12) : .clear))
                         .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
+                        .onTapGesture {
+                            if iconClick == "app" { spaces.focus(app, on: s) } else { spaces.switchTo(s) }
+                        }
+                        .help(app.name)
+                }
+                if showIcons && apps.count > shown.count {
+                    Text("+\(apps.count - shown.count)")
+                        .font(.system(size: 9, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.55))
+                        .frame(width: Layout.overflowWidth)
                 }
             }
-            Group {
-                switch state.tab {
-                case .sound: SoundTab()
-                case .timer: TimerTab()
-                case .status: StatusTab()
-                case .settings: SettingsTab()
+            .frame(width: Layout.segmentWidth(apps: apps.count, icon: icon), height: h)
+            .background {
+                if current {
+                    let r = RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    r.fill(accent.opacity(style == "box" ? 0.28 : 0.14))
+                    if style == "box" { r.strokeBorder(accent, lineWidth: 1.1) }
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .contentShape(Rectangle())
         }
-        .padding(.horizontal, 18).padding(.top, 10).padding(.bottom, 16)
+        .buttonStyle(PressStyle())
+        .help(s.isFullscreen ? "Full screen · \(apps.first?.name ?? "")" : "Desktop \(s.number)")
     }
 }
 
@@ -201,144 +201,13 @@ struct Card<Content: View>: View {
     }
 }
 
-struct SoundTab: View {
-    @EnvironmentObject var sound: SoundModel
-    @EnvironmentObject var playing: NowPlayingModel
-
-    var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(spacing: 10) {
-                // Now playing + controls
-                Card {
-                    HStack(spacing: 12) {
-                        RoundedRectangle(cornerRadius: 9).fill(accent.opacity(0.25)).frame(width: 40, height: 40)
-                            .overlay(Image(systemName: "music.note").font(.system(size: 16, weight: .semibold)))
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(playing.title.isEmpty ? "Media controls" : playing.title)
-                                .font(.system(size: 13, weight: .semibold)).lineLimit(1)
-                            Text(playing.title.isEmpty ? "Works with any player, including YouTube" : "\(playing.artist) · \(playing.app)")
-                                .font(.system(size: 10.5)).foregroundStyle(.secondary).lineLimit(1)
-                        }
-                        Spacer(minLength: 4)
-                        ctl("backward.fill") { playing.previous() }
-                        ctl(playing.playing ? "pause.fill" : "play.fill", big: true) { playing.playPause() }
-                        ctl("forward.fill") { playing.next() }
-                    }
-                }
-                deviceCard(title: "OUTPUT", icon: sound.muted ? "speaker.slash.fill" : "speaker.wave.2.fill",
-                           volume: Binding(get: { sound.volume }, set: { sound.setVolume($0) }),
-                           adjustable: true, mute: sound.toggleMute,
-                           devices: sound.devices, current: sound.currentDevice, pick: sound.select)
-                deviceCard(title: "INPUT", icon: sound.inputMuted ? "mic.slash.fill" : "mic.fill",
-                           volume: Binding(get: { sound.inputVolume }, set: { sound.setInputVolume($0) }),
-                           adjustable: sound.inputAdjustable, mute: sound.toggleInputMute,
-                           devices: sound.inputs, current: sound.currentInput, pick: sound.selectInput)
-                HStack { Spacer(); LinkButton("Sound Settings…") { SystemModel.open("com.apple.Sound-Settings.extension") } }
-            }
-        }
-    }
-
-    func deviceCard(title: String, icon: String, volume: Binding<Double>, adjustable: Bool, mute: @escaping () -> Void,
-                    devices: [OutputDevice], current: AudioDeviceID, pick: @escaping (OutputDevice) -> Void) -> some View {
-        Card {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(title).font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
-                HStack(spacing: 10) {
-                    Button(action: mute) { Image(systemName: icon).frame(width: 20) }.buttonStyle(.plain)
-                    if adjustable {
-                        Slider(value: volume, in: 0 ... 1).tint(accent)
-                        Text("\(Int(volume.wrappedValue * 100))%").font(.caption.monospacedDigit()).frame(width: 34)
-                    } else {
-                        Text("This device has no volume control").font(.system(size: 11)).foregroundStyle(.secondary)
-                        Spacer()
-                    }
-                }
-                Divider().opacity(0.4)
-                ForEach(devices) { d in
-                    Button { pick(d) } label: {
-                        HStack {
-                            Image(systemName: d.id == current ? "checkmark.circle.fill" : "circle")
-                                .foregroundStyle(d.id == current ? accent : .secondary)
-                            Text(d.name).lineLimit(1)
-                            Spacer()
-                        }
-                        .font(.system(size: 12)).padding(.vertical, 2).contentShape(Rectangle())
-                    }.buttonStyle(.plain)
-                }
-            }
-        }
-    }
-
-    func ctl(_ icon: String, big: Bool = false, _ action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: icon).font(.system(size: big ? 15 : 11, weight: .semibold))
-                .frame(width: big ? 34 : 26, height: big ? 34 : 26)
-                .background(Circle().fill(.white.opacity(big ? 0.16 : 0.06)))
-        }.buttonStyle(.plain)
-    }
-}
-
-struct TimerTab: View {
-    @EnvironmentObject var timer: TimerModel
-    var body: some View {
-        VStack(spacing: 12) {
-            Text(timer.isActive ? timer.display : "00:00")
-                .font(.system(size: 48, weight: .light, design: .rounded).monospacedDigit())
-                .foregroundStyle(timer.finished ? .orange : .white)
-            if timer.isActive {
-                HStack(spacing: 10) {
-                    Pill(timer.running ? "Pause" : "Resume", filled: true) { timer.running ? timer.pause() : timer.resume() }
-                    Pill("Reset") { timer.reset() }
-                }
-            } else {
-                HStack(spacing: 8) {
-                    ForEach([1, 5, 10, 25, 45], id: \.self) { m in Pill("\(m)m") { timer.start(minutes: Double(m)) } }
-                }
-                Pill("Stopwatch", filled: true) { timer.startStopwatch() }
-            }
-            Spacer(minLength: 0)
-            LinkButton("Open Clock app") { timer.openClock() }
-        }
-    }
-}
-
-struct StatusTab: View {
-    @EnvironmentObject var system: SystemModel
-    var body: some View {
-        VStack(spacing: 10) {
-            row(icon: system.charging ? "battery.100percent.bolt" : "battery.75percent", title: "Battery",
-                detail: system.battery.map { "\($0)%\(system.charging ? " · charging" : "")" } ?? "No battery",
-                pane: "com.apple.Battery-Settings.extension")
-            row(icon: system.wifiOn ? "wifi" : "wifi.slash", title: "Wi-Fi",
-                detail: system.wifiOn ? (system.wifiName ?? "On") : "Off",
-                pane: "com.apple.wifi-settings-extension", toggle: { system.toggleWifi() }, isOn: system.wifiOn)
-            row(icon: "dot.radiowaves.left.and.right", title: "Bluetooth",
-                detail: system.bluetoothOn ? "On" : "Off", pane: "com.apple.BluetoothSettings")
-        }
-    }
-
-    func row(icon: String, title: String, detail: String, pane: String, toggle: (() -> Void)? = nil, isOn: Bool = false) -> some View {
-        Card {
-            HStack(spacing: 12) {
-                Image(systemName: icon).font(.system(size: 15, weight: .semibold)).foregroundStyle(accent).frame(width: 24)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(title).font(.system(size: 13, weight: .semibold))
-                    Text(detail).font(.system(size: 11)).foregroundStyle(.secondary)
-                }
-                Spacer()
-                if let toggle {
-                    Toggle("", isOn: Binding(get: { isOn }, set: { _ in toggle() })).toggleStyle(.switch).labelsHidden().controlSize(.small)
-                }
-                Button { SystemModel.open(pane) } label: { Image(systemName: "chevron.right").foregroundStyle(.secondary) }.buttonStyle(.plain)
-            }
-        }
-    }
-}
-
 struct SettingsTab: View {
-    enum Page: String, CaseIterable { case general = "General", bar = "Menu Bar", spaces = "Spaces", mouse = "Mouse", keyboard = "Keyboard" }
+    enum Page: String, CaseIterable { case general = "General", bar = "Bar", panel = "Panel", spaces = "Spaces", mouse = "Mouse", keyboard = "Keyboard" }
     @AppStorage("settingsPage") var page = Page.general.rawValue
-    @AppStorage("islandSize") var size = "medium"
+    @AppStorage("islandSize") var size = "large"
+    @AppStorage("heightMode") var heightMode = "menu"
+    @AppStorage("customHeight") var customHeight = 34.0
+    @AppStorage("allDisplays") var allDisplays = false
     @AppStorage("barShowTimer") var barTimer = true
     @AppStorage("barShowMusic") var barMusic = true
     @AppStorage("indicatorStyle") var style = "glow"
@@ -346,7 +215,12 @@ struct SettingsTab: View {
     @AppStorage("showAppIcons") var showIcons = true
     @AppStorage("maxIcons") var maxIcons = 4
     @AppStorage("iconClick") var iconClick = "app"
+    @AppStorage("dimOthers") var dimOthers = false
     @AppStorage("hoverToOpen") var hoverOpen = false
+    @AppStorage("hoverPeek") var hoverPeek = true
+    @AppStorage("scrollVolume") var scrollVolume = true
+    @AppStorage("liveActivities") var live = true
+    @AppStorage("hiddenTiles") var hiddenTiles = ""
     @AppStorage("scrollSwitches") var scrollSwitch = true
     @AppStorage("closeOnClickOutside") var closeOutside = true
     @AppStorage("hotkeyToggle") var hkToggle = true
@@ -369,14 +243,14 @@ struct SettingsTab: View {
                     switch Page(rawValue: page) ?? .general {
                     case .general: general
                     case .bar: bar
+                    case .panel: panelPage
                     case .spaces: spacesPage
                     case .mouse: mouse
                     case .keyboard: keyboard
                     }
                 }
             }
-            Spacer(minLength: 0)
-            Text("Melcolm All-in-One Productivity · v1.1").font(.system(size: 10)).foregroundStyle(.tertiary)
+            Text("Melcolm All-in-One Productivity · v1.2").font(.system(size: 10)).foregroundStyle(.tertiary)
         }
         .font(.system(size: 12))
         .toggleStyle(.switch).controlSize(.small)
@@ -393,21 +267,49 @@ struct SettingsTab: View {
     }
 
     @ViewBuilder var bar: some View {
-        row("Island size") {
+        row("Show on every display") { Toggle("", isOn: $allDisplays).labelsHidden() }
+        row("Height") {
+            Picker("", selection: $heightMode) { Text("Match menu bar").tag("menu"); Text("Custom").tag("custom") }
+                .pickerStyle(.segmented).labelsHidden().frame(width: 200)
+        }
+        if heightMode == "custom" {
+            row("Custom height: \(Int(customHeight)) pt") { Slider(value: $customHeight, in: 22 ... 48, step: 1).frame(width: 200).tint(accent) }
+        }
+        row("Icon size") {
             Picker("", selection: $size) { Text("Small").tag("small"); Text("Medium").tag("medium"); Text("Large").tag("large") }
                 .pickerStyle(.segmented).labelsHidden().frame(width: 200)
         }
         row("Show running timer in the bar") { Toggle("", isOn: $barTimer).labelsHidden() }
         row("Show music wave while playing") { Toggle("", isOn: $barMusic).labelsHidden() }
+        row("Pop-ups for song, output and timer") { Toggle("", isOn: $live).labelsHidden() }
+    }
+
+    @ViewBuilder var panelPage: some View {
+        Text("Quick buttons to show").font(.system(size: 10, weight: .bold)).foregroundStyle(.secondary)
+        ForEach(TileKind.allCases, id: \.self) { t in
+            row(t.title) {
+                Toggle("", isOn: Binding(
+                    get: { !hiddenTiles.split(separator: ",").contains(Substring(t.rawValue)) },
+                    set: { show in
+                        var set = Set(hiddenTiles.split(separator: ",").map(String.init))
+                        if show { set.remove(t.rawValue) } else { set.insert(t.rawValue) }
+                        hiddenTiles = set.sorted().joined(separator: ",")
+                    })).labelsHidden()
+            }
+        }
     }
 
     @ViewBuilder var spacesPage: some View {
-        row("Current Space") {
+        row("Space on screen") {
             Picker("", selection: $style) { Text("Glow").tag("glow"); Text("Box").tag("box") }
                 .pickerStyle(.segmented).labelsHidden().frame(width: 140)
         }
-        row("Show numbers (off = dots)") { Toggle("", isOn: $showNumbers).labelsHidden() }
+        row("Show display numbers (off = dots)") { Toggle("", isOn: $showNumbers).labelsHidden() }
         row("Show app icons") { Toggle("", isOn: $showIcons).labelsHidden() }
+        row("Icons") {
+            Picker("", selection: $dimOthers) { Text("All bright").tag(false); Text("Dim other Spaces").tag(true) }
+                .pickerStyle(.segmented).labelsHidden().frame(width: 200)
+        }
         row("Icons per Space: \(maxIcons)") { Stepper("", value: $maxIcons, in: 1 ... 10).labelsHidden() }
         row("Clicking an app icon") {
             Picker("", selection: $iconClick) { Text("Opens the app").tag("app"); Text("Goes to Space").tag("space") }
@@ -416,7 +318,9 @@ struct SettingsTab: View {
     }
 
     @ViewBuilder var mouse: some View {
-        row("Open the island on hover") { Toggle("", isOn: $hoverOpen).labelsHidden() }
+        row("Open the whole panel on hover") { Toggle("", isOn: $hoverOpen).labelsHidden() }
+        row("Rest on the island for a quick summary") { Toggle("", isOn: $hoverPeek).labelsHidden() }
+        row("Scroll on the right side to change volume") { Toggle("", isOn: $scrollVolume).labelsHidden() }
         row("Scroll on the island to change Space") { Toggle("", isOn: $scrollSwitch).labelsHidden() }
         row("Close when clicking elsewhere") { Toggle("", isOn: $closeOutside).labelsHidden() }
     }
@@ -424,6 +328,8 @@ struct SettingsTab: View {
     @ViewBuilder var keyboard: some View {
         row("⌃⌥Space opens and closes the island") { Toggle("", isOn: $hkToggle).labelsHidden() }
         row("⌃⌥1…9 jumps to that Space") { Toggle("", isOn: $hkNumbers).labelsHidden() }
+        Text("While the panel is open: Esc closes · Space plays/pauses · ↑↓ volume · ←→ or 1–9 Spaces · , Settings")
+            .font(.system(size: 10.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         row("Mission Control shortcuts") { LinkButton("Keyboard Shortcuts…") { SystemModel.open("com.apple.Keyboard-Settings.extension") } }
     }
 
@@ -449,5 +355,33 @@ struct LinkButton: View {
     init(_ title: String, action: @escaping () -> Void) { self.title = title; self.action = action }
     var body: some View {
         Button(action: action) { Text(title).font(.system(size: 11, weight: .medium)).foregroundStyle(accent) }.buttonStyle(.plain)
+    }
+}
+
+/// The little row that drops under the bar for a moment: song change, volume, new output, hover summary.
+struct PeekRow: View {
+    let peek: IslandState.Peek
+    var body: some View {
+        HStack(spacing: 8) {
+            if let art = peek.image {
+                Image(nsImage: art).resizable().aspectRatio(contentMode: .fill)
+                    .frame(width: 18, height: 18).clipShape(RoundedRectangle(cornerRadius: 4))
+            } else {
+                Image(systemName: peek.icon).font(.system(size: 11, weight: .semibold)).foregroundStyle(accent).frame(width: 18)
+            }
+            if let v = peek.value {
+                GeometryReader { g in
+                    Capsule().fill(.white.opacity(0.15)).overlay(alignment: .leading) {
+                        Capsule().fill(accent).frame(width: g.size.width * v)
+                    }
+                }.frame(height: 4)
+                Text("\(Int(v * 100))%").font(.system(size: 10, weight: .semibold).monospacedDigit()).frame(width: 32)
+            } else {
+                Text(peek.text).font(.system(size: 11, weight: .medium)).lineLimit(1)
+                Spacer(minLength: 0)
+            }
+        }
+        .padding(.horizontal, 16)
+        .foregroundStyle(.white.opacity(0.9))
     }
 }
