@@ -1,5 +1,2 @@
-.DS_STORE
-
-.build/
 build/
-xcuserdata/
+.build/
