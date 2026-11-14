@@ -18,6 +18,7 @@ enum Prefs {
         "showAppIcons": true,
         "dimOthers": false,            // false = every icon bright, the app in use underlined
         "maxIcons": 4,
+        "classicSwitching": false,     // false = instant (fast) switching, true = Ctrl-arrow shortcuts with animation
         "iconClick": "app",            // app = open that app, space = only go to the Space
         // Mouse
         "hoverToOpen": false,

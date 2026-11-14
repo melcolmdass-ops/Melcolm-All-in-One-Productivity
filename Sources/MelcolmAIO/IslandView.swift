@@ -209,6 +209,7 @@ struct SettingsTab: View {
     @AppStorage("maxIcons") var maxIcons = 4
     @AppStorage("iconClick") var iconClick = "app"
     @AppStorage("dimOthers") var dimOthers = false
+    @AppStorage("classicSwitching") var classic = false
     @AppStorage("hoverToOpen") var hoverOpen = false
     @AppStorage("hoverPeek") var hoverPeek = true
     @AppStorage("scrollVolume") var scrollVolume = true
@@ -278,8 +279,8 @@ struct SettingsTab: View {
     }
 
     @ViewBuilder var panelPage: some View {
-        Text("Quick buttons to show").font(.system(size: 10, weight: .bold)).foregroundStyle(.secondary)
-        ForEach(TileKind.allCases, id: \.self) { t in
+        Text("Pages on the home screen").font(.system(size: 10, weight: .bold)).foregroundStyle(.secondary)
+        ForEach(PanelPage.listed, id: \.self) { t in
             row(t.title) {
                 Toggle("", isOn: Binding(
                     get: { !hiddenTiles.split(separator: ",").contains(Substring(t.rawValue)) },
@@ -296,6 +297,14 @@ struct SettingsTab: View {
         row("Space on screen") {
             Picker("", selection: $style) { Text("Glow").tag("glow"); Text("Box").tag("box") }
                 .pickerStyle(.segmented).labelsHidden().frame(width: 140)
+        }
+        row("Classic switching (slower, with animation)") { Toggle("", isOn: $classic).labelsHidden() }
+        if !classic && !FastSwitch.available {
+            HStack(alignment: .top, spacing: 8) {
+                Text("Fast switching needs a trackpad Space swipe turned on, so classic switching is being used for now.")
+                    .font(.system(size: 10.5)).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                LinkButton("Trackpad…") { SystemModel.open("com.apple.Trackpad-Settings.extension") }
+            }
         }
         row("Show display numbers (off = dots)") { Toggle("", isOn: $showNumbers).labelsHidden() }
         row("Show app icons (off = plain boxes)") { Toggle("", isOn: $showIcons).labelsHidden() }

@@ -165,7 +165,12 @@ final class SpacesModel: ObservableObject {
         guard let from = currentIndex, let to = spaces.firstIndex(of: space), from != to else { return }
         guard Self.ensureAccessibility() else { return }
         let right = to > from
-        for _ in 0 ..< abs(to - from) { Self.postHotKey(right ? 81 : 79) }
+        let steps = abs(to - from)
+        if Prefs.bool("classicSwitching") || !FastSwitch.available {
+            for _ in 0 ..< steps { Self.postHotKey(right ? 81 : 79) }
+        } else {
+            for _ in 0 ..< steps { FastSwitch.step(right: right, scale: Double(steps)) }
+        }
         currentID = space.id // optimistic; refresh confirms
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { self.refresh() }
     }

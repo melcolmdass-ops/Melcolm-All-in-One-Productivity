@@ -5,7 +5,7 @@ import SwiftUI
 
 final class IslandState: ObservableObject {
     @Published var expanded = false
-    @Published var showSettings = false
+    @Published var page: PanelPage = .home
     @Published var notchWidth: CGFloat = 0     // 0 = this screen has no notch
     @Published var barHeight: CGFloat = 32
     @Published var leftWing: CGFloat = 130
@@ -83,7 +83,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         playing.refresh()
         // For testing: `open … --args -debugOpen Settings` opens the panel on launch (not saved).
         if let t = UserDefaults.standard.string(forKey: "debugOpen"), let i = islands.first {
-            i.state.showSettings = t == "Settings"; i.setExpanded(true)
+            i.state.page = PanelPage(rawValue: t.lowercased()) ?? .home; i.setExpanded(true)
         }
     }
 
@@ -268,7 +268,7 @@ final class Island: NSObject {
 
     func handleKey(_ e: NSEvent) -> Bool {
         switch e.keyCode {
-        case 53: setExpanded(false); return true                       // esc
+        case 53: if state.page != .home { state.page = .home } else { setExpanded(false) }; return true   // esc: back, then close
         case 49: playing.playPause(); return true                       // space
         case 126: sound.nudge(0.06); return true                        // up
         case 125: sound.nudge(-0.06); return true                       // down
@@ -276,7 +276,7 @@ final class Island: NSObject {
         case 124: spaces.step(1); return true                           // right
         default:
             if let c = e.charactersIgnoringModifiers, let n = Int(c), n > 0 { spaces.jump(toNumber: n); return true }
-            if e.charactersIgnoringModifiers == "," { withAnimation(.snappy) { state.showSettings.toggle() }; return true }
+            if e.charactersIgnoringModifiers == "," { state.page = state.page == .settings ? .home : .settings; return true }
             return false
         }
     }
@@ -331,7 +331,7 @@ final class Island: NSObject {
         } else {
             if let m = clickMonitor { NSEvent.removeMonitor(m); clickMonitor = nil }
             if panel.isKeyWindow { panel.resignKey(); previousApp?.activate(); previousApp = nil }
-            withAnimation(.spring(response: 0.32, dampingFraction: 0.9)) { state.expanded = false; state.showSettings = false }
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.9)) { state.expanded = false; state.page = .home }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.33) { [weak self] in
                 guard let self, !state.expanded else { return }
                 panel.setFrame(frame(expanded: false), display: true)

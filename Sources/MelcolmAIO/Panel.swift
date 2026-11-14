@@ -1,43 +1,317 @@
 import CoreAudio
 import SwiftUI
 
-/// The one panel that slides out of the island: music, quick toggles, sliders, timer.
+/// Every page the panel can show. `home` is the grid of buttons; the rest open from it.
+enum PanelPage: String, CaseIterable {
+    case home, sound, mic, brightness, wifi, bluetooth, awake, dark, timer, settings
+
+    static var listed: [PanelPage] { allCases.filter { $0 != .home && $0 != .settings } }
+
+    var title: String {
+        switch self {
+        case .home: "Melcolm"; case .sound: "Sound"; case .mic: "Microphone"; case .brightness: "Brightness"
+        case .wifi: "Wi-Fi"; case .bluetooth: "Bluetooth"; case .awake: "Keep Awake"; case .dark: "Dark Mode"
+        case .timer: "Timer"; case .settings: "Settings"
+        }
+    }
+    var icon: String {
+        switch self {
+        case .home: "house"; case .sound: "speaker.wave.2.fill"; case .mic: "mic.fill"; case .brightness: "sun.max.fill"
+        case .wifi: "wifi"; case .bluetooth: "dot.radiowaves.left.and.right"; case .awake: "cup.and.saucer.fill"
+        case .dark: "circle.lefthalf.filled"; case .timer: "timer"; case .settings: "gearshape.fill"
+        }
+    }
+}
+
+/// The panel that slides out of the island: a home grid, and one clean page per button.
 struct PanelView: View {
     @EnvironmentObject var state: IslandState
 
     var body: some View {
         ZStack(alignment: .top) {
-            if state.showSettings {
-                VStack(spacing: 10) {
-                    HStack {
-                        Button { withAnimation(.snappy) { state.showSettings = false } } label: {
-                            Label("Back", systemImage: "chevron.left").font(.system(size: 12, weight: .semibold))
-                        }.buttonStyle(.plain).foregroundStyle(accent)
-                        Spacer()
-                        Text("Settings").font(.system(size: 13, weight: .bold))
-                        Spacer()
-                        Color.clear.frame(width: 44, height: 1)
-                    }
-                    ScrollView(showsIndicators: false) { SettingsTab() }
-                }
-                .frame(maxHeight: .infinity, alignment: .top)
-                .transition(.move(edge: .trailing).combined(with: .opacity))
+            if state.page == .home {
+                HomePage().transition(.opacity.combined(with: .scale(scale: 0.98)))
             } else {
-                ScrollView(showsIndicators: false) {
-                    VStack(spacing: 10) {
-                        NowPlayingCard()
-                        TileGrid()
-                        SlidersCard()
-                        TimerRow()
-                        FooterRow()
+                VStack(spacing: 16) {
+                    HStack {
+                        Button { state.page = .home } label: {
+                            Label("Back", systemImage: "chevron.left").font(.system(size: 12, weight: .semibold))
+                        }.buttonStyle(.plain).foregroundStyle(accent).frame(width: 64, alignment: .leading)
+                        Spacer()
+                        Text(state.page.title).font(.system(size: 14, weight: .bold))
+                        Spacer()
+                        Color.clear.frame(width: 64, height: 1)
                     }
+                    ScrollView(showsIndicators: false) { content.frame(maxWidth: .infinity) }
                 }
-                .transition(.move(edge: .leading).combined(with: .opacity))
+                .transition(.opacity.combined(with: .move(edge: .trailing)))
             }
         }
-        .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 14)
+        .animation(.snappy(duration: 0.25), value: state.page)
+        .padding(.horizontal, 18).padding(.top, 10).padding(.bottom, 16)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
+
+    @ViewBuilder var content: some View {
+        switch state.page {
+        case .sound: SoundPage()
+        case .mic: MicPage()
+        case .brightness: BrightnessPage()
+        case .wifi: WifiPage()
+        case .bluetooth: BluetoothPage()
+        case .awake: AwakePage()
+        case .dark: DarkPage()
+        case .timer: TimerPage()
+        case .settings: SettingsTab()
+        case .home: EmptyView()
+        }
+    }
+}
+
+// MARK: - Home: one button per page
+
+struct HomePage: View {
+    @EnvironmentObject var state: IslandState
+    @EnvironmentObject var system: SystemModel
+    @EnvironmentObject var sound: SoundModel
+    @EnvironmentObject var timer: TimerModel
+    @AppStorage("hiddenTiles") var hidden = ""
+
+    var body: some View {
+        let pages = PanelPage.listed.filter { !hidden.split(separator: ",").contains(Substring($0.rawValue)) }
+        VStack(spacing: 14) {
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
+                ForEach(pages, id: \.self) { p in
+                    let (sub, on) = status(p)
+                    Button { state.page = p } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: p.icon).font(.system(size: 15, weight: .semibold))
+                                .frame(width: 38, height: 38)
+                                .background(Circle().fill(on ? accent : .white.opacity(0.1)))
+                                .foregroundStyle(on ? .black : .white)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(p.title).font(.system(size: 13, weight: .semibold)).lineLimit(1)
+                                Text(sub).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                            }
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, 12).frame(maxWidth: .infinity, minHeight: 62, alignment: .leading)
+                        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(.white.opacity(0.07)))
+                        .contentShape(Rectangle())
+                    }.buttonStyle(PressStyle())
+                }
+            }
+            Spacer(minLength: 0)
+            HStack(spacing: 10) {
+                Button { SystemModel.open("com.apple.Battery-Settings.extension") } label: {
+                    Label(system.battery.map { "\($0)%" } ?? "AC", systemImage: system.charging ? "battery.100percent.bolt" : "battery.75percent")
+                }.buttonStyle(.plain)
+                Spacer()
+                Text("⌃⌥Space").foregroundStyle(.tertiary)
+                Button { state.page = .settings } label: {
+                    Image(systemName: "gearshape.fill").font(.system(size: 12))
+                        .frame(width: 28, height: 28).background(Circle().fill(.white.opacity(0.08)))
+                }.buttonStyle(PressStyle()).help("Settings")
+            }
+            .font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
+        }
+    }
+
+    /// The little status line under each button, and whether it is "on" (lit).
+    func status(_ p: PanelPage) -> (String, Bool) {
+        switch p {
+        case .sound: return ("\(sound.muted ? "Muted" : "\(Int(sound.volume * 100))%") · \(sound.outputName)", !sound.muted)
+        case .mic: return (sound.inputMuted ? "Muted" : "\(Int(sound.inputVolume * 100))%", !sound.inputMuted)
+        case .brightness: return (system.brightness.map { "\(Int($0 * 100))%" } ?? "External screen", system.brightness != nil)
+        case .wifi: return (system.wifiOn ? (system.wifiName ?? "On") : "Off", system.wifiOn)
+        case .bluetooth: return (system.bluetoothOn ? "On" : "Off", system.bluetoothOn)
+        case .awake: return (system.awake ? "On" : "Off", system.awake)
+        case .dark: return (system.dark ? "Dark" : "Light", system.dark)
+        case .timer: return (timer.isActive ? timer.display : "Ready", timer.isActive)
+        default: return ("", false)
+        }
+    }
+}
+
+// MARK: - Pages
+
+struct ToggleRow: View {
+    let icon: String; let title: String; let subtitle: String; let on: Bool; let action: () -> Void
+    var body: some View {
+        Card {
+            HStack(spacing: 14) {
+                Image(systemName: icon).font(.system(size: 18, weight: .semibold)).foregroundStyle(accent).frame(width: 30)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title).font(.system(size: 14, weight: .semibold))
+                    Text(subtitle).font(.system(size: 11.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer()
+                Toggle("", isOn: Binding(get: { on }, set: { _ in action() })).toggleStyle(.switch).labelsHidden()
+            }
+            .padding(.vertical, 6)
+        }
+    }
+}
+
+struct DeviceList: View {
+    let devices: [OutputDevice]; let current: AudioDeviceID; let pick: (OutputDevice) -> Void
+    var body: some View {
+        Card {
+            VStack(spacing: 2) {
+                ForEach(devices) { d in
+                    Button { pick(d) } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: d.id == current ? "checkmark.circle.fill" : "circle")
+                                .foregroundStyle(d.id == current ? accent : .secondary)
+                            Text(d.name).lineLimit(1)
+                            Spacer()
+                        }
+                        .font(.system(size: 13)).padding(.vertical, 7).contentShape(Rectangle())
+                    }.buttonStyle(.plain)
+                }
+            }
+        }
+    }
+}
+
+struct BigSlider: View {
+    let icon: String; let value: Binding<Double>; var tap: (() -> Void)?
+    var body: some View {
+        Card {
+            HStack(spacing: 12) {
+                Button { tap?() } label: { Image(systemName: icon).font(.system(size: 16, weight: .semibold)).frame(width: 26) }
+                    .buttonStyle(.plain).disabled(tap == nil)
+                Slider(value: value, in: 0 ... 1).tint(accent)
+                Text("\(Int(value.wrappedValue * 100))%").font(.system(size: 12, weight: .semibold).monospacedDigit())
+                    .foregroundStyle(.secondary).frame(width: 40, alignment: .trailing)
+            }
+            .padding(.vertical, 6)
+        }
+    }
+}
+
+struct SoundPage: View {
+    @EnvironmentObject var sound: SoundModel
+    var body: some View {
+        VStack(spacing: 14) {
+            NowPlayingCard()
+            BigSlider(icon: sound.muted ? "speaker.slash.fill" : "speaker.wave.2.fill",
+                      value: Binding(get: { sound.volume }, set: { sound.setVolume($0) }), tap: sound.toggleMute)
+            sectionLabel("OUTPUT")
+            DeviceList(devices: sound.devices, current: sound.currentDevice, pick: sound.select)
+            HStack { Spacer(); LinkButton("Sound Settings…") { SystemModel.open("com.apple.Sound-Settings.extension") } }
+        }
+    }
+}
+
+struct MicPage: View {
+    @EnvironmentObject var sound: SoundModel
+    var body: some View {
+        VStack(spacing: 14) {
+            if sound.inputAdjustable {
+                BigSlider(icon: sound.inputMuted ? "mic.slash.fill" : "mic.fill",
+                          value: Binding(get: { sound.inputVolume }, set: { sound.setInputVolume($0) }), tap: sound.toggleInputMute)
+            } else {
+                ToggleRow(icon: sound.inputMuted ? "mic.slash.fill" : "mic.fill", title: "Mute microphone",
+                          subtitle: "This device has no volume control", on: sound.inputMuted, action: sound.toggleInputMute)
+            }
+            sectionLabel("INPUT")
+            DeviceList(devices: sound.inputs, current: sound.currentInput, pick: sound.selectInput)
+        }
+    }
+}
+
+struct BrightnessPage: View {
+    @EnvironmentObject var system: SystemModel
+    var body: some View {
+        VStack(spacing: 14) {
+            if let b = system.brightness {
+                BigSlider(icon: "sun.max.fill", value: Binding(get: { b }, set: { system.setBrightness($0) }))
+            } else {
+                Card { Text("Brightness can only be changed here for the MacBook's built-in screen.")
+                    .font(.system(size: 12.5)).foregroundStyle(.secondary) }
+            }
+            HStack { Spacer(); LinkButton("Display Settings…") { SystemModel.open("com.apple.Displays-Settings.extension") } }
+        }
+    }
+}
+
+struct WifiPage: View {
+    @EnvironmentObject var system: SystemModel
+    var body: some View {
+        VStack(spacing: 14) {
+            ToggleRow(icon: system.wifiOn ? "wifi" : "wifi.slash", title: "Wi-Fi",
+                      subtitle: system.wifiOn ? (system.wifiName ?? "On") : "Off", on: system.wifiOn, action: system.toggleWifi)
+            HStack { Spacer(); LinkButton("Wi-Fi Settings…") { SystemModel.open("com.apple.wifi-settings-extension") } }
+        }
+    }
+}
+
+struct BluetoothPage: View {
+    @EnvironmentObject var system: SystemModel
+    var body: some View {
+        VStack(spacing: 14) {
+            ToggleRow(icon: "dot.radiowaves.left.and.right", title: "Bluetooth",
+                      subtitle: system.bluetoothOn ? "On" : "Off", on: system.bluetoothOn, action: system.toggleBluetooth)
+            HStack { Spacer(); LinkButton("Bluetooth Settings…") { SystemModel.open("com.apple.BluetoothSettings") } }
+        }
+    }
+}
+
+struct AwakePage: View {
+    @EnvironmentObject var system: SystemModel
+    var body: some View {
+        ToggleRow(icon: "cup.and.saucer.fill", title: "Keep Awake",
+                  subtitle: "Stops the screen from sleeping until you turn this off.", on: system.awake, action: system.toggleAwake)
+    }
+}
+
+struct DarkPage: View {
+    @EnvironmentObject var system: SystemModel
+    var body: some View {
+        ToggleRow(icon: "circle.lefthalf.filled", title: "Dark Mode",
+                  subtitle: system.dark ? "The Mac is using the dark look." : "The Mac is using the light look.", on: system.dark, action: system.toggleDark)
+    }
+}
+
+struct TimerPage: View {
+    @EnvironmentObject var timer: TimerModel
+    var body: some View {
+        VStack(spacing: 16) {
+            Picker("", selection: Binding(get: { timer.mode }, set: { if !timer.isActive { timer.mode = $0 } })) {
+                Text("Timer").tag(TimerModel.Mode.timer)
+                Text("Stopwatch").tag(TimerModel.Mode.stopwatch)
+            }.pickerStyle(.segmented).labelsHidden().disabled(timer.isActive)
+
+            Text(timer.isActive ? timer.display : "00:00")
+                .font(.system(size: 54, weight: .light, design: .rounded).monospacedDigit())
+                .foregroundStyle(timer.finished ? .orange : .white).padding(.vertical, 4)
+
+            if timer.isActive {
+                HStack(spacing: 12) {
+                    Pill(timer.running ? "Pause" : "Resume", filled: true) { timer.running ? timer.pause() : timer.resume() }
+                    Pill("Reset") { timer.reset() }
+                }
+            } else if timer.mode == .timer {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3), spacing: 10) {
+                    ForEach([1, 5, 10, 15, 25, 45], id: \.self) { m in
+                        Button { timer.start(minutes: Double(m)) } label: {
+                            Text("\(m) min").font(.system(size: 13, weight: .semibold)).frame(maxWidth: .infinity, minHeight: 40)
+                                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(.white.opacity(0.09)))
+                        }.buttonStyle(PressStyle())
+                    }
+                }
+            } else {
+                Pill("Start stopwatch", filled: true) { timer.startStopwatch() }
+            }
+            LinkButton("Open Clock app") { timer.openClock() }
+        }
+    }
+}
+
+func sectionLabel(_ t: String) -> some View {
+    Text(t).font(.system(size: 10, weight: .bold)).foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 4)
 }
 
 // MARK: - Now playing
@@ -96,176 +370,6 @@ struct MediaButton: View {
                 .background(Circle().fill(.white.opacity(big ? 0.16 : 0.06)))
                 .contentShape(Circle())
         }.buttonStyle(PressStyle())
-    }
-}
-
-// MARK: - Quick toggles
-
-enum TileKind: String, CaseIterable {
-    case wifi, bluetooth, awake, dark, mic, screenshot
-    var title: String {
-        switch self {
-        case .wifi: "Wi-Fi"; case .bluetooth: "Bluetooth"; case .awake: "Keep Awake"
-        case .dark: "Dark Mode"; case .mic: "Mic"; case .screenshot: "Screenshot"
-        }
-    }
-}
-
-struct TileGrid: View {
-    @EnvironmentObject var system: SystemModel
-    @EnvironmentObject var sound: SoundModel
-    @AppStorage("hiddenTiles") var hidden = ""
-
-    var body: some View {
-        let tiles = TileKind.allCases.filter { !hidden.split(separator: ",").contains(Substring($0.rawValue)) }
-        if !tiles.isEmpty {
-            HStack(spacing: 0) {
-                ForEach(tiles, id: \.self) { t in tile(t).frame(maxWidth: .infinity) }
-            }
-            .padding(.vertical, 4)
-        }
-    }
-
-    @ViewBuilder func tile(_ t: TileKind) -> some View {
-        switch t {
-        case .wifi: Tile(icon: system.wifiOn ? "wifi" : "wifi.slash", title: system.wifiName ?? t.title, on: system.wifiOn,
-                         action: system.toggleWifi, more: { SystemModel.open("com.apple.wifi-settings-extension") })
-        case .bluetooth: Tile(icon: "dot.radiowaves.left.and.right", title: t.title, on: system.bluetoothOn,
-                              action: system.toggleBluetooth, more: { SystemModel.open("com.apple.BluetoothSettings") })
-        case .awake: Tile(icon: system.awake ? "cup.and.saucer.fill" : "cup.and.saucer", title: t.title, on: system.awake, action: system.toggleAwake)
-        case .dark: Tile(icon: "circle.lefthalf.filled", title: t.title, on: system.dark, action: system.toggleDark)
-        case .mic: Tile(icon: sound.inputMuted ? "mic.slash.fill" : "mic.fill", title: sound.inputMuted ? "Mic off" : t.title,
-                        on: !sound.inputMuted, action: sound.toggleInputMute)
-        case .screenshot: Tile(icon: "camera.viewfinder", title: t.title, on: false, action: SystemModel.screenshot)
-        }
-    }
-}
-
-struct Tile: View {
-    let icon: String; let title: String; let on: Bool; let action: () -> Void
-    var more: (() -> Void)?
-
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: 5) {
-                Image(systemName: icon).font(.system(size: 16, weight: .semibold))
-                    .frame(width: 46, height: 46)
-                    .background(Circle().fill(on ? accent : .white.opacity(0.1)))
-                    .foregroundStyle(on ? .black : .white)
-                Text(title).font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary).lineLimit(1)
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(PressStyle())
-        .contextMenu { if let more { Button("Open Settings…", action: more) } }
-        .animation(.easeOut(duration: 0.15), value: on)
-    }
-}
-
-// MARK: - Sliders + devices
-
-struct SlidersCard: View {
-    @EnvironmentObject var sound: SoundModel
-    @EnvironmentObject var system: SystemModel
-
-    var body: some View {
-        Card {
-            VStack(alignment: .leading, spacing: 9) {
-                SliderRow(icon: sound.muted ? "speaker.slash.fill" : "speaker.wave.2.fill", tap: sound.toggleMute,
-                          value: Binding(get: { sound.volume }, set: { sound.setVolume($0) }))
-                Chips(devices: sound.devices, current: sound.currentDevice, pick: sound.select)
-                if let b = system.brightness {
-                    SliderRow(icon: "sun.max.fill", tap: nil, value: Binding(get: { b }, set: { system.setBrightness($0) }))
-                }
-                if sound.inputAdjustable {
-                    SliderRow(icon: sound.inputMuted ? "mic.slash.fill" : "mic.fill", tap: sound.toggleInputMute,
-                              value: Binding(get: { sound.inputVolume }, set: { sound.setInputVolume($0) }))
-                }
-                Chips(devices: sound.inputs, current: sound.currentInput, pick: sound.selectInput)
-            }
-        }
-    }
-}
-
-struct SliderRow: View {
-    let icon: String; let tap: (() -> Void)?; let value: Binding<Double>
-    var body: some View {
-        HStack(spacing: 10) {
-            Button { tap?() } label: { Image(systemName: icon).font(.system(size: 12, weight: .semibold)).frame(width: 20) }
-                .buttonStyle(.plain).disabled(tap == nil)
-            Slider(value: value, in: 0 ... 1).tint(accent).controlSize(.small)
-            Text("\(Int(value.wrappedValue * 100))%").font(.system(size: 10, weight: .medium).monospacedDigit())
-                .foregroundStyle(.secondary).frame(width: 32, alignment: .trailing)
-        }
-    }
-}
-
-/// Devices as one-click chips.
-struct Chips: View {
-    let devices: [OutputDevice]; let current: AudioDeviceID; let pick: (OutputDevice) -> Void
-    var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                ForEach(devices) { d in
-                    let on = d.id == current
-                    Button { pick(d) } label: {
-                        Text(d.name.replacingOccurrences(of: "’s", with: "").replacingOccurrences(of: "Melcolm ", with: ""))
-                            .font(.system(size: 10.5, weight: .semibold)).lineLimit(1)
-                            .padding(.horizontal, 10).padding(.vertical, 5)
-                            .background(Capsule().fill(on ? accent.opacity(0.25) : .white.opacity(0.07)))
-                            .overlay(Capsule().stroke(on ? accent : .clear, lineWidth: 1))
-                            .foregroundStyle(on ? .white : .white.opacity(0.7))
-                    }.buttonStyle(PressStyle())
-                }
-            }
-            .padding(.leading, 30)
-        }
-    }
-}
-
-// MARK: - Timer + footer
-
-struct TimerRow: View {
-    @EnvironmentObject var timer: TimerModel
-    var body: some View {
-        Card {
-            HStack(spacing: 8) {
-                Image(systemName: timer.mode == .stopwatch && timer.isActive ? "stopwatch" : "timer")
-                    .font(.system(size: 13, weight: .semibold)).foregroundStyle(accent)
-                if timer.isActive {
-                    Text(timer.display).font(.system(size: 18, weight: .semibold, design: .rounded).monospacedDigit())
-                        .foregroundStyle(timer.finished ? .orange : .white)
-                    Spacer()
-                    Pill(timer.running ? "Pause" : "Resume", filled: true) { timer.running ? timer.pause() : timer.resume() }
-                    Pill("Reset") { timer.reset() }
-                } else {
-                    ForEach([5, 15, 25, 45], id: \.self) { m in Pill("\(m)m") { timer.start(minutes: Double(m)) } }
-                    Pill("Stopwatch") { timer.startStopwatch() }
-                    Spacer(minLength: 0)
-                    Button { timer.openClock() } label: { Image(systemName: "clock").foregroundStyle(.secondary) }
-                        .buttonStyle(.plain).help("Open Clock app")
-                }
-            }
-        }
-    }
-}
-
-struct FooterRow: View {
-    @EnvironmentObject var system: SystemModel
-    @EnvironmentObject var state: IslandState
-    var body: some View {
-        HStack(spacing: 10) {
-            Button { SystemModel.open("com.apple.Battery-Settings.extension") } label: {
-                Label(system.battery.map { "\($0)%" } ?? "AC", systemImage: system.charging ? "battery.100percent.bolt" : "battery.75percent")
-            }.buttonStyle(.plain)
-            Spacer()
-            Text("⌃⌥Space").foregroundStyle(.tertiary)
-            Button { withAnimation(.snappy) { state.showSettings = true } } label: {
-                Image(systemName: "gearshape.fill").font(.system(size: 12))
-                    .frame(width: 26, height: 26).background(Circle().fill(.white.opacity(0.08)))
-            }.buttonStyle(PressStyle()).help("Settings")
-        }
-        .font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
     }
 }
 
