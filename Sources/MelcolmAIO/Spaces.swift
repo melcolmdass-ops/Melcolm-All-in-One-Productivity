@@ -6,8 +6,17 @@ import AppKit
 @_silgen_name("CGSGetSymbolicHotKeyValue") private func CGSGetSymbolicHotKeyValue(
     _ hotKey: Int32, _ char: UnsafeMutablePointer<UInt16>?, _ keyCode: UnsafeMutablePointer<UInt16>?, _ flags: UnsafeMutablePointer<UInt32>?
 ) -> Int32
+@_silgen_name("CGSCopySpacesForWindows") private func CGSCopySpacesForWindows(_ conn: Int32, _ mask: Int32, _ wids: CFArray) -> Unmanaged<CFArray>?
 @_silgen_name("CGSIsSymbolicHotKeyEnabled") private func CGSIsSymbolicHotKeyEnabled(_ hotKey: Int32) -> Bool
 @_silgen_name("CGSSetSymbolicHotKeyEnabled") private func CGSSetSymbolicHotKeyEnabled(_ hotKey: Int32, _ enabled: Bool) -> Int32
+
+/// An app with at least one window on a Space.
+struct SpaceApp: Identifiable, Equatable {
+    let pid: pid_t
+    let name: String
+    var id: pid_t { pid }
+    var icon: NSImage { NSRunningApplication(processIdentifier: pid)?.icon ?? NSImage(named: NSImage.applicationIconName)! }
+}
 
 struct SpaceItem: Identifiable, Equatable {
     let id: Int
@@ -18,6 +27,7 @@ struct SpaceItem: Identifiable, Equatable {
 final class SpacesModel: ObservableObject {
     @Published var spaces: [SpaceItem] = []
     @Published var currentID: Int = 0
+    @Published var apps: [Int: [SpaceApp]] = [:]   // space id -> apps, front-most first
 
     init() {
         refresh()
@@ -53,6 +63,53 @@ final class SpacesModel: ObservableObject {
         let cur = ((display["Current Space"] as? NSDictionary)?["ManagedSpaceID"] as? Int) ?? 0
         if items != spaces { spaces = items }
         if cur != currentID { currentID = cur }
+        let a = Self.appsBySpace(Set(items.map(\.id)))
+        if a != apps { apps = a }
+    }
+
+    /// Which apps have normal windows on which Space (includes Spaces you're not on).
+    static func appsBySpace(_ ids: Set<Int>) -> [Int: [SpaceApp]] {
+        guard let list = CGWindowListCopyWindowInfo([.optionAll, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return [:] }
+        let me = ProcessInfo.processInfo.processIdentifier
+        let conn = _CGSDefaultConnection()
+        var out: [Int: [SpaceApp]] = [:]
+        var regular: [pid_t: NSRunningApplication?] = [:]
+        for w in list {
+            guard (w[kCGWindowLayer as String] as? Int) == 0,
+                  let pid = w[kCGWindowOwnerPID as String] as? pid_t, pid != me,
+                  let wid = w[kCGWindowNumber as String] as? Int,
+                  ((w[kCGWindowAlpha as String] as? Double) ?? 1) > 0,
+                  let b = w[kCGWindowBounds as String] as? [String: Double],
+                  (b["Width"] ?? 0) >= 120, (b["Height"] ?? 0) >= 80 else { continue }
+            if regular[pid] == nil { regular[pid] = NSRunningApplication(processIdentifier: pid) }
+            guard let app = regular[pid] ?? nil, app.activationPolicy == .regular else { continue }
+            guard let sp = CGSCopySpacesForWindows(conn, 0x7, [wid] as CFArray)?.takeRetainedValue() as? [Int] else { continue }
+            for s in sp where ids.contains(s) {
+                if out[s]?.contains(where: { $0.pid == pid }) == true { continue }
+                out[s, default: []].append(SpaceApp(pid: pid, name: app.localizedName ?? "App"))
+            }
+        }
+        return out
+    }
+
+    /// Goes to the Space, then brings the app forward there.
+    func focus(_ app: SpaceApp, on space: SpaceItem) {
+        let moved = space.id != currentID
+        if moved { switchTo(space) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + (moved ? 0.45 : 0)) {
+            NSRunningApplication(processIdentifier: app.pid)?.activate()
+        }
+    }
+
+    func jump(toNumber n: Int) {
+        guard n >= 1, n <= spaces.count else { return }
+        switchTo(spaces[n - 1])
+    }
+
+    func step(_ delta: Int) {
+        guard let i = currentIndex else { return }
+        let j = i + delta
+        if spaces.indices.contains(j) { switchTo(spaces[j]) }
     }
 
     /// Steps left/right with the "Move left/right a space" shortcuts, which is
