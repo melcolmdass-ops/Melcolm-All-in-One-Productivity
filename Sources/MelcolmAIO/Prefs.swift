@@ -45,33 +45,21 @@ enum Layout {
         min(iconSize(Prefs.d.string(forKey: "islandSize") ?? "large"), max(14, h - 5))
     }
     static let chipGap: CGFloat = 8
-    static let iconGap: CGFloat = 7
-    static let numberWidth: CGFloat = 12
-    static let overflowWidth: CGFloat = 18
+    static let cellPad: CGFloat = 5       // room around each icon for its glow outline
 
-    static let dividerGap: CGFloat = 9
+    static func desktops(_ g: DisplayGroup) -> [SpaceItem] { g.spaces.filter { !$0.isFullscreen } }
+    static func fullscreens(_ g: DisplayGroup) -> [SpaceItem] { g.spaces.filter { $0.isFullscreen } }
+    static func numberCell(_ icon: CGFloat) -> CGFloat { Prefs.bool("showNumbers") ? icon * 0.7 + 2 * cellPad : 12 + 2 * cellPad }
+    static func iconCell(_ icon: CGFloat) -> CGFloat { icon + 2 * cellPad }
 
-    static func shownCount(_ apps: Int) -> Int {
-        Prefs.bool("showAppIcons") ? min(apps, Prefs.d.integer(forKey: "maxIcons")) : 0
-    }
-
-    /// One Space inside a display box: its icons (or a dot if empty), plus +n.
-    static func segmentWidth(apps: Int, icon: CGFloat) -> CGFloat {
-        let n = shownCount(apps)
-        var w = n == 0 ? 8 : CGFloat(n) * icon + CGFloat(n - 1) * iconGap
-        if Prefs.bool("showAppIcons") && apps > n { w += iconGap + overflowWidth }
-        return w + 10
-    }
-
-    /// One display box: number, then each Space separated by a thin divider.
-    static func groupWidth(_ g: DisplayGroup, _ m: SpacesModel, icon: CGFloat) -> CGFloat {
-        let segs = g.spaces.map { segmentWidth(apps: m.apps[$0.id]?.count ?? 0, icon: icon) }
-        let num = Prefs.bool("showNumbers") ? numberWidth : 6
-        return 10 + num + 6 + segs.reduce(0, +) + CGFloat(max(0, segs.count - 1)) * dividerGap + 6
+    /// One box per display: [desktop number] | [full-screen app icons…]
+    static func groupWidth(_ g: DisplayGroup, icon: CGFloat) -> CGFloat {
+        let n = fullscreens(g).count
+        return 8 + numberCell(icon) + (n > 0 ? 9 : 0) + CGFloat(n) * iconCell(icon) + CGFloat(max(0, n - 1)) * 2 + 8
     }
 
     static func stripWidth(_ m: SpacesModel, icon: CGFloat) -> CGFloat {
-        let w = m.displays.map { groupWidth($0, m, icon: icon) }
+        let w = m.displays.map { groupWidth($0, icon: icon) }
         return w.reduce(0, +) + CGFloat(max(0, w.count - 1)) * chipGap
     }
 }

@@ -113,6 +113,7 @@ final class SpacesModel: ObservableObject {
         let me = ProcessInfo.processInfo.processIdentifier
         let conn = _CGSDefaultConnection()
         var out: [Int: [SpaceApp]] = [:]
+        var area: [Int: [pid_t: Double]] = [:]
         var regular: [pid_t: NSRunningApplication?] = [:]
         for w in list {
             guard (w[kCGWindowLayer as String] as? Int) == 0,
@@ -125,10 +126,12 @@ final class SpacesModel: ObservableObject {
             guard let app = regular[pid] ?? nil, app.activationPolicy == .regular else { continue }
             guard let sp = CGSCopySpacesForWindows(conn, 0x7, [wid] as CFArray)?.takeRetainedValue() as? [Int] else { continue }
             for s in sp where ids.contains(s) {
+                area[s, default: [:]][pid, default: 0] = max(area[s]?[pid] ?? 0, (b["Width"] ?? 0) * (b["Height"] ?? 0))
                 if out[s]?.contains(where: { $0.pid == pid }) == true { continue }
                 out[s, default: []].append(SpaceApp(pid: pid, name: app.localizedName ?? "App"))
             }
         }
+        for (id, apps) in out { out[id] = apps.sorted { (area[id]?[$0.pid] ?? 0) > (area[id]?[$1.pid] ?? 0) } }
         return out
     }
 
@@ -167,9 +170,16 @@ final class SpacesModel: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { self.refresh() }
     }
 
-    static func ensureAccessibility() -> Bool {
-        let opts = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
-        return AXIsProcessTrustedWithOptions(opts)
+    private static var prompted = false
+
+    /// True if macOS trusts this build. Only asks (once per launch) when you actually try to switch Spaces.
+    static func ensureAccessibility(prompt: Bool = true) -> Bool {
+        if AXIsProcessTrusted() { return true }
+        if prompt && !prompted {
+            prompted = true
+            _ = AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)
+        }
+        return false
     }
 
     private static func postHotKey(_ hotKey: Int32) {

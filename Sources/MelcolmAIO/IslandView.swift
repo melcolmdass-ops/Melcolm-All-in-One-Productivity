@@ -92,104 +92,97 @@ struct TopBar: View {
     }
 }
 
-/// One rounded box per display: its number, then each of its Spaces as a group of app icons.
-/// The Space showing on that display is lit; the app you're using is underlined.
+/// One box per display: its desktop number, then the apps open in full-screen Spaces.
+/// Whatever is showing on that display gets a glowing outline.
 struct SpacesStrip: View {
     @EnvironmentObject var spaces: SpacesModel
     @EnvironmentObject var state: IslandState
     @AppStorage("indicatorStyle") var style = "glow"
     @AppStorage("showNumbers") var showNumbers = true
     @AppStorage("showAppIcons") var showIcons = true
-    @AppStorage("maxIcons") var maxIcons = 4
     @AppStorage("iconClick") var iconClick = "app"
     @AppStorage("dimOthers") var dimOthers = false
 
     var body: some View {
         let icon = state.iconSize
-        let h = min(icon + 6, state.barHeight - 2)
+        let h = min(icon + 2 * Layout.cellPad, state.barHeight - 2)
         HStack(spacing: Layout.chipGap) {
             ForEach(spaces.displays) { g in
-                HStack(spacing: 0) {
-                    Group {
-                        if showNumbers {
-                            Text("\(g.number)")
-                                .font(.system(size: max(10, icon * 0.55), weight: .heavy, design: .rounded))
-                                .foregroundStyle(accent)
-                        } else {
-                            Circle().fill(accent).frame(width: 6, height: 6)
-                        }
+                let desktops = Layout.desktops(g)
+                let home = desktops.first { $0.id == g.currentID } ?? desktops.first
+                HStack(spacing: 2) {
+                    if let home { numberCell(g, home, on: home.id == g.currentID, icon: icon, h: h - 4) }
+                    else { Color.clear.frame(width: Layout.numberCell(icon), height: h - 4) }
+                    let fulls = Layout.fullscreens(g)
+                    if !fulls.isEmpty {
+                        Rectangle().fill(.white.opacity(0.16)).frame(width: 1, height: icon * 0.7)
+                            .padding(.horizontal, 4)
                     }
-                    .frame(width: showNumbers ? Layout.numberWidth : 6)
-                    .padding(.leading, 10).padding(.trailing, 6)
-                    ForEach(Array(g.spaces.enumerated()), id: \.element.id) { i, s in
-                        if i > 0 {
-                            Rectangle().fill(.white.opacity(0.14)).frame(width: 1, height: icon * 0.7)
-                                .frame(width: Layout.dividerGap)
-                        }
-                        segment(s, current: s.id == g.currentID, icon: icon, h: h - 4)
-                    }
+                    ForEach(fulls) { s in appCell(s, on: s.id == g.currentID, icon: icon, h: h - 4) }
                 }
-                .padding(.trailing, 6)
-                .frame(width: Layout.groupWidth(g, spaces, icon: icon), height: h, alignment: .leading)
+                .padding(.horizontal, 8)
+                .frame(width: Layout.groupWidth(g, icon: icon), height: h, alignment: .leading)
                 .background {
-                    let r = RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    let r = RoundedRectangle(cornerRadius: 10, style: .continuous)
                     r.fill(.white.opacity(0.06))
                     r.strokeBorder(.white.opacity(0.1), lineWidth: 0.7)
                 }
-                .help("Display \(g.number) · \(g.spaces.count) Space\(g.spaces.count == 1 ? "" : "s")")
+                .help("Display \(g.number)")
             }
         }
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: spaces.displays)
-        .animation(.easeOut(duration: 0.15), value: spaces.frontPID)
     }
 
-    func segment(_ s: SpaceItem, current: Bool, icon: CGFloat, h: CGFloat) -> some View {
-        let apps = spaces.apps[s.id] ?? []
-        let shown = showIcons ? Array(apps.prefix(maxIcons)) : []
-        let dim = dimOthers && !current
-        return Button { spaces.switchTo(s) } label: {
-            HStack(spacing: Layout.iconGap) {
-                if shown.isEmpty {
-                    Circle().fill(.white.opacity(current ? 0.9 : 0.35)).frame(width: 6, height: 6)
-                }
-                ForEach(shown) { app in
-                    let front = app.pid == spaces.frontPID && current
-                    Image(nsImage: app.icon).resizable().interpolation(.high)
-                        .frame(width: icon, height: icon)
-                        .opacity(dim ? 0.5 : 1)
-                        .saturation(dim ? 0.4 : 1)
-                        .overlay(alignment: .bottom) {
-                            if front {
-                                Capsule().fill(accent).frame(width: icon * 0.7, height: 2.5)
-                                    .shadow(color: accent, radius: 3)
-                                    .offset(y: 4)
-                            }
-                        }
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            if iconClick == "app" { spaces.focus(app, on: s) } else { spaces.switchTo(s) }
-                        }
-                        .help(app.name)
-                }
-                if showIcons && apps.count > shown.count {
-                    Text("+\(apps.count - shown.count)")
-                        .font(.system(size: 9, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.55))
-                        .frame(width: Layout.overflowWidth)
+    func glow(_ on: Bool) -> some View {
+        let r = RoundedRectangle(cornerRadius: 8, style: .continuous)
+        return ZStack {
+            if on {
+                r.fill(accent.opacity(style == "box" ? 0.28 : 0.16))
+                r.strokeBorder(accent, lineWidth: 1.4)
+                    .shadow(color: accent.opacity(0.9), radius: style == "glow" ? 6 : 0)
+            }
+        }
+    }
+
+    func numberCell(_ g: DisplayGroup, _ home: SpaceItem, on: Bool, icon: CGFloat, h: CGFloat) -> some View {
+        Button { spaces.switchTo(home) } label: {
+            Group {
+                if showNumbers {
+                    Text("\(g.number)").font(.system(size: icon * 0.72, weight: .heavy, design: .rounded))
+                        .foregroundStyle(on ? .white : accent.opacity(0.85))
+                } else {
+                    Circle().fill(on ? .white : accent).frame(width: 8, height: 8)
                 }
             }
-            .frame(width: Layout.segmentWidth(apps: apps.count, icon: icon), height: h)
-            .background {
-                if current {
-                    let r = RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    r.fill(accent.opacity(style == "box" ? 0.28 : 0.14))
-                    if style == "box" { r.strokeBorder(accent, lineWidth: 1.1) }
-                }
-            }
+            .frame(width: Layout.numberCell(icon), height: h)
+            .background(glow(on))
             .contentShape(Rectangle())
         }
         .buttonStyle(PressStyle())
-        .help(s.isFullscreen ? "Full screen · \(apps.first?.name ?? "")" : "Desktop \(s.number)")
+        .help("Desktop \(g.number)")
+    }
+
+    func appCell(_ s: SpaceItem, on: Bool, icon: CGFloat, h: CGFloat) -> some View {
+        let app = spaces.apps[s.id]?.first
+        let dim = dimOthers && !on
+        return Button {
+            if let app, iconClick == "app" { spaces.focus(app, on: s) } else { spaces.switchTo(s) }
+        } label: {
+            Group {
+                if showIcons, let app {
+                    Image(nsImage: app.icon).resizable().interpolation(.high).frame(width: icon, height: icon)
+                } else {
+                    Image(systemName: "rectangle.inset.filled").font(.system(size: icon * 0.6))
+                        .foregroundStyle(.white.opacity(0.6)).frame(width: icon, height: icon)
+                }
+            }
+            .opacity(dim ? 0.5 : 1).saturation(dim ? 0.4 : 1)
+            .frame(width: Layout.iconCell(icon), height: h)
+            .background(glow(on))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(PressStyle())
+        .help(app?.name ?? "Full-screen app")
     }
 }
 
@@ -260,7 +253,7 @@ struct SettingsTab: View {
         row("Open at login") { Toggle("", isOn: Binding(get: { LaunchAtLogin.isOn }, set: { LaunchAtLogin.set($0) })).labelsHidden() }
         row("Accessibility (needed to switch Spaces)") {
             if AXIsProcessTrusted() { Label("Allowed", systemImage: "checkmark.circle.fill").foregroundStyle(.green) }
-            else { LinkButton("Allow…") { SystemModel.open("com.apple.preference.security?Privacy_Accessibility") } }
+            else { LinkButton("Allow… (if already on, switch it off and on)") { SystemModel.open("com.apple.preference.security?Privacy_Accessibility") } }
         }
         row("Reset all settings") { LinkButton("Reset") { Prefs.reset() } }
         row("Quit Melcolm") { LinkButton("Quit") { NSApp.terminate(nil) } }
@@ -305,12 +298,11 @@ struct SettingsTab: View {
                 .pickerStyle(.segmented).labelsHidden().frame(width: 140)
         }
         row("Show display numbers (off = dots)") { Toggle("", isOn: $showNumbers).labelsHidden() }
-        row("Show app icons") { Toggle("", isOn: $showIcons).labelsHidden() }
-        row("Icons") {
-            Picker("", selection: $dimOthers) { Text("All bright").tag(false); Text("Dim other Spaces").tag(true) }
+        row("Show app icons (off = plain boxes)") { Toggle("", isOn: $showIcons).labelsHidden() }
+        row("Other full-screen apps") {
+            Picker("", selection: $dimOthers) { Text("Bright").tag(false); Text("Dimmed").tag(true) }
                 .pickerStyle(.segmented).labelsHidden().frame(width: 200)
         }
-        row("Icons per Space: \(maxIcons)") { Stepper("", value: $maxIcons, in: 1 ... 10).labelsHidden() }
         row("Clicking an app icon") {
             Picker("", selection: $iconClick) { Text("Opens the app").tag("app"); Text("Goes to Space").tag("space") }
                 .pickerStyle(.segmented).labelsHidden().frame(width: 200)

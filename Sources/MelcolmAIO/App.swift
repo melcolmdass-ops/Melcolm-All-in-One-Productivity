@@ -81,7 +81,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if islands.contains(where: { $0.state.expanded }) { system.refresh(); sound.refresh() }
         }
         playing.refresh()
-        _ = SpacesModel.ensureAccessibility()
         // For testing: `open … --args -debugOpen Settings` opens the panel on launch (not saved).
         if let t = UserDefaults.standard.string(forKey: "debugOpen"), let i = islands.first {
             i.state.showSettings = t == "Settings"; i.setExpanded(true)
