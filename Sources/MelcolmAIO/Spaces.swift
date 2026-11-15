@@ -22,6 +22,9 @@ struct SpaceItem: Identifiable, Equatable {
     let id: Int
     let number: Int        // 1-based position on this display
     let isFullscreen: Bool
+    var window: Int = 0    // the full-screen window: stays the same when macOS gives the app a new Space
+    /// Stable identity for the bar, so a moved app glides instead of being redrawn.
+    var cellKey: Int { window != 0 ? window : id }
 }
 
 /// A display and its Spaces, numbered left to right like the screens are arranged.
@@ -98,7 +101,7 @@ final class SpacesModel: ObservableObject {
             var list: [SpaceItem] = []
             for (j, sp) in ((d["Spaces"] as? [NSDictionary]) ?? []).enumerated() {
                 guard let id = (sp["ManagedSpaceID"] as? Int) ?? (sp["id64"] as? Int) else { continue }
-                list.append(SpaceItem(id: id, number: j + 1, isFullscreen: (sp["type"] as? Int) == 4))
+                list.append(SpaceItem(id: id, number: j + 1, isFullscreen: (sp["type"] as? Int) == 4, window: SpaceMover.wid(sp)))
                 allIDs.insert(id)
             }
             let c = ((d["Current Space"] as? NSDictionary)?["ManagedSpaceID"] as? Int) ?? 0

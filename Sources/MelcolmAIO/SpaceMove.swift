@@ -69,17 +69,23 @@ final class SpaceDragModel: ObservableObject {
         if t != target { withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) { target = t } }
     }
 
+    /// One spring for the whole drop: the bar takes its new order and the dragged app glides
+    /// from the pointer into its place in the same motion.
+    static let drop = Animation.spring(response: 0.42, dampingFraction: 0.86)
+
     func end(model m: SpacesModel) {
-        defer {
-            NSCursor.pop()
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { dragging = nil; offset = .zero; target = nil; source = nil }
-            droppedAt = Date()
+        NSCursor.pop()
+        droppedAt = Date()
+        var move: (Int, SpaceDrop)?
+        if let id = dragging, let t = target,
+           let from = m.displays.first(where: { g in g.spaces.contains { $0.id == id } }),
+           let i = Layout.fullscreens(from).firstIndex(where: { $0.id == id }) {
+            if case .slot(let d, let k) = t, d == from.id, k == i {} else { move = (id, t) }   // dropped where it was: nothing to do
         }
-        guard let id = dragging, let t = target,
-              let from = m.displays.first(where: { g in g.spaces.contains { $0.id == id } }),
-              let i = Layout.fullscreens(from).firstIndex(where: { $0.id == id }) else { return }
-        if case .slot(let d, let k) = t, d == from.id, k == i { return }   // dropped where it was
-        SpaceMover.start(space: id, to: t, model: m)
+        withAnimation(Self.drop) {
+            if let (id, t) = move { SpaceMover.start(space: id, to: t, model: m) }
+            dragging = nil; offset = .zero; target = nil; source = nil
+        }
     }
 }
 

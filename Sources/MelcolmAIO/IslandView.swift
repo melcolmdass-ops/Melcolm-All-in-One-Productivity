@@ -171,10 +171,12 @@ struct SpacesStrip: View {
                         Capsule().fill(BarColor.displayBox.color.opacity(0.35)).frame(width: 1, height: icon * 0.65)
                             .padding(.horizontal, 4)
                     }
-                    ForEach(fulls) { s in
+                    ForEach(fulls, id: \.cellKey) { s in
                         appCell(g, s, on: s.id == g.currentID, icon: icon, h: h - 2)
                             .offset(x: drag.shift(s, in: g))
                             .zIndex(drag.dragging == s.id ? 2 : 0)
+                            // Moving to another display: fade out at the pointer, grow into its new place.
+                            .transition(.asymmetric(insertion: .scale(scale: 0.55).combined(with: .opacity), removal: .opacity))
                     }
                 }
                 .padding(.horizontal, 8)
@@ -189,7 +191,7 @@ struct SpacesStrip: View {
                 .help("Display \(g.number)")
             }
         }
-        .animation(.spring(response: 0.45, dampingFraction: 0.85), value: spaces.displays)
+        .animation(SpaceDragModel.drop, value: spaces.displays)
     }
 
     static func display(of t: SpaceDrop) -> String {
@@ -378,7 +380,7 @@ struct SettingsTab: View {
                 }
             }
             if cur == .spaces { DragSpacesCard() }
-            Text("Melcolm All-in-One Productivity · v2.9").font(.system(size: 10)).foregroundStyle(.tertiary)
+            Text("Melcolm All-in-One Productivity · v2.10").font(.system(size: 10)).foregroundStyle(.tertiary)
         }
         .font(.system(size: 12))
         .toggleStyle(.switch).controlSize(.small)

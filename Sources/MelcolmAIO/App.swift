@@ -168,12 +168,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // For testing: `-debugDragPreview "<space id>:<slot>:<display uuid>"` holds a pretend drag so the slide can be seen.
         if let t = UserDefaults.standard.string(forKey: "debugDragPreview"), let i = islands.first {
             let p = t.split(separator: ":").map(String.init)
-            if p.count == 3, let id = Int(p[0]), let k = Int(p[1]) {
+            if p.count >= 3, let id = Int(p[0]), let k = Int(p[1]) {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
                     let d = SpaceDragModel.shared
                     d.begin(id, model: i.spaces)
                     withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) { d.offset = CGSize(width: -30, height: 4); d.target = k < 0 ? .desktop(p[2]) : .slot(p[2], k) }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 4) { d.target = nil; d.end(model: i.spaces) }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + (p.count < 4 ? 4 : 1.2)) { if p.count < 4 { d.target = nil }; d.end(model: i.spaces) }
                 }
             }
         }

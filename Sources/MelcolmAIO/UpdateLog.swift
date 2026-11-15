@@ -24,6 +24,17 @@ enum UpdateLog {
 
     /// Newest first.
     static let all: [AppUpdate] = [
+        AppUpdate(version: "2.10", date: "November 15th, 2026", title: "A smoother drop",
+                  improvements: [
+                      "When you let go, the app glides from your pointer straight into its new place in one smooth motion.",
+                      "The other apps settle with the same motion, so nothing moves at a different speed.",
+                      "An app dropped on another display fades out where you let go and grows into its new spot.",
+                  ],
+                  fixes: [
+                      "The moved app no longer flashes when macOS finishes the move.",
+                  ],
+                  features: [],
+                  icons: ["hand.draw.fill", "wind", "sparkles"], tint: Color(red: 0.25, green: 0.88, blue: 1.0)),
         AppUpdate(version: "2.9", date: "November 15th, 2026", title: "Apps slide aside while you drag",
                   improvements: [
                       "While you drag an app, the others slide aside to open a space exactly where it will land.",
