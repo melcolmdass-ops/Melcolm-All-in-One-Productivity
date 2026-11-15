@@ -216,7 +216,11 @@ struct Card<Content: View>: View {
 }
 
 struct SettingsTab: View {
-    enum Page: String, CaseIterable { case general = "General", bar = "Bar", panel = "Pages", spaces = "Spaces", mouse = "Mouse", hover = "Hover bar", commands = "Commands" }
+    enum Page: String, CaseIterable { case general = "General", commands = "Commands", bar = "Bar", spaces = "Spaces", mouse = "Mouse", hover = "Hover bar", panel = "Pages", utility = "Utility Bar" }
+    /// Top tabs, each with its own sub-tabs.
+    static let groups: [(name: String, tabs: [Page])] = [
+        ("General", [.general, .commands]), ("Bar", [.bar, .spaces, .mouse, .hover]), ("Pages", [.panel]), ("Utility Bar", [.utility]),
+    ]
     @AppStorage("settingsPage") var page = Page.general.rawValue
     @AppStorage("islandSize") var size = "large"
     @AppStorage("heightMode") var heightMode = "menu"
@@ -244,14 +248,30 @@ struct SettingsTab: View {
 
     var body: some View {
         VStack(spacing: 10) {
-            HStack(spacing: 3) {
-                ForEach(Page.allCases, id: \.self) { p in
-                    Button { page = p.rawValue } label: {
-                        Text(p.rawValue).font(.system(size: 10.5, weight: .semibold)).lineLimit(1).fixedSize()
-                            .foregroundStyle(page == p.rawValue ? .white : .white.opacity(0.7))
-                            .padding(.horizontal, 8).padding(.vertical, 5)
-                            .background(Capsule().fill(page == p.rawValue ? AnyShapeStyle(accent) : AnyShapeStyle(.white.opacity(0.06))))
+            let cur = Page(rawValue: page) ?? .general
+            let group = Self.groups.first { $0.tabs.contains(cur) } ?? Self.groups[0]
+            HStack(spacing: 4) {
+                ForEach(Self.groups, id: \.name) { g in
+                    let on = g.name == group.name
+                    Button { page = g.tabs[0].rawValue } label: {
+                        Text(g.name).font(.system(size: 11.5, weight: .semibold)).lineLimit(1).fixedSize()
+                            .foregroundStyle(on ? .white : .white.opacity(0.7))
+                            .padding(.horizontal, 11).padding(.vertical, 5)
+                            .background(Capsule().fill(on ? AnyShapeStyle(accent) : AnyShapeStyle(.white.opacity(0.06))))
                     }.buttonStyle(.plain)
+                }
+            }
+            if group.tabs.count > 1 {
+                HStack(spacing: 14) {
+                    ForEach(group.tabs, id: \.self) { t in
+                        Button { page = t.rawValue } label: {
+                            VStack(spacing: 3) {
+                                Text(t == .general ? "Main" : t.rawValue).font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(t == cur ? .white : .white.opacity(0.5))
+                                Capsule().fill(t == cur ? accent : .clear).frame(height: 2)
+                            }.fixedSize().contentShape(Rectangle())
+                        }.buttonStyle(.plain)
+                    }
                 }
             }
             Card {
@@ -264,10 +284,11 @@ struct SettingsTab: View {
                     case .mouse: mouse
                     case .hover: hoverPage
                     case .commands: commandsPage
+                    case .utility: utilityPage
                     }
                 }
             }
-            Text("Melcolm All-in-One Productivity · v1.9").font(.system(size: 10)).foregroundStyle(.tertiary)
+            Text("Melcolm All-in-One Productivity · v2.0").font(.system(size: 10)).foregroundStyle(.tertiary)
         }
         .font(.system(size: 12))
         .toggleStyle(.switch).controlSize(.small)
@@ -326,7 +347,23 @@ struct SettingsTab: View {
     }
 
     @AppStorage("barOrder") var barOrder = "timer,music"
-    @AppStorage("batteriesBar") var batteriesBar = true
+    @AppStorage("utilityBar") var utilityBar = true
+    @AppStorage("utilityItems") var utilityRaw = "sound,network,brightness,batteries"
+
+    @ViewBuilder var utilityPage: some View {
+        row("Show the utility bar (bottom of Home)") { Toggle("", isOn: $utilityBar).labelsHidden() }
+        Text("Pick what sits on the bar. Click one on Home and its page opens as a pop-up right there. Order follows Pages.")
+            .font(.system(size: 10.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        let on = Set(utilityRaw.split(separator: ",").map(String.init))
+        ForEach(PanelPage.listed, id: \.self) { p in
+            row(p.title) {
+                Toggle("", isOn: Binding(get: { on.contains(p.rawValue) }, set: { v in
+                    var set = on; if v { set.insert(p.rawValue) } else { set.remove(p.rawValue) }
+                    utilityRaw = PanelPage.listed.filter { set.contains($0.rawValue) }.map(\.rawValue).joined(separator: ",")
+                })).labelsHidden()
+            }
+        }
+    }
     func move(_ a: BarActivity, _ d: Int) {
         var l = BarActivity.order
         guard let i = l.firstIndex(of: a), l.indices.contains(i + d) else { return }
@@ -338,7 +375,6 @@ struct SettingsTab: View {
     }
 
     @ViewBuilder var panelPage: some View {
-        row("Batteries bar (bottom of Home)") { Toggle("", isOn: $batteriesBar).labelsHidden() }
         HStack {
             Text("PAGE").font(.system(size: 10, weight: .heavy)).foregroundStyle(.secondary)
             Spacer()
@@ -526,12 +562,12 @@ struct PeekRow: View {
 
     var textRow: some View {
         HStack(spacing: 8) {
-            if let art = peek.image {
-                Image(nsImage: art).resizable().aspectRatio(contentMode: .fill)
-                    .frame(width: 18, height: 18).clipShape(RoundedRectangle(cornerRadius: 4))
-            } else {
-                Image(systemName: peek.icon).font(.system(size: 11, weight: .semibold)).foregroundStyle(accent).frame(width: 18)
+            // Every pop-up looks the same: a small rounded badge, then one line.
+            Group {
+                if let art = peek.image { Image(nsImage: art).resizable().aspectRatio(contentMode: .fill) }
+                else { Image(systemName: peek.icon).font(.system(size: 10, weight: .bold)).foregroundStyle(.white) }
             }
+            .frame(width: 18, height: 18).background(accent).clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
             if let v = peek.value {
                 GeometryReader { g in
                     Capsule().fill(.white.opacity(0.15)).overlay(alignment: .leading) {

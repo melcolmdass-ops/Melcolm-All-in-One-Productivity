@@ -80,7 +80,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self, Prefs.bool("liveActivities") else { return }
             islands.forEach { $0.peek(.init(text: "Sound now on \(name)", icon: name.localizedCaseInsensitiveContains("airpods") ? "airpodspro" : "speaker.wave.2.fill")) }
         }
-        timer.onFinish = { [weak self] in self?.islands.forEach { $0.peek(.init(text: "Timer done", icon: "bell.fill"), for: 5) } }
+        timer.onFinish = { [weak self] in self?.islands.forEach { $0.peek(.init(text: "Timer done", icon: "bell.fill")) } }
 
         // Keyboard control while a panel is open from ⌃⌥Space.
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
@@ -283,7 +283,7 @@ final class Island: NSObject {
     }
 
     /// Shows a short pop-up under the bar. `for: 0` keeps it until hover ends.
-    func peek(_ p: IslandState.Peek, for seconds: Double = 2.5) {
+    func peek(_ p: IslandState.Peek, for seconds: Double = 3) {
         guard !state.expanded else { return }
         peekToken += 1; let token = peekToken
         state.peek = p

@@ -3,7 +3,7 @@ import SwiftUI
 
 /// Every page the panel can show. `home` is the grid of buttons; the rest open from it.
 enum PanelPage: String, CaseIterable {
-    case home, nowPlaying, sound, mic, brightness, wifi, bluetooth, awake, dark, timer, layouts, settings
+    case home, nowPlaying, sound, brightness, network, batteries, awake, dark, timer, layouts, settings
 
     /// Every page in your chosen order (Settings ▸ Pages, drag to reorder).
     static var listed: [PanelPage] {
@@ -17,18 +17,23 @@ enum PanelPage: String, CaseIterable {
         let set = Set(raw.split(separator: ",").compactMap { PanelPage(rawValue: String($0)) })
         return Array(listed.filter(set.contains).prefix(maxPinned))   // shown in your page order
     }
+    /// What's on the utility bar at the bottom of Home (Settings ▸ Utility Bar).
+    static func utility(_ raw: String) -> [PanelPage] {
+        let set = Set(raw.split(separator: ",").compactMap { PanelPage(rawValue: String($0)) })
+        return listed.filter(set.contains)
+    }
 
     var title: String {
         switch self {
-        case .home: "Melcolm"; case .nowPlaying: "Now Playing"; case .sound: "Sound"; case .mic: "Microphone"; case .brightness: "Brightness"
-        case .wifi: "Wi-Fi"; case .bluetooth: "Bluetooth"; case .awake: "Keep Awake"; case .dark: "Dark Mode"
+        case .home: "Melcolm"; case .nowPlaying: "Now Playing"; case .sound: "Sound & Microphone"; case .brightness: "Brightness"
+        case .network: "Wi-Fi & Bluetooth"; case .batteries: "Batteries"; case .awake: "Keep Awake"; case .dark: "Dark Mode"
         case .timer: "Clock"; case .layouts: "Layouts"; case .settings: "Settings"
         }
     }
     var icon: String {
         switch self {
-        case .home: "house"; case .nowPlaying: "music.note"; case .sound: "speaker.wave.2.fill"; case .mic: "mic.fill"; case .brightness: "sun.max.fill"
-        case .wifi: "wifi"; case .bluetooth: "dot.radiowaves.left.and.right"; case .awake: "cup.and.saucer.fill"
+        case .home: "house"; case .nowPlaying: "music.note"; case .sound: "speaker.wave.2.fill"; case .brightness: "sun.max.fill"
+        case .network: "wifi"; case .batteries: "battery.75percent"; case .awake: "cup.and.saucer.fill"
         case .dark: "circle.lefthalf.filled"; case .timer: "timer"; case .layouts: "rectangle.split.2x2.fill"; case .settings: "gearshape.fill"
         }
     }
@@ -41,10 +46,9 @@ extension PanelPage {
         switch self {
         case .nowPlaying: return [c(1.0, 0.36, 0.62), c(0.78, 0.34, 1.0)]
         case .sound: return [c(0.36, 0.60, 1.0), c(0.58, 0.42, 1.0)]
-        case .mic: return [c(1.0, 0.40, 0.55), c(1.0, 0.26, 0.34)]
         case .brightness: return [c(1.0, 0.82, 0.28), c(1.0, 0.55, 0.20)]
-        case .wifi: return [c(0.25, 0.85, 1.0), c(0.30, 0.55, 1.0)]
-        case .bluetooth: return [c(0.32, 0.62, 1.0), c(0.26, 0.40, 1.0)]
+        case .network: return [c(0.25, 0.85, 1.0), c(0.30, 0.55, 1.0)]
+        case .batteries: return [c(0.25, 0.95, 0.45), c(0.20, 0.74, 0.50)]
         case .awake: return [c(1.0, 0.62, 0.22), c(1.0, 0.40, 0.28)]
         case .dark: return [c(0.52, 0.46, 1.0), c(0.72, 0.36, 0.95)]
         case .timer: return [c(0.32, 0.92, 0.58), c(0.20, 0.74, 0.82)]
@@ -91,11 +95,10 @@ struct PanelView: View {
     @ViewBuilder static func pageContent(_ page: PanelPage) -> some View {
         switch page {
         case .nowPlaying: NowPlayingPage()
-        case .sound: SoundPage()
-        case .mic: MicPage()
+        case .sound: VStack(spacing: 14) { SoundPage(); sectionLabel("Microphone"); MicPage() }
+        case .network: VStack(spacing: 14) { WifiPage(); BluetoothPage() }
+        case .batteries: BatteriesPage()
         case .brightness: BrightnessPage()
-        case .wifi: WifiPage()
-        case .bluetooth: BluetoothPage()
         case .awake: AwakePage()
         case .dark: DarkPage()
         case .timer: TimerPage()
@@ -116,7 +119,8 @@ struct HomePage: View {
     @EnvironmentObject var playing: NowPlayingModel
     @AppStorage("hiddenTiles") var hidden = ""
     @AppStorage("homePinned") var pinnedRaw = ""
-    @AppStorage("batteriesBar") var batteriesBar = true
+    @AppStorage("utilityBar") var utilityBar = true
+    @AppStorage("utilityItems") var utilityRaw = "sound,network,brightness,batteries"
     @AppStorage("pageOrder") var order = ""
 
     var body: some View {
@@ -175,7 +179,7 @@ struct HomePage: View {
           .scrollIndicators(.visible)
             Hairline()
             HStack(spacing: 10) {
-                if batteriesBar { BatteriesBar() } else {
+                if utilityBar { UtilityBar(items: PanelPage.utility(utilityRaw)) } else {
                     Spacer()
                     Text("⌃⌥Space").foregroundStyle(.tertiary)
                 }
@@ -193,10 +197,9 @@ struct HomePage: View {
         switch p {
         case .nowPlaying: return (playing.title.isEmpty ? "Nothing playing" : playing.title, true)
         case .sound: return ("\(sound.muted ? "Muted" : "\(Int(sound.volume * 100))%") · \(sound.outputName)", !sound.muted)
-        case .mic: return (sound.inputMuted ? "Muted" : "\(Int(sound.inputVolume * 100))%", !sound.inputMuted)
+        case .batteries: return (system.battery.map { "Mac \($0)%" } ?? "Batteries", true)
         case .brightness: return (system.brightness.map { "\(Int($0 * 100))%" } ?? "External screen", system.brightness != nil)
-        case .wifi: return (system.wifiOn ? (system.wifiName ?? "On") : "Off", system.wifiOn)
-        case .bluetooth: return (system.bluetoothOn ? "On" : "Off", system.bluetoothOn)
+        case .network: return ("\(system.wifiOn ? (system.wifiName ?? "Wi-Fi on") : "Wi-Fi off") · BT \(system.bluetoothOn ? "on" : "off")", system.wifiOn || system.bluetoothOn)
         case .awake: return (system.awake ? "On" : "Off", system.awake)
         case .dark: return (system.dark ? "Dark" : "Light", system.dark)
         case .timer: return (timer.isActive ? timer.display : "Ready", timer.isActive)
@@ -430,11 +433,6 @@ struct NowPlayingPage: View {
             Label("Click the artwork to open it where it's playing", systemImage: "hand.point.up.left.fill")
                 .font(.system(size: 10.5, weight: .medium)).foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 4).padding(.top, 2)
-            if playing.jsHint {
-                Text("To scrub the play bar on browser tabs (and play/pause without the tab coming forward), turn on Chrome ▸ View ▸ Developer ▸ Allow JavaScript from Apple Events. Chrome doesn't share the time otherwise.")
-                    .font(.system(size: 10.5)).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 4)
-            }
             }
             SettingsLink(title: "Sound Settings", pane: "com.apple.Sound-Settings.extension")
         }
@@ -675,5 +673,76 @@ struct PageDrag: ViewModifier {
                     return true
                 }
         } else { content }
+    }
+}
+
+// MARK: - Batteries page and utility bar
+
+/// Every battery, big and clear. Tick what shows with the eye button.
+struct BatteriesPage: View {
+    @EnvironmentObject var system: SystemModel
+    @EnvironmentObject var batteries: BatteryModel
+    var body: some View {
+        VStack(spacing: 14) {
+            BatteriesBar()
+            SettingsLink(title: "Battery Settings", pane: "com.apple.Battery-Settings.extension")
+        }
+    }
+}
+
+/// The bar at the bottom of Home: one small button per chosen page. Click one and that page
+/// opens right there as a pop-up, exactly as it looks on its own page.
+struct UtilityBar: View {
+    let items: [PanelPage]
+    @EnvironmentObject var system: SystemModel
+    @EnvironmentObject var sound: SoundModel
+    @AppStorage("utilityOpen") var open = ""
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(items, id: \.self) { p in
+                Button { open = open == p.rawValue ? "" : p.rawValue } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: icon(p)).font(.system(size: 12, weight: .semibold)).symbolRenderingMode(.hierarchical)
+                            .foregroundStyle(p.tint[0])
+                        Text(label(p)).font(.system(size: 11, weight: .semibold).monospacedDigit()).lineLimit(1)
+                    }
+                    .padding(.horizontal, 9).frame(height: 28)
+                    .background(Capsule().fill(.white.opacity(open == p.rawValue ? 0.16 : 0.07))
+                        .overlay(Capsule().strokeBorder(.white.opacity(0.08), lineWidth: 1)))
+                    .contentShape(Capsule())
+                }
+                .buttonStyle(PressStyle()).foregroundStyle(.white.opacity(0.9)).help(p.title)
+                .popover(isPresented: Binding(get: { open == p.rawValue }, set: { if !$0, open == p.rawValue { open = "" } }), arrowEdge: .top) {
+                    VStack(spacing: 10) {
+                        Text(p.title).font(.system(size: 13, weight: .heavy)).frame(maxWidth: .infinity, alignment: .leading)
+                        PanelView.pageContent(p)
+                    }
+                    .padding(14).frame(width: 360).preferredColorScheme(.dark)
+                }
+            }
+            if items.isEmpty { Text("Pick items in Settings ▸ Utility Bar").foregroundStyle(.tertiary) }
+            Spacer(minLength: 0)
+        }
+    }
+
+    func icon(_ p: PanelPage) -> String {
+        switch p {
+        case .sound: sound.muted ? "speaker.slash.fill" : "speaker.wave.2.fill"
+        case .batteries: system.charging ? "battery.100percent.bolt" : "battery.75percent"
+        case .network: system.wifiOn ? "wifi" : "wifi.slash"
+        default: p.icon
+        }
+    }
+    func label(_ p: PanelPage) -> String {
+        switch p {
+        case .sound: sound.muted ? "Muted" : "\(Int(sound.volume * 100))%"
+        case .brightness: system.brightness.map { "\(Int($0 * 100))%" } ?? "Bright"
+        case .batteries: system.battery.map { "\($0)%" } ?? "AC"
+        case .network: system.wifiOn ? "On" : "Off"
+        case .awake: system.awake ? "On" : "Off"
+        case .dark: system.dark ? "Dark" : "Light"
+        default: p == .timer ? "Clock" : p.title
+        }
     }
 }
