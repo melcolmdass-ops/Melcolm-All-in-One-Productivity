@@ -244,7 +244,7 @@ final class Island: NSObject {
     func relayout() {
         state.iconSize = Layout.icon(forBar: barH)
         let left = 14 + Layout.stripWidth(spaces, icon: Layout.icon(forBar: barH)) + 12
-        var right: CGFloat = 10 + 36 + 12                     // chevron
+        var right: CGFloat = 10 + 34 + 12 + 12                // chevron box + divider
         switch BarActivity.current(timerOn: timer.isActive, musicOn: playing.playing) {
         case .timer: right += 92
         case .music: right += 66                                            // music note + wave

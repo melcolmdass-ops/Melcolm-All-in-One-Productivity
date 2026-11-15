@@ -83,6 +83,8 @@ struct TopBar: View {
                         .help("Microphone is on")
                 }
                 let _ = (barOrder, showTimer, showMusic)
+                // One glowing box: [what's playing | arrow]. Left half opens its page, right half opens the panel.
+                HStack(spacing: 0) {
                 if let a = BarActivity.current(timerOn: timer.isActive, musicOn: playing.playing) {
                     Button { openPage(a.page) } label: {
                         Group {
@@ -97,20 +99,27 @@ struct TopBar: View {
                                     BeatWave().scaleEffect(1.25)
                                 }
                             }
-                        }.contentShape(Rectangle())
+                        }.padding(.horizontal, 9).frame(maxHeight: .infinity).contentShape(Rectangle())
                     }.buttonStyle(PressStyle()).help(a == .music ? "\(playing.title) · click to open Now Playing" : "Click to open Clock")
+                    Rectangle().fill(.white.opacity(0.28)).frame(width: 1, height: 14)
                 }
                 Button(action: toggle) {
                     Image(systemName: "chevron.down")
                         .font(.system(size: 13, weight: .bold))
                         .rotationEffect(.degrees(state.expanded ? 180 : 0))
                         .foregroundStyle(.white.opacity(0.92))
-                        .frame(width: 36, height: 26)
-                        .background(Capsule().fill(.white.opacity(0.12)))
+                        .frame(width: 34).frame(maxHeight: .infinity)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .help("Open Melcolm (⌃⌥Space)")
+                }
+                .frame(height: max(20, state.barHeight - 6))
+                .background {
+                    let r = RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    r.fill(Color(white: 0.11))
+                    r.strokeBorder(accent.opacity(0.75), lineWidth: 1.4).shadow(color: accent.opacity(0.6), radius: 5)
+                }
             }
             .padding(state.notchWidth > 0 ? .leading : .trailing, state.notchWidth > 0 ? 12 : 10)
             .frame(maxWidth: .infinity, alignment: state.notchWidth > 0 ? .leading : .trailing)
