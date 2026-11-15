@@ -67,7 +67,7 @@ enum BarActivity: String, CaseIterable {
 
 /// Sizes shared by the view and the window, so the window always fits the strip exactly.
 enum Layout {
-    static func iconSize(_ size: String) -> CGFloat { size == "small" ? 16 : size == "large" ? 24 : 20 }
+    static func iconSize(_ size: String) -> CGFloat { size == "small" ? 20 : size == "large" ? 32 : 26 }
     /// The chosen icon size, shrunk if needed so it fits inside the bar.
     static func icon(forBar h: CGFloat) -> CGFloat {
         min(iconSize(Prefs.d.string(forKey: "islandSize") ?? "large"), max(14, h - 5))

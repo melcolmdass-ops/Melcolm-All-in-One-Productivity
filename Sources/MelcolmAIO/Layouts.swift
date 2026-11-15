@@ -293,10 +293,11 @@ struct LayoutsPage: View {
             }
             let hiddenSet = Set(hiddenRaw.split(separator: ",").map(String.init))
             let shownList = WindowLayout.all.filter { !hiddenSet.contains($0.id) }
-            HStack(spacing: 6) {
+            // Two per row, so every button has room for its whole name.
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)], spacing: 6) {
                 arrangeButton
-                action("Minimize all\n(desktop)", "rectangle.compress.vertical") { Tiler.minimizeDesktop() }
-                action("Minimize all\n(Spaces)", "arrow.down.right.and.arrow.up.left") { Tiler.minimizeSpaces() }
+                action("Minimize all (desktop)", "rectangle.compress.vertical") { Tiler.minimizeDesktop() }
+                action("Minimize all (Spaces)", "arrow.down.right.and.arrow.up.left") { Tiler.minimizeSpaces() }
                 if light {
                     Menu {
                         ForEach(shownList) { l in
@@ -308,7 +309,7 @@ struct LayoutsPage: View {
                         Label("Layouts", systemImage: "rectangle.split.2x2").font(.system(size: 11, weight: .semibold))
                     }
                     .menuStyle(.borderlessButton).fixedSize()
-                    .padding(.horizontal, 8).frame(height: 36)
+                    .padding(.horizontal, 8).frame(maxWidth: .infinity, minHeight: 36)
                     .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(.white.opacity(0.08)))
                     .help("Snap the window you were just using")
                 }

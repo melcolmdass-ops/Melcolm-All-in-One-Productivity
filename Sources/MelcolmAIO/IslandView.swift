@@ -122,7 +122,7 @@ struct TopBar: View {
                 .buttonStyle(.plain)
                 .help("Open Melcolm (⌃⌥Space)")
                 }
-                .frame(height: max(20, state.barHeight - 10))
+                .frame(height: max(20, state.barHeight - 4))
                 .background { NeonBox(color: BarColor.statusBox.color) }
             }
             .padding(state.notchWidth > 0 ? .leading : .trailing, state.notchWidth > 0 ? 18 : 10)
@@ -148,7 +148,7 @@ struct SpacesStrip: View {
 
     var body: some View {
         let icon = state.iconSize
-        let h = min(icon + 2 * Layout.cellPad, state.barHeight - 8)
+        let h = min(icon + 2 * Layout.cellPad, state.barHeight - 4)
         let all = spaces.displays
         let shown = Array(all.dropFirst(min(first, all.count)).prefix(count ?? all.count))
         HStack(spacing: Layout.chipGap) {
@@ -156,14 +156,14 @@ struct SpacesStrip: View {
                 let desktops = Layout.desktops(g)
                 let home = desktops.first { $0.id == g.currentID } ?? desktops.first
                 HStack(spacing: 2) {
-                    if let home { numberCell(g, home, on: home.id == g.currentID, icon: icon, h: h - 4) }
-                    else { Color.clear.frame(width: Layout.numberCell(icon), height: h - 4) }
+                    if let home { numberCell(g, home, on: home.id == g.currentID, icon: icon, h: h - 2) }
+                    else { Color.clear.frame(width: Layout.numberCell(icon), height: h - 2) }
                     let fulls = Layout.fullscreens(g)
                     if !fulls.isEmpty {
                         Capsule().fill(BarColor.displayBox.color.opacity(0.35)).frame(width: 1, height: icon * 0.65)
                             .padding(.horizontal, 4)
                     }
-                    ForEach(fulls) { s in appCell(g, s, on: s.id == g.currentID, icon: icon, h: h - 4) }
+                    ForEach(fulls) { s in appCell(g, s, on: s.id == g.currentID, icon: icon, h: h - 2) }
                 }
                 .padding(.horizontal, 8)
                 .frame(width: Layout.groupWidth(g, icon: icon, m: spaces), height: h, alignment: .leading)
@@ -184,7 +184,7 @@ struct SpacesStrip: View {
                     r.fill(LinearGradient(colors: [cyan.opacity(style == "box" ? 0.38 : 0.22), cyan.opacity(0.06)], startPoint: .top, endPoint: .bottom))
                     r.strokeBorder(cyan, lineWidth: 1.3).neon(cyan, style == "glow" ? 0.9 : 0.3)
                 }
-                .padding(.vertical, 1.5).padding(.horizontal, 1)
+                .padding(.vertical, 0.5).padding(.horizontal, 0.5)
                 .matchedGeometryEffect(id: "glow-\(display)", in: ns)
             }
         }
@@ -220,7 +220,7 @@ struct SpacesStrip: View {
                     // Split view: both apps sit in the same highlighted box.
                     HStack(spacing: 3) {
                         // The icon always fits inside its highlight, so the outline is never covered.
-                        let ic = max(12, min(icon, h - 5))
+                        let ic = max(14, min(icon, h - 3))
                         ForEach(list) { a in Image(nsImage: a.icon).resizable().interpolation(.high).frame(width: ic, height: ic) }
                     }
                 } else {
@@ -329,7 +329,7 @@ struct SettingsTab: View {
                     }
                 }
             }
-            Text("Melcolm All-in-One Productivity · v2.4").font(.system(size: 10)).foregroundStyle(.tertiary)
+            Text("Melcolm All-in-One Productivity · v2.5").font(.system(size: 10)).foregroundStyle(.tertiary)
         }
         .font(.system(size: 12))
         .toggleStyle(.switch).controlSize(.small)
@@ -423,7 +423,7 @@ struct SettingsTab: View {
         HStack {
             Text("PAGE").font(.system(size: 10, weight: .heavy)).foregroundStyle(.secondary)
             Spacer()
-            Text("OPEN ON HOME (\(PanelPage.pinned(homePinned).count)/\(PanelPage.maxPinned))").font(.system(size: 10, weight: .heavy)).foregroundStyle(.secondary).frame(width: 130)
+            Text("QUICK VIEW (\(PanelPage.pinned(homePinned).count)/\(PanelPage.maxPinned))").font(.system(size: 10, weight: .heavy)).foregroundStyle(.secondary).frame(width: 130)
             Text("SHOW").font(.system(size: 10, weight: .heavy)).foregroundStyle(.secondary).frame(width: 44)
         }
         ForEach(PanelPage.listed, id: \.self) { t in

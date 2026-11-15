@@ -338,7 +338,8 @@ final class NowPlayingModel: ObservableObject {
                 DispatchQueue.main.async {
                     guard let self, self.pressedAt[r.id] == stamp else { return }   // pressed again since: leave it
                     BrowserMedia.log("toggle retry \(r.id) page still \(now)")
-                    if !BrowserMedia.togglePlay(r) { Self.mediaKey(16) }
+                    // Retry only on this tab's own button: the keyboard play key could flip a different tab.
+                    if !WebAX.press(f.play) { _ = BrowserMedia.togglePlay(r) }
                 }
             }
         }

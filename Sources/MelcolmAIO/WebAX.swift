@@ -77,11 +77,16 @@ enum WebAX {
                     if f.dur == 0, let v = num(e, kAXValueAttribute), let m = num(e, kAXMaxValueAttribute), m > 1 { f.pos = v; f.dur = m }
                 }
             } else if role == kAXButtonRole {
-                let label = (str(e, kAXDescriptionAttribute) + " " + str(e, kAXTitleAttribute)).trimmingCharacters(in: .whitespaces).lowercased()
-                if f.play == nil, label.hasPrefix("pause") { f.play = e; f.playing = true }
-                else if f.play == nil, label.hasPrefix("play") && !label.hasPrefix("playlist") && !label.contains("all") { f.play = e; f.playing = false }
-                else if f.next == nil, label.hasPrefix("next") { f.next = e }
-                else if f.prev == nil, label.hasPrefix("previous") { f.prev = e }
+                // One name per button: its description, or its title when there is none ("play", not "play play").
+                let d = str(e, kAXDescriptionAttribute).trimmingCharacters(in: .whitespaces)
+                let label = (d.isEmpty ? str(e, kAXTitleAttribute) : d).trimmingCharacters(in: .whitespaces).lowercased()
+                // Only the player's own button counts: "Play" / "Pause" (YouTube adds " (k)").
+                // Queue rows are "Play <song name>"; taking one of those flipped the icon and played the wrong song.
+                func isPlayer(_ word: String) -> Bool { label == word || label.hasPrefix(word + " (") }
+                if f.play == nil, isPlayer("pause") { f.play = e; f.playing = true }
+                else if f.play == nil, isPlayer("play") { f.play = e; f.playing = false }
+                else if f.next == nil, label == "next" || label.hasPrefix("next (") || label == "next song" { f.next = e }
+                else if f.prev == nil, label == "previous" || label.hasPrefix("previous (") || label == "previous song" { f.prev = e }
             }
             if let kids = attr(e, kAXChildrenAttribute) as? [AXUIElement] { queue.append(contentsOf: kids) }
         }

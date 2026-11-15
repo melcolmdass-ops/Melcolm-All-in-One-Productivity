@@ -24,6 +24,19 @@ enum UpdateLog {
 
     /// Newest first.
     static let all: [AppUpdate] = [
+        AppUpdate(version: "2.5", date: "November 15th, 2026", title: "Play buttons that tell the truth, and much bigger icons",
+                  improvements: [
+                      "Icons on the bar are about twice as big, and the Small / Medium / Large sizes are all bigger.",
+                      "Layouts on Home sit two per row, so every button shows its whole name.",
+                      "\"Open on Home\" is now called Quick View.",
+                  ],
+                  fixes: [
+                      "The Play / Pause button no longer shows the opposite of what's happening in YouTube Music.",
+                      "Pressing Play no longer starts a different song from the queue by mistake.",
+                      "Play / Pause works for YouTube Music without Chrome's JavaScript setting, so it doesn't matter when Chrome turns it off.",
+                  ],
+                  features: [],
+                  icons: ["playpause.fill", "plus.magnifyingglass", "square.grid.2x2.fill"], tint: pink),
         AppUpdate(version: "2.4", date: "November 15th, 2026", title: "Sleek neon bar, smart arranging and Low Power Mode",
                   improvements: [
                       "Every box on the bar has a cleaner, stronger neon glow.",
