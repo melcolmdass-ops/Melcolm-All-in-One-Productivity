@@ -140,7 +140,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         playing.refresh()
         // For testing: `--args -debugPressTest YES -debugLog YES` presses Play/Pause once, then again to put it back.
-        if UserDefaults.standard.bool(forKey: "debugToggle") {
+        if UserDefaults.standard.bool(forKey: "debugPressTest") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
                 guard let self, let r = playing.others.first(where: { $0.url.contains("music.youtube") }) ?? playing.mainResult else { return }
                 BrowserMedia.log("TEST press 1 shown=\(playing.isPlaying(r))")
