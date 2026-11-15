@@ -68,7 +68,8 @@ enum SpaceMover {
         q.async {
             switch t {
             case .desktop(let d): toDesktop(pid: info.pid, wid: info.wid, display: d)
-            case .slot(let d, let k): move(pid: info.pid, wid: info.wid, display: d, index: k)
+            case .slot(let d, let k):
+                move(pid: info.pid, wid: info.wid, display: d, index: k)
             }
             DispatchQueue.main.async { busy = false; m.endPreview() }
         }
@@ -162,9 +163,20 @@ enum SpaceMover {
             Thread.sleep(forTimeInterval: 0.5)
             err = AXUIElementSetAttributeValue(w, "AXFullScreen" as CFString, on as CFBoolean)
         }
-        let until = Date().addingTimeInterval(4)
-        while Date() < until, isFull(w) != on { Thread.sleep(forTimeInterval: 0.1) }
-        Thread.sleep(forTimeInterval: 0.85)   // let macOS finish its animation before the next step
+        // Go on the moment macOS has made (or removed) the Space, plus a short beat for its animation.
+        var wid: CGWindowID = 0; _ = axWindowID(w, &wid)
+        func hasSpace() -> Bool { raw().contains { (($0["Spaces"] as? [NSDictionary]) ?? []).contains { ($0["type"] as? Int) == 4 && CGWindowID(Self.wid($0)) == wid } } }
+        let until = Date().addingTimeInterval(5)
+        var asked = Date()
+        while Date() < until, isFull(w) != on || hasSpace() != on {
+            Thread.sleep(forTimeInterval: 0.04)
+            // macOS ignores the request while it's still animating the last one: ask again.
+            if UserDefaults.standard.bool(forKey: "debugLog") { BrowserMedia.log("spacemove t full=\(isFull(w)) space=\(hasSpace())") }
+            if Date().timeIntervalSince(asked) > 0.7, isFull(w) != on {
+                err = AXUIElementSetAttributeValue(w, "AXFullScreen" as CFString, on as CFBoolean); asked = Date()
+            }
+        }
+        Thread.sleep(forTimeInterval: on ? 0.45 : 0.55)
         BrowserMedia.log("spacemove full=\(on) err=\(err.rawValue) now=\(isFull(w))")
         return isFull(w) == on
     }
@@ -208,27 +220,34 @@ enum SpaceMover {
         DispatchQueue.main.async { NSRunningApplication(processIdentifier: pid)?.activate() }
     }
 
+    /// macOS always puts a newly full-screened app last on its display. So to get the wanted order,
+    /// keep the longest run at the front that's already in order, and send only the rest to the back
+    /// (leave + re-enter full screen) one by one. A swap of two apps re-enters just one of them.
     static func move(pid: pid_t, wid: CGWindowID, display: String, index k: Int) {
-        guard let w = window(pid: pid, wid: wid) else { BrowserMedia.log("spacemove no window \(wid)"); return }
-        guard setFull(w, false, pid: pid) else { return }
-        if let s = screen(display) { place(w, on: s, onlyIfElsewhere: true) }
-        guard setFull(w, true, pid: pid) else { return }
-        // Fix the order: where did it land?
         let now = order(display)
-        guard let p = now.firstIndex(where: { $0.wid == wid }) else { return }
-        BrowserMedia.log("spacemove landed \(p) want \(k) of \(now.count)")
-        if p == k { return }
-        let others = now.filter { $0.wid != wid }
-        var cycle: [(wid: CGWindowID, split: Bool)] = []
-        if p == 0 { cycle = Array(others.prefix(k)).reversed() }      // new Spaces land first: re-enter the ones before it
-        else if p == now.count - 1 { cycle = Array(others.dropFirst(k)) }  // new Spaces land last: re-enter the ones after it
-        // Re-entering a Split View pair would pull it apart, so then it stays where macOS put it.
-        if cycle.contains(where: { $0.split || $0.wid == 0 }) { BrowserMedia.log("spacemove order kept: split view in the way"); return }
-        for o in cycle.map(\.wid) {
-            guard let ow = window(pid: owner(o) ?? 0, wid: o) else { continue }
-            let op = owner(o) ?? 0
-            if setFull(ow, false, pid: op) { setFull(ow, true, pid: op) }
+        let cross = !now.contains { $0.wid == wid }
+        var want = now.filter { $0.wid != wid }
+        want.insert((wid, false), at: min(k, want.count))
+        // Already-in-order front run (the moved app can't stay put if it's coming from another display).
+        var keep = 0, j = 0
+        while keep < want.count {
+            let x = want[keep].wid
+            if cross && x == wid { break }
+            guard let at = now[j...].firstIndex(where: { $0.wid == x }) else { break }
+            j = at + 1; keep += 1
         }
+        let cycle = Array(want.dropFirst(keep))
+        BrowserMedia.log("spacemove now \(now.map(\.wid)) want \(want.map(\.wid)) re-enter \(cycle.map(\.wid))")
+        // Re-entering a Split View pair would pull it apart, so then only the dragged app moves.
+        let blocked = cycle.contains { $0.wid != wid && ($0.split || $0.wid == 0) }
+        for o in (blocked ? [(wid, false)] : cycle).map(\.0) {
+            let op = o == wid ? pid : (owner(o) ?? 0)
+            guard let ow = window(pid: op, wid: o) else { continue }
+            guard setFull(ow, false, pid: op) else { continue }
+            if o == wid, let s = screen(display) { place(ow, on: s, onlyIfElsewhere: true) }
+            setFull(ow, true, pid: op)
+        }
+        BrowserMedia.log("spacemove done \(order(display).map(\.wid))")
         // Finish on the app that was moved.
         DispatchQueue.main.async { NSRunningApplication(processIdentifier: pid)?.activate() }
     }

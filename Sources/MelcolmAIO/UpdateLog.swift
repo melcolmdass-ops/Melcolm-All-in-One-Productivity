@@ -24,6 +24,18 @@ enum UpdateLog {
 
     /// Newest first.
     static let all: [AppUpdate] = [
+        AppUpdate(version: "2.8", date: "November 15th, 2026", title: "Faster swaps when you drag",
+                  improvements: [
+                      "Swapping two full-screen apps now moves just one of them, so it's about 2 seconds instead of 5 to 7.",
+                      "Each step starts the moment macOS is ready instead of waiting a fixed time.",
+                  ],
+                  fixes: [
+                      "An app no longer gets stuck out of full screen if macOS was still animating when it was asked to go back.",
+                  ],
+                  features: [
+                      "New master rule: dragging is always smooth.",
+                  ],
+                  icons: ["hand.draw.fill", "bolt.fill", "arrow.left.arrow.right"], tint: Color(red: 0.25, green: 0.88, blue: 1.0)),
         AppUpdate(version: "2.7", date: "November 15th, 2026", title: "Drag your full-screen apps around the bar",
                   improvements: [
                       "While you drag, a cyan line shows exactly where the app will land.",
@@ -289,6 +301,8 @@ struct MasterRule: Identifiable {
                    detail: "Rest the pointer on anything in the bar (a display number, an app, the music, the arrow, the notch or the island itself) and it lifts up a little and glows in the colour you picked for it in Colors."),
         MasterRule(icon: "menubar.rectangle", title: "App menus are never covered",
                    detail: "If an app's menus (File, Edit, View…) would run under the island, your displays move to the right of the notch instead."),
+        MasterRule(icon: "hand.draw.fill", title: "Dragging is always smooth",
+                   detail: "Anything you drag on the bar follows your pointer, a glowing line shows where it will land, and the bar shows the new order the moment you let go while macOS catches up. Only what has to move moves, so a swap is one quick step."),
     ]
 }
 

@@ -389,7 +389,7 @@ struct SettingsTab: View {
                 }
             }
             if cur == .spaces { DragSpacesCard() }
-            Text("Melcolm All-in-One Productivity · v2.7").font(.system(size: 10)).foregroundStyle(.tertiary)
+            Text("Melcolm All-in-One Productivity · v2.8").font(.system(size: 10)).foregroundStyle(.tertiary)
         }
         .font(.system(size: 12))
         .toggleStyle(.switch).controlSize(.small)
