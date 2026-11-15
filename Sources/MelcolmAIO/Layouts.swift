@@ -31,6 +31,7 @@ struct WindowLayout: Identifiable {
         WindowLayout(id: "full", title: "Full screen", x: 0, y: 0, w: 1, h: 1),
         WindowLayout(id: "center", title: "Centre", x: 0.15, y: 0.1, w: 0.7, h: 0.8),
     ]
+    static let all = halves + thirds + corners + other
 }
 
 /// Moves and resizes other apps' windows through Accessibility (the same way Rectangle does).
@@ -149,8 +150,10 @@ enum Tiler {
 struct LayoutsPage: View {
     @EnvironmentObject var state: IslandState
     @Environment(\.lightPage) var light
+    @AppStorage("layoutsHidden") var hiddenRaw = "top,bottom"
+    @AppStorage("layoutsEditing") var editing = false
     var body: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: 12) {
             if !Tiler.trusted {
                 Card {
                     HStack {
@@ -167,40 +170,63 @@ struct LayoutsPage: View {
                     .foregroundStyle(.white)
             }.buttonStyle(PressStyle())
             if !light {
-            group("HALVES", WindowLayout.halves)
-            group("THIRDS", WindowLayout.thirds)
-            group("CORNERS", WindowLayout.corners)
-            group("OTHER", WindowLayout.other)
-            Text("Snaps the window you were just using. Auto-arrange tidies every window on this screen into a grid.")
-                .font(.system(size: 10.5)).foregroundStyle(.tertiary).multilineTextAlignment(.center)
-            SettingsLink(title: "Desktop & Dock Settings", pane: "com.apple.Desktop-Settings.extension")
+                let hidden = Set(hiddenRaw.split(separator: ",").map(String.init))
+                let shown = WindowLayout.all.filter { !hidden.contains($0.id) }
+                let gone = WindowLayout.all.filter { hidden.contains($0.id) }
+                HStack {
+                    sectionLabel("SNAP")
+                    LinkButton(editing ? "Done" : "Edit") { withAnimation(.easeOut(duration: 0.2)) { editing.toggle() } }
+                }
+                grid(shown, hide: true)
+                if editing {
+                    sectionLabel("HIDDEN")
+                    if gone.isEmpty {
+                        Text("Click a layout above to hide it.").font(.system(size: 11)).foregroundStyle(.secondary)
+                    } else { grid(gone, hide: false) }
+                }
+                Text(editing ? "Click a layout to move it between shown and hidden." : "Snaps the window you were just using. Auto-arrange tidies every window on this screen into a grid.")
+                    .font(.system(size: 10.5)).foregroundStyle(.tertiary).multilineTextAlignment(.center)
+                SettingsLink(title: "Desktop & Dock Settings", pane: "com.apple.Desktop-Settings.extension")
             }
         }
     }
 
-    func group(_ title: String, _ items: [WindowLayout]) -> some View {
-        VStack(spacing: 8) {
-            sectionLabel(title)
-            HStack(spacing: 10) {
-                ForEach(items) { l in
-                    Button { _ = Tiler.apply(l) } label: {
-                        VStack(spacing: 6) {
-                            ZStack(alignment: .topLeading) {
-                                RoundedRectangle(cornerRadius: 4).fill(.white.opacity(0.1))
-                                GeometryReader { g in
-                                    RoundedRectangle(cornerRadius: 3).fill(accentGradient)
-                                        .frame(width: g.size.width * l.w - 3, height: g.size.height * l.h - 3)
-                                        .offset(x: g.size.width * l.x + 1.5, y: g.size.height * l.y + 1.5)
-                                }
+    func flip(_ id: String) {
+        var h = hiddenRaw.split(separator: ",").map(String.init)
+        if let i = h.firstIndex(of: id) { h.remove(at: i) } else { h.append(id) }
+        hiddenRaw = h.joined(separator: ",")
+    }
+
+    /// Everything shown fits in two rows.
+    func grid(_ items: [WindowLayout], hide: Bool) -> some View {
+        let cols = max(4, Int(ceil(Double(items.count) / 2)))
+        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: cols), spacing: 6) {
+            ForEach(items) { l in
+                Button { editing ? flip(l.id) : { _ = Tiler.apply(l) }() } label: {
+                    VStack(spacing: 4) {
+                        ZStack(alignment: .topLeading) {
+                            RoundedRectangle(cornerRadius: 3).fill(.white.opacity(0.1))
+                            GeometryReader { g in
+                                RoundedRectangle(cornerRadius: 2).fill(accentGradient)
+                                    .frame(width: g.size.width * l.w - 3, height: g.size.height * l.h - 3)
+                                    .offset(x: g.size.width * l.x + 1.5, y: g.size.height * l.y + 1.5)
                             }
-                            .frame(height: 38)
-                            Text(l.title).font(.system(size: 9.5, weight: .medium)).foregroundStyle(.secondary).lineLimit(1)
                         }
-                        .padding(8).frame(maxWidth: .infinity)
-                        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(.white.opacity(0.06)))
-                        .contentShape(Rectangle())
-                    }.buttonStyle(PressStyle())
-                }
+                        .frame(height: 24)
+                        Text(l.title).font(.system(size: 8.5, weight: .medium)).foregroundStyle(.secondary)
+                            .lineLimit(1).minimumScaleFactor(0.7)
+                    }
+                    .padding(5).frame(maxWidth: .infinity)
+                    .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(.white.opacity(0.06)))
+                    .overlay(alignment: .topTrailing) {
+                        if editing {
+                            Image(systemName: hide ? "minus.circle.fill" : "plus.circle.fill")
+                                .font(.system(size: 11)).foregroundStyle(hide ? .red : .green).offset(x: 3, y: -3)
+                        }
+                    }
+                    .opacity(hide ? 1 : 0.6)
+                    .contentShape(Rectangle())
+                }.buttonStyle(PressStyle()).help(l.title)
             }
         }
     }

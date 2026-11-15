@@ -64,10 +64,15 @@ struct TopBar: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            SpacesStrip()
-                .padding(.leading, 14)
-                .frame(width: state.expanded && state.notchWidth > 0 ? max(state.leftWing, state.rightWing) : state.leftWing, alignment: .leading)
+            if !state.stripRight {
+                SpacesStrip()
+                    .padding(.leading, 14)
+                    .frame(width: state.expanded && state.notchWidth > 0 ? max(state.leftWing, state.rightWing) : state.leftWing, alignment: .leading)
+            } else if state.expanded {
+                Color.clear.frame(width: max(state.leftWing, state.rightWing))
+            }
             if state.notchWidth > 0 { Color.clear.frame(width: state.notchWidth) }
+            if state.stripRight { SpacesStrip().padding(.leading, 10) }
             Spacer(minLength: 0)
             HStack(spacing: 8) {
                 if sound.micInUse {
@@ -139,7 +144,7 @@ struct SpacesStrip: View {
                     ForEach(fulls) { s in appCell(s, on: s.id == g.currentID, icon: icon, h: h - 4) }
                 }
                 .padding(.horizontal, 8)
-                .frame(width: Layout.groupWidth(g, icon: icon), height: h, alignment: .leading)
+                .frame(width: Layout.groupWidth(g, icon: icon, m: spaces), height: h, alignment: .leading)
                 .background {
                     let r = RoundedRectangle(cornerRadius: 9, style: .continuous)
                     r.fill(Color(white: 0.13))
@@ -181,26 +186,30 @@ struct SpacesStrip: View {
     }
 
     func appCell(_ s: SpaceItem, on: Bool, icon: CGFloat, h: CGFloat) -> some View {
-        let app = spaces.apps[s.id]?.first
+        let list = Array((spaces.apps[s.id] ?? []).prefix(2))
+        let app = list.first
         let dim = dimOthers && !on
         return Button {
             if let app, iconClick == "app" { spaces.focus(app, on: s) } else { spaces.switchTo(s) }
         } label: {
             Group {
-                if showIcons, let app {
-                    Image(nsImage: app.icon).resizable().interpolation(.high).frame(width: icon, height: icon)
+                if showIcons, !list.isEmpty {
+                    // Split view: both apps sit in the same highlighted box.
+                    HStack(spacing: 3) {
+                        ForEach(list) { a in Image(nsImage: a.icon).resizable().interpolation(.high).frame(width: icon, height: icon) }
+                    }
                 } else {
                     Image(systemName: "rectangle.inset.filled").font(.system(size: icon * 0.6))
                         .foregroundStyle(.white.opacity(0.6)).frame(width: icon, height: icon)
                 }
             }
             .opacity(dim ? 0.5 : 1).saturation(dim ? 0.4 : 1)
-            .frame(width: Layout.iconCell(icon), height: h)
+            .frame(width: Layout.iconCell(icon, apps: max(1, list.count)), height: h)
             .background(glow(on))
             .contentShape(Rectangle())
         }
         .buttonStyle(PressStyle())
-        .help(app?.name ?? "Full-screen app")
+        .help(list.isEmpty ? "Full-screen app" : list.map(\.name).joined(separator: " + "))
     }
 }
 
@@ -291,7 +300,7 @@ struct SettingsTab: View {
                     }
                 }
             }
-            Text("Melcolm All-in-One Productivity · v2.0").font(.system(size: 10)).foregroundStyle(.tertiary)
+            Text("Melcolm All-in-One Productivity · v2.1").font(.system(size: 10)).foregroundStyle(.tertiary)
         }
         .font(.system(size: 12))
         .toggleStyle(.switch).controlSize(.small)

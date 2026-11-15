@@ -76,16 +76,19 @@ enum Layout {
     static func desktops(_ g: DisplayGroup) -> [SpaceItem] { g.spaces.filter { !$0.isFullscreen } }
     static func fullscreens(_ g: DisplayGroup) -> [SpaceItem] { g.spaces.filter { $0.isFullscreen } }
     static func numberCell(_ icon: CGFloat) -> CGFloat { Prefs.bool("showNumbers") ? icon * 0.7 + 2 * cellPad : 12 + 2 * cellPad }
-    static func iconCell(_ icon: CGFloat) -> CGFloat { icon + 2 * cellPad }
+    static func iconCell(_ icon: CGFloat, apps: Int = 1) -> CGFloat { CGFloat(apps) * icon + CGFloat(apps - 1) * 3 + 2 * cellPad }
+    /// A split-view Space holds two apps; they share one box.
+    static func appCount(_ m: SpacesModel?, _ s: SpaceItem) -> Int { max(1, min(2, m?.apps[s.id]?.count ?? 1)) }
 
     /// One box per display: [desktop number] | [full-screen app icons…]
-    static func groupWidth(_ g: DisplayGroup, icon: CGFloat) -> CGFloat {
-        let n = fullscreens(g).count
-        return 16 + numberCell(icon) + (n > 0 ? 14 : 0) + CGFloat(n) * iconCell(icon) + CGFloat(max(0, n - 1)) * 2
+    static func groupWidth(_ g: DisplayGroup, icon: CGFloat, m: SpacesModel? = nil) -> CGFloat {
+        let f = fullscreens(g); let n = f.count
+        let cells = f.reduce(CGFloat(0)) { $0 + iconCell(icon, apps: appCount(m, $1)) }
+        return 16 + numberCell(icon) + (n > 0 ? 14 : 0) + cells + CGFloat(max(0, n - 1)) * 2
     }
 
     static func stripWidth(_ m: SpacesModel, icon: CGFloat) -> CGFloat {
-        let w = m.displays.map { groupWidth($0, icon: icon) }
+        let w = m.displays.map { groupWidth($0, icon: icon, m: m) }
         return w.reduce(0, +) + CGFloat(max(0, w.count - 1)) * chipGap
     }
 }

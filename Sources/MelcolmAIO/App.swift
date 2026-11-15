@@ -13,6 +13,8 @@ final class IslandState: ObservableObject {
     @Published var peek: Peek?
     @Published var peekExtra: CGFloat = 0     // room added on each side for the hover bar; the top bar never moves
     @Published var iconSize: CGFloat = 20
+    /// True when the app's menus reach the notch: the Spaces strip moves right of the notch so no menu is covered.
+    @Published var stripRight = false
     /// Collapsed, the island sits beside the notch instead of wrapping around it, so it is as short as on any other screen.
     var collapsedWidth: CGFloat { leftWing + rightWing }
     /// The open panel is centred, so on a notched screen it is symmetric around the notch.
@@ -47,6 +49,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let system = SystemModel()
     let levels = AudioLevels()
     let batteries = BatteryModel()
+    let network = NetworkModel()
+    let focus = FocusModel()
     var islands: [Island] = []
     var bag = Set<AnyCancellable>()
     static let expandedSize = CGSize(width: 480, height: 480)
@@ -189,7 +193,7 @@ final class Island: NSObject {
                                   if !state.expanded { setExpanded(true) }
                               })
             .environmentObject(state).environmentObject(spaces).environmentObject(app.sound)
-            .environmentObject(app.playing).environmentObject(app.timer).environmentObject(app.system).environmentObject(app.levels).environmentObject(app.batteries)
+            .environmentObject(app.playing).environmentObject(app.timer).environmentObject(app.system).environmentObject(app.levels).environmentObject(app.batteries).environmentObject(app.network).environmentObject(app.focus)
         panel.contentView = FirstClickHostingView(rootView: root)
         // When the window grows for the hover bar, keep what's already drawn pinned to the top
         // and redraw during the resize, so the top bar never drops down and springs back.
@@ -209,6 +213,11 @@ final class Island: NSObject {
         .receive(on: RunLoop.main)
         .sink { [weak self] in self?.relayout() }
         .store(in: &bag)
+        // Menus are built a moment after an app comes forward; look again then.
+        NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didActivateApplicationNotification)
+            .delay(for: .milliseconds(350), scheduler: RunLoop.main)
+            .sink { [weak self] _ in self?.relayout() }
+            .store(in: &bag)
     }
 
     func close() { setExpanded(false); panel.orderOut(nil); bag.removeAll() }
@@ -242,7 +251,14 @@ final class Island: NSObject {
         let h = Prefs.d.string(forKey: "heightMode") == "custom" ? CGFloat(Prefs.d.double(forKey: "customHeight")) : screenBar
         icon = Layout.icon(forBar: h)
         // Each island is only as wide as its own content, so it fits whatever screen it is on.
-        set(&state.leftWing, left); set(&state.rightWing, right)
+        // If the front app's menus run up to the notch, don't cover them: put the strip on the right.
+        var moveRight = false
+        if state.notchWidth > 0, let screen, screen == NSScreen.screens.first, let menuEnd = MenuBar.rightEdge(below: screen.frame.midX - state.notchWidth / 2) {
+            moveRight = screen.frame.midX - state.notchWidth / 2 - left < menuEnd + 4
+        }
+        if state.stripRight != moveRight { state.stripRight = moveRight }
+        if moveRight { set(&state.leftWing, 0); set(&state.rightWing, right + left - 8) }
+        else { set(&state.leftWing, left); set(&state.rightWing, right) }
         set(&state.barHeight, h)
         let minPeek: CGFloat = state.peek?.kind == .text || state.peek == nil ? 300 : 360
         let baseW = state.collapsedWidth + state.notchWidth
@@ -432,5 +448,30 @@ enum Main {
         let delegate = AppDelegate()
         app.delegate = delegate
         app.run()
+    }
+}
+
+/// Where the front app's menus end, read through Accessibility (only on the menu-bar screen).
+enum MenuBar {
+    static func rightEdge(below limit: CGFloat) -> CGFloat? {
+        guard AXIsProcessTrusted(), let app = NSWorkspace.shared.menuBarOwningApplication ?? NSWorkspace.shared.frontmostApplication else { return nil }
+        let ax = AXUIElementCreateApplication(app.processIdentifier)
+        AXUIElementSetMessagingTimeout(ax, 0.15)
+        var bar: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(ax, kAXMenuBarAttribute as CFString, &bar) == .success, let bar else { return nil }
+        var kids: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(bar as! AXUIElement, kAXChildrenAttribute as CFString, &kids) == .success,
+              let items = kids as? [AXUIElement] else { return nil }
+        var end: CGFloat?
+        for i in items {
+            var pv: CFTypeRef?, sv: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(i, kAXPositionAttribute as CFString, &pv) == .success,
+                  AXUIElementCopyAttributeValue(i, kAXSizeAttribute as CFString, &sv) == .success else { continue }
+            var p = CGPoint.zero, sz = CGSize.zero
+            AXValueGetValue(pv as! AXValue, .cgPoint, &p); AXValueGetValue(sv as! AXValue, .cgSize, &sz)
+            guard p.y < 40, p.x < limit, sz.width > 0 else { continue }
+            end = max(end ?? 0, p.x + sz.width)
+        }
+        return end
     }
 }
