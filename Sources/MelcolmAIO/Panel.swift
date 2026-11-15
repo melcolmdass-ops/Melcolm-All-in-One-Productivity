@@ -97,7 +97,7 @@ struct PanelView: View {
         switch page {
         case .nowPlaying: NowPlayingPage()
         case .sound: CompactStack { SoundPage(); sectionLabel("Microphone"); MicPage() }
-        case .network: CompactStack { WifiPage(); BluetoothPage() }
+        case .network: NetworkPage()
         case .batteries: BatteriesPage()
         case .brightness: BrightnessPage()
         case .awake: AwakePage()

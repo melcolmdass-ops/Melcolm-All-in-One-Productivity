@@ -24,6 +24,7 @@ final class NetworkModel: NSObject, ObservableObject, CLLocationManagerDelegate 
     @Published var showOther = false
     @Published var openWifi = false      // the lists, in the small pop-up
     @Published var openBT = false
+    @Published var tab = 0              // pop-up: 0 Wi-Fi, 1 Bluetooth
     @Published var devices: [Device] = []
     @Published var busy: Set<String> = []
 
@@ -231,6 +232,21 @@ struct NetRow<Trailing: View>: View {
     }
 }
 
+/// Wi-Fi and Bluetooth. In the small pop-up only one shows at a time (tabs on top), so it always fits the screen.
+struct NetworkPage: View {
+    @EnvironmentObject var net: NetworkModel
+    @Environment(\.lightPage) var light
+    var body: some View {
+        if light {
+            CompactStack {
+                Picker("", selection: $net.tab) { Text("Wi-Fi").tag(0); Text("Bluetooth").tag(1) }
+                    .pickerStyle(.segmented).labelsHidden()
+                if net.tab == 0 { WifiPage() } else { BluetoothPage() }
+            }
+        } else { CompactStack { WifiPage(); BluetoothPage() } }
+    }
+}
+
 struct WifiPage: View {
     @EnvironmentObject var system: SystemModel
     @EnvironmentObject var net: NetworkModel
@@ -263,8 +279,13 @@ struct WifiPage: View {
                     Text(net.scanning ? "Looking for networks…" : "No networks found. If none ever show, allow Location for Melcolm in Privacy settings.")
                         .font(.system(size: 11)).foregroundStyle(.secondary)
                 } else {
-                    netList(net.showOther ? rest : Array(rest.prefix(5)))
-                    if rest.count > 5 { expand(net.showOther, count: rest.count) { net.showOther.toggle() } }
+                    if light {
+                        // Pop-up: the whole list, scrolling in a fixed box, so the pop-up never changes size.
+                        ScrollView(showsIndicators: true) { netList(rest) }.frame(height: min(CGFloat(rest.count) * 44 + 8, 230))
+                    } else {
+                        netList(net.showOther ? rest : Array(rest.prefix(5)))
+                        if rest.count > 5 { expand(net.showOther, count: rest.count) { net.showOther.toggle() } }
+                    }
                 }
                 if let e = net.error { Text(e).font(.system(size: 11)).foregroundStyle(.orange) }
             }
@@ -314,9 +335,9 @@ struct BluetoothPage: View {
                       subtitle: system.bluetoothOn ? "On" : "Off", on: system.bluetoothOn,
                       action: { system.toggleBluetooth(); DispatchQueue.main.asyncAfter(deadline: .now() + 2) { net.refreshDevices() } })
             if system.bluetoothOn && !net.devices.isEmpty {
-                let shown = net.openBT ? net.devices : Array(net.devices.prefix(5))
+                let shown = light || net.openBT ? net.devices : Array(net.devices.prefix(5))
                 sectionLabel("DEVICES")
-                Card {
+                ScrollView(showsIndicators: true) { Card {
                     VStack(spacing: 0) {
                         ForEach(shown) { d in
                             if d.id != shown.first?.id { Hairline() }
@@ -330,8 +351,8 @@ struct BluetoothPage: View {
                             }
                         }
                     }
-                }
-                if net.devices.count > 5 { expand(net.openBT, count: net.devices.count) { net.openBT.toggle() } }
+                } }.frame(height: min(CGFloat(shown.count) * 44 + 12, light ? 230 : 10_000))
+                if !light && net.devices.count > 5 { expand(net.openBT, count: net.devices.count) { net.openBT.toggle() } }
             }
             SettingsLink(title: "Bluetooth Settings", pane: "com.apple.BluetoothSettings")
         }
