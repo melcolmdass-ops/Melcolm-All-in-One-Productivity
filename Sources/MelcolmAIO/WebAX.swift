@@ -36,6 +36,8 @@ enum WebAX {
     static func find(pid: pid_t, title: String) -> Found? {
         guard AXIsProcessTrusted() else { BrowserMedia.log("ax not trusted"); return nil }
         enable(pid)
+        let key = "\(pid)"
+        if let root = lastRoot[key], !str(root, kAXRoleAttribute).isEmpty, let f = scan(root) { return f }
         let app = AXUIElementCreateApplication(pid)
         AXUIElementSetMessagingTimeout(app, 0.4)
         var wins = attr(app, kAXWindowsAttribute) as? [AXUIElement] ?? []
@@ -48,9 +50,12 @@ enum WebAX {
         // The window showing that tab; else any window that has a player (e.g. the YouTube Music app).
         let pick = wins.filter { !t.isEmpty && str($0, kAXTitleAttribute).localizedCaseInsensitiveContains(t) }
         let rest = wins.filter { w in let n = str(w, kAXTitleAttribute).lowercased(); return n.isEmpty || n.contains("youtube") || n.contains("spotify") || n.contains("soundcloud") || n.contains("music") }
-        for w in pick + rest { if let f = scan(w) { return f } }
+        for w in pick + rest { if let f = scan(w) { lastRoot[key] = w; return f } }
         return nil
     }
+    /// The page area where the player was last found, per app and tab title. Looked at first next time,
+    /// since a playing tab's title changes and the window search can miss it.
+    private static var lastRoot: [String: AXUIElement] = [:]
 
     private static func scan(_ win: AXUIElement) -> Found? {
         var f = Found(); var queue = [win]; var seen = 0

@@ -249,7 +249,8 @@ final class NowPlayingModel: ObservableObject {
         guard !probing, !list.isEmpty, AXIsProcessTrusted() else { return }
         probing = true
         let jobs = list.compactMap { r -> (String, pid_t, String)? in
-            guard !r.knownState || r.duration == 0, let pid = BrowserMedia.pid(r) else { return nil }
+            // Keep reading every player, so its state stays right when a song changes or you use the keyboard.
+            guard r.browser != "Safari" || r.pwa != 0, let pid = BrowserMedia.pid(r) else { return nil }
             return (r.id, pid, r.pwa != 0 ? "" : r.title)
         }
         browserQueue.async { [weak self] in
@@ -317,11 +318,25 @@ final class NowPlayingModel: ObservableObject {
 
     /// Plays or pauses exactly that tab. Others keep doing what they were doing.
     func toggle(_ r: BrowserMedia.Result) {
-        let was = isPlaying(r)
-        // Never bring the tab forward: only the artwork does that. Page JavaScript first, then the
-        // page's own Play/Pause button (accessibility), then the keyboard's play/pause key.
-        let button = ax[r.id]?.found.play
-        let viaAX = WebAX.press(button)
+        // The page's own button says the truth: "pause" showing means it is playing right now.
+        var button = ax[r.id]?.found.play
+        // A saved button can go stale (new song, page redrawn): if it no longer answers, find it again now.
+        if button.flatMap(WebAX.label) == nil, let pid = BrowserMedia.pid(r),
+           let f = WebAX.find(pid: pid, title: r.pwa != 0 ? "" : r.title) {
+            ax[r.id] = (f, Date()); button = f.play
+        }
+        let liveLabel = button.flatMap(WebAX.label)
+        let was = liveLabel.map { $0.hasPrefix("pause") } ?? isPlaying(r)
+        // Never bring the tab forward: only the artwork does that. The page's own Play/Pause button
+        // (accessibility) first, then page JavaScript, then the keyboard's play/pause key.
+        var viaAX = WebAX.press(button)
+        // The page sometimes answers "failed" even though the press worked: believe the button instead.
+        if !viaAX, let btn = button, let before = liveLabel {
+            Thread.sleep(forTimeInterval: 0.15)
+            let after = WebAX.label(btn)
+            BrowserMedia.log("toggle press said failed; label before=\(before) after=\(after ?? "nil")")
+            if let after, after != before { viaAX = true }
+        } else if !viaAX { BrowserMedia.log("toggle no button: button=\(button != nil) label=\(liveLabel ?? "nil")") }
         let viaJS = !viaAX && BrowserMedia.togglePlay(r)
         if !viaAX && !viaJS { Self.mediaKey(16) }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { self.refresh() }
@@ -331,21 +346,31 @@ final class NowPlayingModel: ObservableObject {
         pressedAt[r.id] = Date()
         if let i = others.firstIndex(where: { $0.id == r.id }) { others[i].playing = !was }
         if mainID == r.id { playing = !was }
-        // Check the press took by looking at the very button that was pressed: if it still has the same
-        // name ("play" stayed "play"), the page ignored it, so press it once more. Reading the whole page
-        // again could land on another window and press a second time, which undid your press.
+        // Check right away (0.3 s) on the very button that was pressed: show what the page now says,
+        // and press once more only if the button didn't change at all.
         if viaAX, let btn = button, let before = WebAX.label(btn) {
             let stamp = pressedAt[r.id]
-            browserQueue.asyncAfter(deadline: .now() + 1.5) { [weak self] in
-                guard let after = WebAX.label(btn), after == before else { return }
+            browserQueue.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                let after = WebAX.label(btn)
                 DispatchQueue.main.async {
                     guard let self, self.pressedAt[r.id] == stamp else { return }   // pressed again since: leave it
-                    BrowserMedia.log("toggle retry \(r.id) button still '\(after)'")
-                    WebAX.press(btn)
+                    if let after, after == before {
+                        BrowserMedia.log("toggle retry \(r.id) button still '\(after)'")
+                        WebAX.press(btn)
+                    } else if let after {
+                        self.setShown(r.id, playing: after.hasPrefix("pause"))
+                    }
                 }
             }
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 3.2) { self.refresh() }
+    }
+
+    /// Shows a tab as playing or paused at once (and keeps it that way for a moment while the page catches up).
+    private func setShown(_ id: String, playing p: Bool) {
+        forced[id] = p; pressedAt[id] = pressedAt[id] ?? Date()
+        if let i = others.firstIndex(where: { $0.id == id }) { others[i].playing = p }
+        if mainID == id { playing = p }
     }
 
     private static func key(_ code: CGKeyCode) {
@@ -364,11 +389,15 @@ final class NowPlayingModel: ObservableObject {
         if let r = mainResult { seek(r, to: t) }
     }
     func seek(_ r: BrowserMedia.Result, to t: Double) {
-        let ok = BrowserMedia.seek(r, to: t) || WebAX.seek(ax[r.id]?.found.slider, to: t)
-        seekBlocked = !ok && !r.browser.isEmpty
-        if ok {
-            if let i = others.firstIndex(where: { $0.id == r.id }) { others[i].position = t }
-            if mainID == r.id { position = t }
+        // The bar jumps at once; the page catches up in the background, so nothing freezes while you scrub.
+        if let i = others.firstIndex(where: { $0.id == r.id }) { others[i].position = t }
+        if mainID == r.id { position = t }
+        if var f = ax[r.id] { f.found.pos = t; f.at = Date(); ax[r.id] = f }
+        if BrowserMedia.seek(r, to: t) { seekBlocked = false; return }
+        let slider = ax[r.id]?.found.slider
+        browserQueue.async { [weak self] in
+            let ok = WebAX.seek(slider, to: t)
+            DispatchQueue.main.async { self?.seekBlocked = !ok && !r.browser.isEmpty }
         }
     }
     func skip(_ r: BrowserMedia.Result, forward: Bool) {

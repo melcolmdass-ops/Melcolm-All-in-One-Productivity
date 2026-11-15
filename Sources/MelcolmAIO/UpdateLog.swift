@@ -24,6 +24,21 @@ enum UpdateLog {
 
     /// Newest first.
     static let all: [AppUpdate] = [
+        AppUpdate(version: "2.6", date: "November 15th, 2026", title: "Everything lights up when you rest on it",
+                  improvements: [
+                      "Play / Pause reacts right away: it reads the player's own button in a third of a second instead of waiting 1.5 seconds.",
+                      "Scrubbing is instant: the bar jumps where you let go and the song catches up in the background.",
+                      "The play bar is thicker and red.",
+                      "Low Power Mode asks for your password only the first time.",
+                  ],
+                  fixes: [
+                      "Play / Pause no longer shows the opposite state after a song changes.",
+                      "Scrubbing no longer freezes the panel.",
+                  ],
+                  features: [
+                      "Hover highlight: every part of the bar lifts up and glows in its own colour when you rest on it.",
+                  ],
+                  icons: ["cursorarrow.rays", "playpause.fill", "slider.horizontal.below.rectangle"], tint: Color(red: 1.0, green: 0.42, blue: 0.7)),
         AppUpdate(version: "2.5", date: "November 15th, 2026", title: "Play buttons that tell the truth, and much bigger icons",
                   improvements: [
                       "Icons on the bar are about twice as big, and the Small / Medium / Large sizes are all bigger.",
@@ -256,6 +271,8 @@ struct MasterRule: Identifiable {
     static let all: [MasterRule] = [
         MasterRule(icon: "arrow.up.forward.app.fill", title: "Opening something outside closes the panel",
                    detail: "Click the artwork, a link, a settings button, a shortcut or anything that opens another app, and the panel closes while that thing opens."),
+        MasterRule(icon: "cursorarrow.rays", title: "Whatever you rest on lights up",
+                   detail: "Rest the pointer on anything in the bar (a display number, an app, the music, the arrow, the notch or the island itself) and it lifts up a little and glows in the colour you picked for it in Colors."),
         MasterRule(icon: "menubar.rectangle", title: "App menus are never covered",
                    detail: "If an app's menus (File, Edit, View…) would run under the island, your displays move to the right of the notch instead."),
     ]

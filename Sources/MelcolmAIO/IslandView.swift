@@ -7,6 +7,8 @@ let accentGradient = LinearGradient(colors: [Color(red: 0.36, green: 0.66, blue:
 
 struct IslandView: View {
     @EnvironmentObject var state: IslandState
+    @ObservedObject var hoverModel = HoverModel.shared
+    var hoverIsland: Bool { hoverModel.island && !state.expanded }
     @AppStorage("colRev") var colRev = 0
     let toggle: () -> Void
     let hover: (Bool) -> Void
@@ -38,13 +40,15 @@ struct IslandView: View {
             ZStack {
                 shape.fill(Color.black)
                 let _ = colRev
-                shape.strokeBorder(BarColor.outline.color, lineWidth: 1.6)
-                    .shadow(color: BarColor.outline.color.opacity(0.5), radius: 3)
+                // Resting anywhere on the island makes its outline glow brighter.
+                shape.strokeBorder(BarColor.outline.color.opacity(hoverIsland ? 1 : 0.85), lineWidth: hoverIsland ? 2.2 : 1.6)
+                    .neon(BarColor.outline.color, hoverIsland ? 1 : 0.4)
+                    .animation(.easeOut(duration: 0.18), value: hoverIsland)
             }
             .shadow(color: .black.opacity(state.expanded ? 0.6 : 0), radius: 22, y: 10)
         )
         .clipShape(shape)
-        .onHover(perform: hover)
+        .onHover { inside in HoverModel.shared.island = inside; hover(inside) }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .focusEffectDisabled()
         .preferredColorScheme(.dark)
@@ -108,6 +112,7 @@ struct TopBar: View {
                                 }
                             }
                         }.padding(.horizontal, 9).frame(maxHeight: .infinity).contentShape(Rectangle())
+                        .hoverLift("bar-status", BarColor.status.color)
                     }.buttonStyle(PressStyle()).help(a == .music ? "\(playing.title) · click to open Now Playing" : "Click to open Clock")
                     Capsule().fill(BarColor.statusBox.color.opacity(0.45)).frame(width: 1, height: 14)
                 }
@@ -118,6 +123,7 @@ struct TopBar: View {
                         .foregroundStyle(.white.opacity(0.92))
                         .frame(width: 40).frame(maxHeight: .infinity)
                         .contentShape(Rectangle())
+                        .hoverLift("bar-arrow", BarColor.statusBox.color)
                 }
                 .buttonStyle(.plain)
                 .help("Open Melcolm (⌃⌥Space)")
@@ -203,6 +209,7 @@ struct SpacesStrip: View {
             .frame(width: Layout.numberCell(icon), height: h)
             .background(glow(on, g.id))
             .contentShape(Rectangle())
+            .hoverLift("num-\(g.id)", BarColor.number.color, radius: 6)
         }
         .buttonStyle(PressStyle())
         .help("Desktop \(g.number)")
@@ -232,6 +239,7 @@ struct SpacesStrip: View {
             .frame(width: Layout.iconCell(icon, apps: max(1, list.count)), height: h)
             .background(glow(on, g.id))
             .contentShape(Rectangle())
+            .hoverLift("app-\(s.id)", BarColor.space.color, radius: 6)
         }
         .buttonStyle(PressStyle())
         .help(list.isEmpty ? "Full-screen app" : list.map(\.name).joined(separator: " + "))
@@ -329,7 +337,7 @@ struct SettingsTab: View {
                     }
                 }
             }
-            Text("Melcolm All-in-One Productivity · v2.5").font(.system(size: 10)).foregroundStyle(.tertiary)
+            Text("Melcolm All-in-One Productivity · v2.6").font(.system(size: 10)).foregroundStyle(.tertiary)
         }
         .font(.system(size: 12))
         .toggleStyle(.switch).controlSize(.small)

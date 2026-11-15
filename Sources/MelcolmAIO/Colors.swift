@@ -107,3 +107,38 @@ struct NeonBox: View {
         }
     }
 }
+
+// MARK: - Hover highlight (a master rule): whatever you rest on lifts up and glows in its own colour
+
+final class HoverModel: ObservableObject {
+    static let shared = HoverModel()
+    @Published var item: String?
+    @Published var island = false
+}
+
+struct HoverLift: ViewModifier {
+    let id: String
+    let color: Color
+    var radius: CGFloat = 7
+    @ObservedObject var h = HoverModel.shared
+    func body(content: Content) -> some View {
+        let on = h.item == id
+        let r = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        content
+            .background {
+                r.fill(color.opacity(on ? 0.16 : 0))
+                    .overlay(r.strokeBorder(color.opacity(on ? 0.95 : 0), lineWidth: 1.2))
+                    .neon(color, on ? 0.8 : 0)
+            }
+            .scaleEffect(on ? 1.07 : 1)
+            .offset(y: on ? -1.5 : 0)
+            .animation(.spring(response: 0.22, dampingFraction: 0.7), value: on)
+            .onHover { inside in
+                if inside { h.item = id } else if h.item == id { h.item = nil }
+            }
+    }
+}
+
+extension View {
+    func hoverLift(_ id: String, _ color: Color, radius: CGFloat = 7) -> some View { modifier(HoverLift(id: id, color: color, radius: radius)) }
+}
