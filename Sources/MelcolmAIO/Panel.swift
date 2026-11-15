@@ -714,11 +714,14 @@ struct UtilityBar: View {
                 }
                 .buttonStyle(PressStyle()).foregroundStyle(.white.opacity(0.9)).help(p.title)
                 .popover(isPresented: Binding(get: { open == p.rawValue }, set: { if !$0, open == p.rawValue { open = "" } }), arrowEdge: .top) {
-                    VStack(spacing: 10) {
-                        Text(p.title).font(.system(size: 13, weight: .heavy)).frame(maxWidth: .infinity, alignment: .leading)
-                        PanelView.pageContent(p)
+                    // The same page, laid out at full panel width and shrunk, so nothing is cut off.
+                    ScaledDown(scale: 0.62, width: 444) {
+                        VStack(spacing: 12) {
+                            Text(p.title).font(.system(size: 15, weight: .heavy)).frame(maxWidth: .infinity, alignment: .leading)
+                            PanelView.pageContent(p).environment(\.lightPage, true)
+                        }
                     }
-                    .padding(14).frame(width: 360).preferredColorScheme(.dark)
+                    .padding(10).preferredColorScheme(.dark)
                 }
             }
             if items.isEmpty { Text("Pick items in Settings ▸ Utility Bar").foregroundStyle(.tertiary) }
@@ -744,5 +747,25 @@ struct UtilityBar: View {
         case .dark: system.dark ? "Dark" : "Light"
         default: p == .timer ? "Clock" : p.title
         }
+    }
+}
+
+/// Lays its content out at `width`, then draws it at `scale`, taking up only the shrunk space.
+struct ScaledDown<C: View>: View {
+    let scale: CGFloat; let width: CGFloat; @ViewBuilder var content: C
+    var body: some View {
+        ScaledLayout(scale: scale, width: width) {
+            content.frame(width: width).scaleEffect(scale, anchor: .topLeading)
+        }
+    }
+}
+struct ScaledLayout: SwiftUI.Layout {
+    let scale: CGFloat; let width: CGFloat
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let s = subviews.first?.sizeThatFits(ProposedViewSize(width: width, height: nil)) ?? .zero
+        return CGSize(width: width * scale, height: s.height * scale)
+    }
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(at: bounds.origin, anchor: .topLeading, proposal: ProposedViewSize(width: width, height: nil))
     }
 }
