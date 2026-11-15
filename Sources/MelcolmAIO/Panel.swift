@@ -110,27 +110,22 @@ struct HomePage: View {
                         HStack(spacing: 12) {
                             Image(systemName: p.icon).font(.system(size: 16, weight: .semibold))
                                 .symbolRenderingMode(.hierarchical)
-                                .frame(width: 40, height: 40)
+                                .frame(width: 36, height: 36)
                                 .background(
-                                    RoundedRectangle(cornerRadius: 13, style: .continuous)
-                                        .fill(on ? AnyShapeStyle(LinearGradient(colors: p.tint, startPoint: .topLeading, endPoint: .bottomTrailing))
-                                                 : AnyShapeStyle(.white.opacity(0.08)))
-                                        .shadow(color: on ? p.tint[0].opacity(0.55) : .clear, radius: 9, y: 3)
+                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                        .fill(on ? AnyShapeStyle(p.tint[0]) : AnyShapeStyle(.white.opacity(0.08)))
                                 )
                                 .foregroundStyle(on ? .white : .white.opacity(0.6))
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(p.title).font(.system(size: 13, weight: .semibold)).lineLimit(1)
+                                Text(p.title).font(.system(size: 13, weight: .bold)).lineLimit(1)
                                 Text(sub).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
                             }
                             Spacer(minLength: 0)
                         }
-                        .padding(.horizontal, 12).frame(maxWidth: .infinity, minHeight: 66, alignment: .leading)
+                        .padding(.horizontal, 12).frame(maxWidth: .infinity, minHeight: 62, alignment: .leading)
                         .background(
-                            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .fill(LinearGradient(colors: [.white.opacity(on ? 0.12 : 0.09), .white.opacity(0.04)], startPoint: .top, endPoint: .bottom))
-                                .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                    .strokeBorder(LinearGradient(colors: [on ? p.tint[0].opacity(0.45) : .white.opacity(0.16), .white.opacity(0.03)],
-                                                                 startPoint: .top, endPoint: .bottom), lineWidth: 0.9))
+                            RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color(white: 0.105))
+                                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(.white.opacity(0.08), lineWidth: 1))
                         )
                         .contentShape(Rectangle())
                     }.buttonStyle(PressStyle())
@@ -179,10 +174,9 @@ struct ToggleRow: View {
             HStack(spacing: 14) {
                 Image(systemName: icon).font(.system(size: 17, weight: .semibold)).symbolRenderingMode(.hierarchical)
                     .foregroundStyle(.white).frame(width: 38, height: 38)
-                    .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(accentGradient))
-                    .shadow(color: accent.opacity(0.45), radius: 8, y: 2)
+                    .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(accent))
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(title).font(.system(size: 14, weight: .semibold))
+                    Text(title).font(.system(size: 14, weight: .bold))
                     Text(subtitle).font(.system(size: 11.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer()
@@ -351,7 +345,7 @@ struct TimerPage: View {
 }
 
 func sectionLabel(_ t: String) -> some View {
-    Text(t).font(.system(size: 10, weight: .bold)).foregroundStyle(.secondary)
+    Text(t).font(.system(size: 10, weight: .heavy)).kerning(0.6).foregroundStyle(.secondary)
         .frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 4)
 }
 
@@ -395,15 +389,14 @@ struct PlayerCard: View {
                         else if let icon { Image(nsImage: icon).resizable().padding(14) }
                         else { Image(systemName: "music.note").font(.system(size: 26, weight: .semibold)).foregroundStyle(accent) }
                     }
-                    .frame(width: 84, height: 84)
-                    .background(accent.opacity(0.18))
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .shadow(color: .black.opacity(0.4), radius: 6, y: 3)
+                    .frame(width: 76, height: 76)
+                    .background(Color(white: 0.16))
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     .onTapGesture(perform: open)
 
                     VStack(alignment: .leading, spacing: 4) {
                         Text(title.isEmpty ? "Not playing" : title)
-                            .font(.system(size: 15, weight: .bold)).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                            .font(.system(size: 15, weight: .heavy)).lineLimit(2).fixedSize(horizontal: false, vertical: true)
                         Text(title.isEmpty ? "Controls work with any player, including YouTube" : artist)
                             .font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
                         if duration > 0 {
@@ -422,7 +415,7 @@ struct PlayerCard: View {
                     }
                     Spacer(minLength: 0)
                 }
-                HStack(spacing: 30) {
+                HStack(spacing: 34) {
                     MediaButton(icon: "backward.fill", action: prev)
                     MediaButton(icon: playing ? "pause.fill" : "play.fill", big: true, action: play)
                     MediaButton(icon: "forward.fill", action: next)
@@ -436,11 +429,10 @@ struct MediaButton: View {
     let icon: String; var big = false; let action: () -> Void
     var body: some View {
         Button(action: action) {
-            Image(systemName: icon).font(.system(size: big ? 15 : 11, weight: .semibold))
-                .frame(width: big ? 36 : 28, height: big ? 36 : 28)
-                .background(Circle().fill(big ? AnyShapeStyle(.white) : AnyShapeStyle(.white.opacity(0.08))))
-                .foregroundStyle(big ? .black : .white)
-                .shadow(color: big ? .white.opacity(0.25) : .clear, radius: 8)
+            Image(systemName: icon).font(.system(size: big ? 16 : 14, weight: .bold))
+                .frame(width: big ? 40 : 32, height: big ? 40 : 32)
+                .background(Circle().fill(big ? AnyShapeStyle(.white) : AnyShapeStyle(.clear)))
+                .foregroundStyle(big ? .black : .white.opacity(0.9))
                 .contentShape(Circle())
         }.buttonStyle(PressStyle())
     }

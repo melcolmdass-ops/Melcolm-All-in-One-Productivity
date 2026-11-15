@@ -34,13 +34,8 @@ struct IslandView: View {
         .frame(width: w, height: h, alignment: .top)
         .background(
             ZStack {
-                shape.fill(LinearGradient(colors: [Color(white: 0.0), Color(white: 0.055)], startPoint: .top, endPoint: .bottom))
-                if state.expanded {
-                    // A soft glow rising from the top of the panel.
-                    shape.fill(RadialGradient(colors: [accent.opacity(0.20), accent2.opacity(0.08), .clear],
-                                              center: .init(x: 0.5, y: 0), startRadius: 4, endRadius: 330))
-                }
-                shape.strokeBorder(LinearGradient(colors: [.white.opacity(0.0), .white.opacity(state.expanded ? 0.22 : 0.14), accent.opacity(0.35)],
+                shape.fill(Color.black)
+                shape.strokeBorder(LinearGradient(colors: [.white.opacity(0.0), .white.opacity(state.expanded ? 0.16 : 0.12)],
                                                   startPoint: .top, endPoint: .bottom), lineWidth: 1)
             }
             .shadow(color: .black.opacity(state.expanded ? 0.6 : 0), radius: 22, y: 10)
@@ -92,7 +87,7 @@ struct TopBar: View {
                         .rotationEffect(.degrees(state.expanded ? 180 : 0))
                         .foregroundStyle(.white.opacity(0.92))
                         .frame(width: 36, height: 26)
-                        .background(Capsule().fill(.white.opacity(0.1)).overlay(Capsule().strokeBorder(.white.opacity(0.16), lineWidth: 0.7)))
+                        .background(Capsule().fill(.white.opacity(0.12)))
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -126,7 +121,7 @@ struct SpacesStrip: View {
                     else { Color.clear.frame(width: Layout.numberCell(icon), height: h - 4) }
                     let fulls = Layout.fullscreens(g)
                     if !fulls.isEmpty {
-                        Capsule().fill(.white.opacity(0.32)).frame(width: 2, height: icon * 0.8)
+                        Capsule().fill(.white.opacity(0.18)).frame(width: 1.5, height: icon * 0.7)
                             .padding(.horizontal, 4)
                     }
                     ForEach(fulls) { s in appCell(s, on: s.id == g.currentID, icon: icon, h: h - 4) }
@@ -134,9 +129,9 @@ struct SpacesStrip: View {
                 .padding(.horizontal, 8)
                 .frame(width: Layout.groupWidth(g, icon: icon), height: h, alignment: .leading)
                 .background {
-                    let r = RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    r.fill(LinearGradient(colors: [.white.opacity(0.16), .white.opacity(0.07)], startPoint: .top, endPoint: .bottom))
-                    r.strokeBorder(LinearGradient(colors: [.white.opacity(0.32), .white.opacity(0.12)], startPoint: .top, endPoint: .bottom), lineWidth: 0.8)
+                    let r = RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    r.fill(Color(white: 0.13))
+                    r.strokeBorder(.white.opacity(0.14), lineWidth: 1)
                 }
                 .help("Display \(g.number)")
             }
@@ -148,9 +143,9 @@ struct SpacesStrip: View {
         let r = RoundedRectangle(cornerRadius: 8, style: .continuous)
         return ZStack {
             if on {
-                r.fill(accentGradient.opacity(style == "box" ? 0.40 : 0.24))
-                r.strokeBorder(accentGradient, lineWidth: 1.5)
-                    .shadow(color: accent.opacity(0.95), radius: style == "glow" ? 7 : 0)
+                r.fill(accent.opacity(style == "box" ? 0.35 : 0.2))
+                r.strokeBorder(accent, lineWidth: 1.5)
+                    .shadow(color: accent.opacity(0.7), radius: style == "glow" ? 5 : 0)
             }
         }
     }
@@ -200,12 +195,10 @@ struct SpacesStrip: View {
 struct Card<Content: View>: View {
     @ViewBuilder var content: Content
     var body: some View {
-        content.padding(12).frame(maxWidth: .infinity, alignment: .leading)
+        content.padding(14).frame(maxWidth: .infinity, alignment: .leading)
             .background(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(LinearGradient(colors: [.white.opacity(0.11), .white.opacity(0.045)], startPoint: .top, endPoint: .bottom))
-                    .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .strokeBorder(LinearGradient(colors: [.white.opacity(0.18), .white.opacity(0.04)], startPoint: .top, endPoint: .bottom), lineWidth: 0.8))
+                RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color(white: 0.105))
+                    .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(.white.opacity(0.08), lineWidth: 1))
             )
     }
 }
@@ -244,7 +237,7 @@ struct SettingsTab: View {
                         Text(p.rawValue).font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(page == p.rawValue ? .white : .white.opacity(0.7))
                             .padding(.horizontal, 10).padding(.vertical, 5)
-                            .background(Capsule().fill(page == p.rawValue ? AnyShapeStyle(accentGradient) : AnyShapeStyle(.white.opacity(0.07))))
+                            .background(Capsule().fill(page == p.rawValue ? AnyShapeStyle(accent) : AnyShapeStyle(.white.opacity(0.06))))
                     }.buttonStyle(.plain)
                 }
             }
@@ -417,9 +410,7 @@ struct Pill: View {
     var body: some View {
         Button(action: action) {
             Text(title).font(.system(size: 12, weight: .semibold)).padding(.horizontal, 14).padding(.vertical, 7)
-                .background(Capsule().fill(filled ? AnyShapeStyle(accentGradient) : AnyShapeStyle(.white.opacity(0.1))))
-                .overlay(Capsule().strokeBorder(.white.opacity(filled ? 0.0 : 0.12), lineWidth: 0.7))
-                .shadow(color: filled ? accent.opacity(0.45) : .clear, radius: 8, y: 2)
+                .background(Capsule().fill(filled ? AnyShapeStyle(accent) : AnyShapeStyle(.white.opacity(0.1))))
                 .foregroundStyle(filled ? .white : .white)
         }.buttonStyle(.plain)
     }
@@ -480,7 +471,7 @@ struct MiniSlider: View {
             Image(systemName: icon).font(.system(size: 11, weight: .semibold)).foregroundStyle(accent).frame(width: 16)
             GeometryReader { g in
                 Capsule().fill(.white.opacity(0.15))
-                    .overlay(alignment: .leading) { Capsule().fill(accentGradient).frame(width: max(6, g.size.width * value)) }
+                    .overlay(alignment: .leading) { Capsule().fill(.white).frame(width: max(6, g.size.width * value)) }
                     .frame(height: 6).frame(maxHeight: .infinity)
                     .contentShape(Rectangle())
                     .gesture(DragGesture(minimumDistance: 0).onChanged { set(min(1, max(0, $0.location.x / g.size.width))) })
@@ -520,7 +511,7 @@ struct ShortcutsBar: View {
                         Text(s.name).font(.system(size: 11, weight: .semibold)).lineLimit(1)
                     }
                     .padding(.horizontal, 9).frame(height: 26)
-                    .background(Capsule().fill(.white.opacity(0.09)).overlay(Capsule().strokeBorder(.white.opacity(0.14), lineWidth: 0.7)))
+                    .background(Capsule().fill(.white.opacity(0.1)))
                 }.buttonStyle(PressStyle()).help(s.target)
             }
             if Shortcut.parse(raw).isEmpty {

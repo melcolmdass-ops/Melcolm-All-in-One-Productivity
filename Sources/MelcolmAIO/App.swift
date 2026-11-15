@@ -328,11 +328,23 @@ final class Island: NSObject {
 
     func scrolled(_ e: NSEvent) {
         guard !state.expanded, panel.frame.contains(NSEvent.mouseLocation) else { return }
+        // The hover bar you chose stays put: scrolling on it adjusts it instead of swapping in the volume pop-up.
+        let inBarRow = NSEvent.mouseLocation.y < panel.frame.maxY - state.barHeight
+        if hoverPeek, let k = state.peek?.kind, k != .text, inBarRow {
+            let d = abs(e.scrollingDeltaY) >= abs(e.scrollingDeltaX) ? e.scrollingDeltaY : -e.scrollingDeltaX
+            let step = (e.hasPreciseScrollingDeltas ? d / 300 : d / 30) * (e.isDirectionInvertedFromDevice ? 1 : -1) * -1
+            if k == .volumeBrightness, NSEvent.mouseLocation.x > panel.frame.midX, let b = system.brightness {
+                system.setBrightness(min(1, max(0, b + step)))
+            } else if k == .volumeBrightness || Prefs.bool("scrollVolume") { sound.nudge(step) }
+            return
+        }
         // Right half of the island = volume, left half = Spaces.
         if NSEvent.mouseLocation.x > (state.notchWidth > 0 ? (screen?.frame.midX ?? panel.frame.midX) : panel.frame.midX) {
             guard Prefs.bool("scrollVolume") else { return }
             let d = abs(e.scrollingDeltaY) >= abs(e.scrollingDeltaX) ? e.scrollingDeltaY : -e.scrollingDeltaX
-            sound.nudge((e.hasPreciseScrollingDeltas ? d / 300 : d / 30) * (e.isDirectionInvertedFromDevice ? 1 : -1) * -1)
+            let step = (e.hasPreciseScrollingDeltas ? d / 300 : d / 30) * (e.isDirectionInvertedFromDevice ? 1 : -1) * -1
+            sound.nudge(step)
+            if hoverPeek { return }   // keep whichever hover bar is showing
             hoverPeek = false
             peek(.init(text: "", icon: sound.muted ? "speaker.slash.fill" : "speaker.wave.2.fill", value: sound.volume), for: 1.2)
             return
