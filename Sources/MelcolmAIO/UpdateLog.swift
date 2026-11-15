@@ -50,7 +50,7 @@ enum UpdateLog {
                   features: [
                       "Display 1 sits left of the notch and your other displays sit right of it.",
                       "Auto-arrange has an arrow: pick an arrangement from pictures (centre, halves, thirds, quarters and more).",
-                      "Low Power Mode switch on the Batteries page and in the battery pop-up.",
+                      "Low Power Mode switch on the Batteries page and in the battery pop-up (password only the first time).",
                       "Master Rules page: things the app always does, like closing when you open a link.",
                       "This Update Log!",
                   ],

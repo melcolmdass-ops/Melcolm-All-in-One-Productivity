@@ -562,9 +562,11 @@ final class SystemModel: ObservableObject {
         }
         lowPowerBusy = true
         DispatchQueue.global(qos: .userInitiated).async {
-            let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-            p.arguments = ["-e", "do shell script \"/usr/bin/pmset -a lowpowermode \(on ? 1 : 0)\" with administrator privileges with prompt \"Melcolm wants to turn Low Power Mode \(on ? "on" : "off").\""]
-            try? p.run(); p.waitUntilExit()
+            // After the one-time setup this runs without a password: sudo is allowed to run exactly
+            // "pmset -a lowpowermode 0/1" for this user, nothing else.
+            if Self.run("/usr/bin/sudo", ["-n", "/usr/bin/pmset", "-a", "lowpowermode", on ? "1" : "0"]) != 0 {
+                Self.setUpLowPowerOnce(on)
+            }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
                 self?.lowPowerBusy = false
                 self?.lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
@@ -572,6 +574,33 @@ final class SystemModel: ObservableObject {
         }
     }
     private var assertion: IOPMAssertionID = 0
+
+    @discardableResult
+    private static func run(_ path: String, _ args: [String]) -> Int32 {
+        let p = Process(); p.executableURL = URL(fileURLWithPath: path); p.arguments = args
+        p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice
+        guard (try? p.run()) != nil else { return -1 }
+        p.waitUntilExit(); return p.terminationStatus
+    }
+
+    /// Asks for the password one time: switches Low Power Mode and adds a rule that lets this user
+    /// run only "pmset -a lowpowermode 0" or "1" without a password from now on.
+    private static func setUpLowPowerOnce(_ on: Bool) {
+        let user = NSUserName()
+        let rule = "\(user) ALL=(root) NOPASSWD: /usr/bin/pmset -a lowpowermode 0, /usr/bin/pmset -a lowpowermode 1\n"
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("melcolm-lowpower-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let ruleFile = dir.appendingPathComponent("rule"), script = dir.appendingPathComponent("setup.sh")
+        try? rule.write(to: ruleFile, atomically: true, encoding: .utf8)
+        let sh = """
+        #!/bin/sh
+        /usr/bin/pmset -a lowpowermode \(on ? 1 : 0)
+        /usr/sbin/visudo -cf '\(ruleFile.path)' && /usr/bin/install -m 440 -o root -g wheel '\(ruleFile.path)' /etc/sudoers.d/melcolm-lowpower
+        """
+        try? sh.write(to: script, atomically: true, encoding: .utf8)
+        run("/usr/bin/osascript", ["-e", "do shell script \"/bin/sh '\(script.path)'\" with administrator privileges with prompt \"Melcolm needs your password once so Low Power Mode can be switched with one click from now on.\""])
+        try? FileManager.default.removeItem(at: dir)
+    }
 
     func refresh() {
         refreshPower()

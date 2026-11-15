@@ -812,7 +812,7 @@ struct LowPowerRow: View {
                 .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(on ? AnyShapeStyle(yellow) : AnyShapeStyle(yellow.opacity(0.14))))
             VStack(alignment: .leading, spacing: 1) {
                 Text("Low Power Mode").font(.system(size: 13, weight: .bold))
-                Text(system.lowPowerBusy ? "Waiting for your password…" : on ? "On · the battery lasts longer" : "Off")
+                Text(system.lowPowerBusy ? "Waiting for your password (first time only)…" : on ? "On · the battery lasts longer" : "Off")
                     .font(.system(size: 11)).foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
@@ -822,6 +822,6 @@ struct LowPowerRow: View {
         .padding(.horizontal, 10).padding(.vertical, 8)
         .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color(white: 0.105))
             .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(on ? yellow.opacity(0.5) : .white.opacity(0.08), lineWidth: 1)))
-        .help("Turns Low Power Mode on or off for the whole Mac. macOS asks for your password each time.")
+        .help("Turns Low Power Mode on or off for the whole Mac. macOS asks for your password the first time only.")
     }
 }
