@@ -148,6 +148,8 @@ struct SpacesStrip: View {
     @AppStorage("iconClick") var iconClick = "app"
     @AppStorage("dimOthers") var dimOthers = false
     @AppStorage("colRev") var colRev = 0
+    @AppStorage("dragSpaces") var dragOn = true
+    @ObservedObject var drag = SpaceDragModel.shared
     @Namespace var ns
     var first = 0
     var count: Int? = nil
@@ -169,15 +171,40 @@ struct SpacesStrip: View {
                         Capsule().fill(BarColor.displayBox.color.opacity(0.35)).frame(width: 1, height: icon * 0.65)
                             .padding(.horizontal, 4)
                     }
-                    ForEach(fulls) { s in appCell(g, s, on: s.id == g.currentID, icon: icon, h: h - 2) }
+                    ForEach(fulls) { s in
+                        appCell(g, s, on: s.id == g.currentID, icon: icon, h: h - 2)
+                            .overlay(alignment: .leading) { insertMark(g, before: s, fulls) }
+                            .overlay(alignment: .trailing) { insertMark(g, after: s, fulls) }
+                            .zIndex(drag.dragging == s.id ? 2 : 0)
+                    }
                 }
                 .padding(.horizontal, 8)
                 .frame(width: Layout.groupWidth(g, icon: icon, m: spaces), height: h, alignment: .leading)
-                .background { NeonBox(color: BarColor.displayBox.color, strength: 0.7) }
+                .background { NeonBox(color: BarColor.displayBox.color, strength: drag.target.map { Self.display(of: $0) == g.id } == true ? 1.2 : 0.7) }
+                .dragFrame("box-\(g.id)")
+                .zIndex(g.spaces.contains { $0.id == drag.dragging } ? 2 : 0)
                 .help("Display \(g.number)")
             }
         }
         .animation(.spring(response: 0.45, dampingFraction: 0.85), value: spaces.displays)
+    }
+
+    static func display(of t: SpaceDrop) -> String {
+        switch t { case .desktop(let d): d; case .slot(let d, _): d }
+    }
+
+    /// The cyan bar showing where a dragged app will land. Drawn over the cells so nothing shifts.
+    @ViewBuilder func insertMark(_ g: DisplayGroup, before s: SpaceItem, _ fulls: [SpaceItem]) -> some View {
+        let others = fulls.filter { $0.id != drag.dragging }
+        if s.id != drag.dragging, case .slot(let d, let k)? = drag.target, d == g.id, others.indices.contains(k), others[k].id == s.id { mark.offset(x: -2.5) }
+    }
+    @ViewBuilder func insertMark(_ g: DisplayGroup, after s: SpaceItem, _ fulls: [SpaceItem]) -> some View {
+        let others = fulls.filter { $0.id != drag.dragging }
+        if s.id != drag.dragging, case .slot(let d, let k)? = drag.target, d == g.id, k == others.count, others.last?.id == s.id { mark.offset(x: 2.5) }
+    }
+    var mark: some View {
+        Capsule().fill(BarColor.space.color).frame(width: 3, height: state.iconSize * 0.9).neon(BarColor.space.color, 1)
+            .transition(.opacity.combined(with: .scale(scale: 0.4)))
     }
 
     /// One outline per display; it slides from cell to cell instead of vanishing and reappearing.
@@ -208,8 +235,17 @@ struct SpacesStrip: View {
             }
             .frame(width: Layout.numberCell(icon), height: h)
             .background(glow(on, g.id))
+            .overlay {
+                // Drop a dragged app here to take it out of full screen onto this desktop.
+                if drag.target == .desktop(g.id) {
+                    RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(BarColor.space.color, lineWidth: 1.6)
+                        .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(BarColor.space.color.opacity(0.25)))
+                        .neon(BarColor.space.color, 1).scaleEffect(1.12)
+                }
+            }
             .contentShape(Rectangle())
             .hoverLift("num-\(g.id)", BarColor.number.color, radius: 6)
+            .dragFrame("num-\(g.id)")
         }
         .buttonStyle(PressStyle())
         .help("Desktop \(g.number)")
@@ -219,7 +255,10 @@ struct SpacesStrip: View {
         let list = Array((spaces.apps[s.id] ?? []).prefix(2))
         let app = list.first
         let dim = dimOthers && !on
+        let canDrag = dragOn && list.count <= 1 && !spaces.split.contains(s.id) && !SpaceMover.busy
+        let lifted = drag.dragging == s.id
         return Button {
+            if Date().timeIntervalSince(drag.droppedAt) < 0.35 { return }
             if let app, iconClick == "app" { spaces.focus(app, on: s) } else { spaces.switchTo(s) }
         } label: {
             Group {
@@ -240,8 +279,20 @@ struct SpacesStrip: View {
             .background(glow(on, g.id))
             .contentShape(Rectangle())
             .hoverLift("app-\(s.id)", BarColor.space.color, radius: 6)
+            .dragFrame("app-\(s.id)")
+            .scaleEffect(lifted ? 1.15 : 1)
+            .shadow(color: lifted ? BarColor.space.color.opacity(0.8) : .clear, radius: 8)
+            .offset(lifted ? drag.offset : .zero)
         }
         .buttonStyle(PressStyle())
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 6, coordinateSpace: .global)
+                .onChanged { v in
+                    drag.begin(s.id)
+                    drag.update(v.location, offset: CGSize(width: v.translation.width, height: max(-6, min(6, v.translation.height))), model: spaces)
+                }
+                .onEnded { _ in drag.end(model: spaces) },
+            including: canDrag ? .all : .subviews)
         .help(list.isEmpty ? "Full-screen app" : list.map(\.name).joined(separator: " + "))
     }
 }
@@ -337,7 +388,8 @@ struct SettingsTab: View {
                     }
                 }
             }
-            Text("Melcolm All-in-One Productivity · v2.6").font(.system(size: 10)).foregroundStyle(.tertiary)
+            if cur == .spaces { DragSpacesCard() }
+            Text("Melcolm All-in-One Productivity · v2.7").font(.system(size: 10)).foregroundStyle(.tertiary)
         }
         .font(.system(size: 12))
         .toggleStyle(.switch).controlSize(.small)
@@ -811,5 +863,16 @@ struct NotchButton: View {
         .onHover { h in withAnimation(.easeOut(duration: 0.15)) { hot = h } }
         .help("Open Melcolm (⌃⌥Space)")
         .animation(.easeOut(duration: 0.2), value: state.expanded)
+    }
+}
+
+extension View {
+    /// Remembers where a bar cell is, so a drag can tell what it's over.
+    func dragFrame(_ key: String) -> some View {
+        background(GeometryReader { p in
+            Color.clear
+                .onAppear { SpaceDragModel.shared.frames[key] = p.frame(in: .global) }
+                .onChange(of: p.frame(in: .global)) { _, f in SpaceDragModel.shared.frames[key] = f }
+        })
     }
 }

@@ -39,6 +39,7 @@ final class SpacesModel: ObservableObject {
     @Published var apps: [Int: [SpaceApp]] = [:]   // space id -> apps, front-most first
 
     @Published var frontPID: pid_t = 0
+    @Published var split: Set<Int> = []           // Split View Spaces (two apps side by side)
     let screen: () -> NSScreen?
 
     init(screen: @escaping () -> NSScreen? = { NSScreen.screens.first }) {
@@ -65,6 +66,7 @@ final class SpacesModel: ObservableObject {
 
     /// Reads the spaces of the display the island sits on (the menu-bar screen).
     func refresh() {
+        if holding { return }   // a drag move is running; keep showing where it's going
         guard let raw = CGSCopyManagedDisplaySpaces(_CGSDefaultConnection())?.takeRetainedValue() as? [NSDictionary],
               !raw.isEmpty else { return }
         let wanted = Self.uuid(of: screen())
@@ -103,6 +105,8 @@ final class SpacesModel: ObservableObject {
             groups.append(DisplayGroup(id: (d["Display Identifier"] as? String) ?? "\(i)", number: i + 1, spaces: list, currentID: c))
         }
         if groups != displays { displays = groups }
+        let sp = SpaceMover.splitIDs()
+        if sp != split { split = sp }
         let a = Self.appsBySpace(allIDs)
         if a != apps { apps = a }
     }
@@ -143,6 +147,26 @@ final class SpacesModel: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + (moved ? 0.45 : 0)) {
             NSRunningApplication(processIdentifier: app.pid)?.activate()
         }
+    }
+
+    /// While a dragged app is being moved, show it in its new place straight away.
+    private var holding = false
+    func preview(moving id: Int, to t: SpaceDrop) {
+        guard let item = displays.flatMap(\.spaces).first(where: { $0.id == id }) else { return }
+        holding = true
+        var gs = displays.map { g in DisplayGroup(id: g.id, number: g.number, spaces: g.spaces.filter { $0.id != id }, currentID: g.currentID) }
+        if case .slot(let d, let k) = t, let i = gs.firstIndex(where: { $0.id == d }) {
+            let g = gs[i]
+            var fulls = g.spaces.filter(\.isFullscreen)
+            fulls.insert(item, at: min(k, fulls.count))
+            gs[i] = DisplayGroup(id: g.id, number: g.number, spaces: g.spaces.filter { !$0.isFullscreen } + fulls, currentID: g.currentID)
+        }
+        displays = gs
+    }
+    func endPreview() {
+        holding = false
+        refresh()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { self.refresh() }
     }
 
     func jump(toNumber n: Int) {

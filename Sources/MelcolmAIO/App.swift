@@ -155,6 +155,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         }
+        // For testing a drag move: `--args -debugMove "<space id>:<slot or -1 for desktop>:<display uuid>"`.
+        if let t = UserDefaults.standard.string(forKey: "debugMove"), let i = islands.first {
+            let p = t.split(separator: ":").map(String.init)
+            if p.count == 3, let id = Int(p[0]), let k = Int(p[1]) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                    BrowserMedia.log("TEST move \(t)")
+                    SpaceMover.start(space: id, to: k < 0 ? .desktop(p[2]) : .slot(p[2], k), model: i.spaces)
+                }
+            }
+        }
+        // For testing: `-debugRenderDrag <png path>` saves a picture of the Dragging box in Settings.
+        if let path = UserDefaults.standard.string(forKey: "debugRenderDrag") {
+            let r = ImageRenderer(content: DragSpacesCard().frame(width: 430).padding(12).background(Color(white: 0.06))
+                .toggleStyle(.switch).controlSize(.small).environment(\.colorScheme, .dark))
+            r.scale = 2
+            if let t = r.nsImage?.tiffRepresentation, let png = NSBitmapImageRep(data: t)?.representation(using: .png, properties: [:]) {
+                try? png.write(to: URL(fileURLWithPath: path))
+            }
+        }
+        // For testing: `-debugFullWindow "<pid>:<window id>"` puts that window back into full screen.
+        if let t = UserDefaults.standard.string(forKey: "debugFullWindow") {
+            let p = t.split(separator: ":").compactMap { Int($0) }
+            if p.count == 2 {
+                DispatchQueue.global().asyncAfter(deadline: .now() + 3) {
+                    if let w = SpaceMover.window(pid: pid_t(p[0]), wid: CGWindowID(p[1])) { SpaceMover.setFull(w, true, pid: pid_t(p[0])) }
+                    else { BrowserMedia.log("spacemove no window \(t)") }
+                }
+            }
+        }
         // For testing: `open … --args -debugOpen Settings` opens the panel on launch (not saved).
         if let t = UserDefaults.standard.string(forKey: "debugOpen"), let i = islands.first {
             i.state.page = PanelPage.allCases.first { $0.rawValue.lowercased() == t.lowercased() } ?? .home; i.setExpanded(true)

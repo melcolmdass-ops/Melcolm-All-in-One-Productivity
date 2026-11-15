@@ -19,6 +19,7 @@ enum Prefs {
         "indicatorStyle": "glow",      // glow / box
         "showNumbers": true,
         "showAppIcons": true,
+        "dragSpaces": true,            // drag full-screen apps on the bar to move them
         "dimOthers": false,            // false = every icon bright, the app in use underlined
         "maxIcons": 4,
         "classicSwitching": false,     // false = instant (fast) switching, true = Ctrl-arrow shortcuts with animation

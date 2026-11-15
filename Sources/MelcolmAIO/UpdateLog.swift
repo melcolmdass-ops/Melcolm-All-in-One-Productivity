@@ -24,6 +24,20 @@ enum UpdateLog {
 
     /// Newest first.
     static let all: [AppUpdate] = [
+        AppUpdate(version: "2.7", date: "November 15th, 2026", title: "Drag your full-screen apps around the bar",
+                  improvements: [
+                      "While you drag, a cyan line shows exactly where the app will land.",
+                      "The display box you're over glows brighter, so you always know which display you're dropping on.",
+                  ],
+                  fixes: [
+                      "Split View pairs (two apps sharing one box) stay together: they can't be dragged, and moving another app never pulls them apart.",
+                  ],
+                  features: [
+                      "Drag a full-screen app between two others to move it there, on the same display or another one.",
+                      "Drop a full-screen app on a display number to take it out of full screen onto that desktop.",
+                      "Settings ▸ Main Bar ▸ Spaces has a new Drag box with pictures of what you can and can't do, and one on/off switch.",
+                  ],
+                  icons: ["hand.draw.fill", "arrow.left.arrow.right", "rectangle.split.3x1"], tint: Color(red: 0.25, green: 0.88, blue: 1.0)),
         AppUpdate(version: "2.6", date: "November 15th, 2026", title: "Everything lights up when you rest on it",
                   improvements: [
                       "Play / Pause reacts right away: it reads the player's own button in a third of a second instead of waiting 1.5 seconds.",
