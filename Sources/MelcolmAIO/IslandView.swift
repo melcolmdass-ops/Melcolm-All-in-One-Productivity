@@ -25,7 +25,7 @@ struct IslandView: View {
                 .frame(width: state.expanded ? nil : collapsedW, height: state.barHeight)
             if state.expanded {
                 PanelView()
-                    .transition(.asymmetric(insertion: .opacity.combined(with: .scale(scale: 0.96, anchor: .top)),
+                    .transition(.asymmetric(insertion: .opacity.combined(with: .scale(scale: 0.35, anchor: .top)),
                                             removal: .opacity))
             } else if let p = state.peek {
                 PeekRow(peek: p).frame(height: p.height)
@@ -73,7 +73,7 @@ struct TopBar: View {
             } else if state.expanded {
                 Color.clear.frame(width: max(state.leftWing, state.rightWing))
             }
-            if state.notchWidth > 0 { Color.clear.frame(width: state.notchWidth) }
+            if state.notchWidth > 0 { NotchButton(toggle: toggle).frame(width: state.notchWidth) }
             if state.stripRight { SpacesStrip().padding(.leading, 10) }
             if state.notchWidth == 0 { Spacer(minLength: 0) }
             HStack(spacing: 8) {
@@ -734,5 +734,28 @@ struct CommandRow: View {
             }.frame(minHeight: 30)
             Hairline().padding(.top, 6)
         }
+    }
+}
+
+
+/// The notch itself is the open button: a soft glowing outline hugs its edge, brighter on hover.
+struct NotchButton: View {
+    @EnvironmentObject var state: IslandState
+    let toggle: () -> Void
+    @AppStorage("notchHover") var hot = false
+
+    var body: some View {
+        let shape = UnevenRoundedRectangle(bottomLeadingRadius: 10, bottomTrailingRadius: 10, style: .continuous)
+        Button(action: toggle) {
+            shape.fill(Color.black)
+                .overlay(shape.strokeBorder(accent.opacity(state.expanded ? 0.9 : hot ? 0.95 : 0.55), lineWidth: hot || state.expanded ? 2 : 1.5))
+                .shadow(color: accent.opacity(hot || state.expanded ? 0.8 : 0.35), radius: hot ? 7 : 4)
+                .padding(.horizontal, -3).padding(.bottom, -3)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(PressStyle())
+        .onHover { h in withAnimation(.easeOut(duration: 0.15)) { hot = h } }
+        .help("Open Melcolm (⌃⌥Space)")
+        .animation(.easeOut(duration: 0.2), value: state.expanded)
     }
 }
