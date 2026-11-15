@@ -205,6 +205,7 @@ final class NowPlayingModel: ObservableObject {
         return NSWorkspace.shared.icon(forFile: url.path)
     }
 
+    @Published var seekBlocked = false     // Chrome refused the jump (JavaScript from Apple Events is off in that profile)
     @Published var jsHint = false          // true when Chrome/Safari refused to share the artist
     private var busy = false
     private var lastBrowserTitle = ""
@@ -336,7 +337,9 @@ final class NowPlayingModel: ObservableObject {
         if let r = mainResult { seek(r, to: t) }
     }
     func seek(_ r: BrowserMedia.Result, to t: Double) {
-        if BrowserMedia.seek(r, to: t) || WebAX.seek(ax[r.id]?.found.slider, to: t) {
+        let ok = BrowserMedia.seek(r, to: t) || WebAX.seek(ax[r.id]?.found.slider, to: t)
+        seekBlocked = !ok && !r.browser.isEmpty
+        if ok {
             if let i = others.firstIndex(where: { $0.id == r.id }) { others[i].position = t }
             if mainID == r.id { position = t }
         }
@@ -596,6 +599,7 @@ enum Brightness {
 /// Finds what a web browser (or a web app like YouTube Music) is playing, by reading tab titles
 /// and, when the browser allows it, the page's media info (artist, artwork, progress).
 enum BrowserMedia {
+    static var debugAX: Bool { UserDefaults.standard.bool(forKey: "debugAX") }
     struct Result { var title: String; var artist: String; var playing: Bool; var position: Double; var duration: Double; var artwork: String; var needsJS: Bool; var videoID = ""; var browser = ""; var window = 0; var tab = 0; var url = ""; var knownState = false; var generic = false; var pwa: pid_t = 0
         var id: String { "\(browser)|\(url)" } }
     static func isSite(_ s: String) -> Bool { s.isEmpty || sites.contains { $0.caseInsensitiveCompare(s) == .orderedSame } }
@@ -758,7 +762,9 @@ enum BrowserMedia {
             ? "tell application \"Safari\" to do JavaScript \"\(js)\" in tab \(r.tab) of window \(r.window)"
             : "tell application \"\(r.browser)\" to tell tab \(r.tab) of window \(r.window) to execute javascript \"\(js)\""
         var err: NSDictionary?
-        return NSAppleScript(source: src)?.executeAndReturnError(&err).stringValue == "ok"
+        let out = NSAppleScript(source: src)?.executeAndReturnError(&err).stringValue
+        log("js seek \(r.browser) w\(r.window) t\(r.tab) pwa=\(r.pwa) → \(out ?? "nil") \(err?["NSAppleScriptErrorMessage"] ?? "")")
+        return out == "ok"
     }
 
     /// Next / previous track inside one tab (YouTube Music and YouTube buttons).

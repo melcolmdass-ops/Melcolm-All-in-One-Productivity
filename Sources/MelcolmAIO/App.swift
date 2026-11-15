@@ -57,6 +57,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     static let peekHeight: CGFloat = 28
 
     func applicationDidFinishLaunching(_ note: Notification) {
+        let ds = UserDefaults.standard.double(forKey: "debugSeek")
+        if ds > 0 { DispatchQueue.main.asyncAfter(deadline: .now() + 10) { self.playing.seek(ds) } }
         if UserDefaults.standard.bool(forKey: "debugSpacesDry") { DispatchQueue.main.asyncAfter(deadline: .now() + 2) { Tiler.minimizeSpaces(dry: true) } }
         Prefs.register()
         Tiler.watch()
@@ -253,12 +255,10 @@ final class Island: NSObject {
         icon = Layout.icon(forBar: h)
         // Each island is only as wide as its own content, so it fits whatever screen it is on.
         // If the front app's menus run up to the notch, don't cover them: put the strip on the right.
-        var moveRight = false
-        if state.notchWidth > 0, let screen, screen == NSScreen.screens.first, let menuEnd = MenuBar.rightEdge(below: screen.frame.midX - state.notchWidth / 2) {
-            moveRight = screen.frame.midX - state.notchWidth / 2 - left < menuEnd + 4
-        }
-        if state.stripRight != moveRight { state.stripRight = moveRight }
-        if moveRight { set(&state.leftWing, 0); set(&state.rightWing, right + left - 8) }
+        // Always centred on the middle of the screen (the notch): both sides equally wide.
+        if state.stripRight { state.stripRight = false }
+        let wing = state.notchWidth > 0 ? max(left, right) : 0
+        if wing > 0 { set(&state.leftWing, wing); set(&state.rightWing, wing) }
         else { set(&state.leftWing, left); set(&state.rightWing, right) }
         set(&state.barHeight, h)
         let minPeek: CGFloat = state.peek?.kind == .text || state.peek == nil ? 300 : 360

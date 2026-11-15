@@ -57,13 +57,21 @@ enum WebAX {
         while !queue.isEmpty, seen < 6000 {
             let e = queue.removeFirst(); seen += 1
             let role = str(e, kAXRoleAttribute)
+            if BrowserMedia.debugAX {
+                let d = (str(e, kAXDescriptionAttribute) + "|" + str(e, kAXTitleAttribute) + "|" + str(e, "AXRoleDescription")).lowercased()
+                if d.contains("seek") || d.contains("progress") || d.contains("slider") || role.contains("Slider") || role.contains("Progress") || role.contains("Scroll") {
+                    BrowserMedia.log("ax probe \(role) '\(d)' v=\(num(e, kAXValueAttribute) ?? -1)")
+                }
+            }
             if role == kAXStaticTextRole, f.dur == 0 {
                 let v = str(e, kAXValueAttribute)
                 let parts = v.components(separatedBy: " / ")
                 if parts.count == 2, let a = seconds(parts[0].trimmingCharacters(in: .whitespaces)),
                    let b = seconds(parts[1].trimmingCharacters(in: .whitespaces)), b > 0 { f.pos = a; f.dur = b }
-            } else if role == kAXSliderRole {
+            } else if role == kAXSliderRole || role == "AXProgressIndicator" {
                 let label = (str(e, kAXDescriptionAttribute) + " " + str(e, kAXTitleAttribute)).lowercased()
+                if BrowserMedia.debugAX { var names: CFArray?; AXUIElementCopyActionNames(e, &names); var settable: DarwinBoolean = false; AXUIElementIsAttributeSettable(e, kAXValueAttribute as CFString, &settable); BrowserMedia.log("ax slider actions=\(names as? [String] ?? []) settable=\(settable)") }
+                BrowserMedia.log("ax slider '\(label)' v=\(num(e, kAXValueAttribute) ?? -1) max=\(num(e, kAXMaxValueAttribute) ?? -1)")
                 if label.contains("seek") || label.contains("progress") || label.contains("playback") {
                     f.slider = e
                     if f.dur == 0, let v = num(e, kAXValueAttribute), let m = num(e, kAXMaxValueAttribute), m > 1 { f.pos = v; f.dur = m }
@@ -120,16 +128,51 @@ enum WebAX {
         return AXUIElementPerformAction(e, kAXPressAction as CFString) == .success
     }
 
+    static func clickAt(_ e: AXUIElement, fraction: Double) -> Bool {
+        var pid: pid_t = 0; AXUIElementGetPid(e, &pid)
+        guard let pv = attr(e, kAXPositionAttribute), let sv = attr(e, kAXSizeAttribute) else { return false }
+        var p = CGPoint.zero, sz = CGSize.zero
+        AXValueGetValue(pv as! AXValue, .cgPoint, &p); AXValueGetValue(sv as! AXValue, .cgSize, &sz)
+        guard sz.width > 10 else { return false }
+        let pt = CGPoint(x: p.x + sz.width * min(0.995, max(0.005, fraction)), y: p.y + sz.height / 2)
+        // Only when that spot is really showing (the top window there belongs to the app).
+        let wins = (CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]]) ?? []
+        let me = ProcessInfo.processInfo.processIdentifier
+        let top = wins.first { w in
+            guard (w[kCGWindowLayer as String] as? Int) == 0, (w[kCGWindowOwnerPID as String] as? pid_t) != me,
+                  let b = w[kCGWindowBounds as String] as? [String: Double] else { return false }
+            return CGRect(x: b["X"] ?? 0, y: b["Y"] ?? 0, width: b["Width"] ?? 0, height: b["Height"] ?? 0).contains(pt)
+        }
+        BrowserMedia.log("seek click at \(pt) top=\(top?[kCGWindowOwnerName as String] ?? "none")")
+        guard (top?[kCGWindowOwnerPID as String] as? pid_t) == pid else { return false }
+        let back = CGEvent(source: nil)?.location ?? pt
+        for type in [CGEventType.leftMouseDown, .leftMouseUp] {
+            guard let ev = CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: pt, mouseButton: .left) else { return false }
+            ev.setIntegerValueField(.mouseEventClickState, value: 1)
+            ev.post(tap: .cghidEventTap)
+            usleep(25_000)
+        }
+        CGWarpMouseCursorPosition(back)
+        return true
+    }
+
     /// Jumps a web player's slider. Sets the value when the page allows it; otherwise
     /// steps it with the slider's own increment/decrement (what the arrow keys do).
     static func seek(_ e: AXUIElement?, to t: Double) -> Bool {
-        guard let e else { return false }
+        guard let e else { BrowserMedia.log("seek: no slider"); return false }
         AXUIElementSetMessagingTimeout(e, 0.3)
         let before = num(e, kAXValueAttribute)
         _ = AXUIElementSetAttributeValue(e, kAXValueAttribute as CFString, NSNumber(value: t))
         guard var now = num(e, kAXValueAttribute) else { return false }
+        BrowserMedia.log("seek to \(t): before=\(before ?? -1) after set=\(now)")
         if abs(now - t) < 3 || (before != nil && abs(now - (before ?? now)) > 0.5 && abs(now - t) < 6) { return true }
         // Measure one step, then take the rest.
+        // A seek bar the page won't let us set: click it at the right spot, sent straight to the app.
+        if let m = num(e, kAXMaxValueAttribute), m > 0, clickAt(e, fraction: t / m) {
+            Thread.sleep(forTimeInterval: 0.25)
+            BrowserMedia.log("seek click → now=\(num(e, kAXValueAttribute) ?? -1)")
+            return true
+        }
         let up = t > now
         let action = (up ? kAXIncrementAction : kAXDecrementAction) as CFString
         guard AXUIElementPerformAction(e, action) == .success else { return false }
