@@ -191,6 +191,11 @@ final class Island: NSObject {
             .environmentObject(state).environmentObject(spaces).environmentObject(app.sound)
             .environmentObject(app.playing).environmentObject(app.timer).environmentObject(app.system).environmentObject(app.levels).environmentObject(app.batteries)
         panel.contentView = FirstClickHostingView(rootView: root)
+        // When the window grows for the hover bar, keep what's already drawn pinned to the top
+        // and redraw during the resize, so the top bar never drops down and springs back.
+        panel.contentView?.wantsLayer = true
+        panel.contentView?.layerContentsPlacement = .top
+        panel.contentView?.layerContentsRedrawPolicy = .duringViewResize
         measureScreen()
         relayout()
         panel.orderFrontRegardless()
@@ -244,7 +249,14 @@ final class Island: NSObject {
         // Give the hover bar room to breathe, without moving the top bar.
         set(&state.peekExtra, state.peek != nil && baseW < minPeek ? (minPeek - baseW) / 2 : 0)
         let f = frame(expanded: state.expanded)
-        if !state.expanded, f != panel.frame { panel.setFrame(f, display: true) }
+        if !state.expanded, f != panel.frame {
+            NSAnimationContext.runAnimationGroup { c in
+                c.duration = 0; c.allowsImplicitAnimation = false
+                panel.setFrame(f, display: false)
+                panel.contentView?.layoutSubtreeIfNeeded()
+                panel.displayIfNeeded()
+            }
+        }
     }
 
     private func set(_ v: inout CGFloat, _ n: CGFloat) { if abs(v - n) > 0.5 { v = n } }
