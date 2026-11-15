@@ -33,6 +33,7 @@ struct SettingsVisual: View {
         case .mouse: "Scrolling, hovering and clicking on the island."
         case .hover: "The strip that drops down when you rest on the island."
         case .panel: "Which pages are on Home, their order, and which open right there."
+        case .colors: "Pick the colours of the closed bar: outlines, boxes and highlights."
         case .utility: "Quick buttons at the bottom of Home; each opens its page as a pop-up."
         }
     }
@@ -116,6 +117,10 @@ struct SettingsVisual: View {
                         Image(systemName: "arrow.up.arrow.down").font(.system(size: 14, weight: .bold)).foregroundStyle(accent)
                     }.padding(.top, 22)
                 }
+        case .colors:
+            HStack(spacing: 8) {
+                ForEach(["66A0FF", "40E0FF", "5CE08A", "FFD84D", "FF7ACB"], id: \.self) { h in Circle().fill(Color(hex: h) ?? .white).frame(width: 22, height: 22) }
+            }
         case .hover:
             VStack(spacing: 0) {
                 pill(width: 160) { box("1", on: true); Spacer(); chevron }

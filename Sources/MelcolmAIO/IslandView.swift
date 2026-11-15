@@ -7,6 +7,7 @@ let accentGradient = LinearGradient(colors: [Color(red: 0.36, green: 0.66, blue:
 
 struct IslandView: View {
     @EnvironmentObject var state: IslandState
+    @AppStorage("colRev") var colRev = 0
     let toggle: () -> Void
     let hover: (Bool) -> Void
     var openPage: (PanelPage) -> Void = { _ in }
@@ -36,8 +37,9 @@ struct IslandView: View {
         .background(
             ZStack {
                 shape.fill(Color.black)
-                shape.strokeBorder(LinearGradient(colors: [.white.opacity(0.0), .white.opacity(state.expanded ? 0.16 : 0.12)],
-                                                  startPoint: .top, endPoint: .bottom), lineWidth: 1)
+                let _ = colRev
+                shape.strokeBorder(BarColor.outline.color, lineWidth: 1.6)
+                    .shadow(color: BarColor.outline.color.opacity(0.5), radius: 3)
             }
             .shadow(color: .black.opacity(state.expanded ? 0.6 : 0), radius: 22, y: 10)
         )
@@ -59,6 +61,7 @@ struct TopBar: View {
     @AppStorage("barShowTimer") var showTimer = true
     @AppStorage("barShowMusic") var showMusic = true
     @AppStorage("barOrder") var barOrder = "timer,music"
+    @AppStorage("colRev") var colRev = 0
     let toggle: () -> Void
     var openPage: (PanelPage) -> Void = { _ in }
 
@@ -91,11 +94,11 @@ struct TopBar: View {
                             if a == .timer {
                                 Label(timer.display, systemImage: timer.mode == .timer ? "timer" : "stopwatch")
                                     .font(.system(size: 14, weight: .bold, design: .rounded).monospacedDigit())
-                                    .foregroundStyle(timer.finished ? .orange : accent)
+                                    .foregroundStyle(timer.finished ? .orange : BarColor.status.color)
                                     .lineLimit(1)
                             } else {
                                 HStack(spacing: 6) {
-                                    Image(systemName: "music.note").font(.system(size: 14, weight: .bold)).foregroundStyle(accent)
+                                    Image(systemName: "music.note").font(.system(size: 14, weight: .bold)).foregroundStyle(BarColor.status.color)
                                     BeatWave().scaleEffect(1.25)
                                 }
                             }
@@ -118,7 +121,7 @@ struct TopBar: View {
                 .background {
                     let r = RoundedRectangle(cornerRadius: 9, style: .continuous)
                     r.fill(Color(white: 0.11))
-                    r.strokeBorder(accent.opacity(0.75), lineWidth: 1.4).shadow(color: accent.opacity(0.6), radius: 5)
+                    r.strokeBorder(BarColor.statusBox.color.opacity(0.85), lineWidth: 1.4).shadow(color: BarColor.statusBox.color.opacity(0.6), radius: 5)
                 }
             }
             .padding(state.notchWidth > 0 ? .leading : .trailing, state.notchWidth > 0 ? 12 : 10)
@@ -137,6 +140,7 @@ struct SpacesStrip: View {
     @AppStorage("showAppIcons") var showIcons = true
     @AppStorage("iconClick") var iconClick = "app"
     @AppStorage("dimOthers") var dimOthers = false
+    @AppStorage("colRev") var colRev = 0
     @Namespace var ns
     
     var body: some View {
@@ -161,8 +165,8 @@ struct SpacesStrip: View {
                 .background {
                     let r = RoundedRectangle(cornerRadius: 9, style: .continuous)
                     r.fill(Color(white: 0.13))
-                    r.strokeBorder(.white.opacity(0.32), lineWidth: 1.2)
-                        .shadow(color: .white.opacity(0.22), radius: 4)
+                    r.strokeBorder(BarColor.displayBox.color, lineWidth: 1.2)
+                        .shadow(color: BarColor.displayBox.color.opacity(0.6), radius: 4)
                 }
                 .help("Display \(g.number)")
             }
@@ -175,7 +179,7 @@ struct SpacesStrip: View {
         let r = RoundedRectangle(cornerRadius: 8, style: .continuous)
         return ZStack {
             if on {
-                let cyan = Color(red: 0.25, green: 0.88, blue: 1.0)
+                let cyan = BarColor.space.color
                 ZStack {
                     r.fill(cyan.opacity(style == "box" ? 0.30 : 0.14))
                     r.strokeBorder(cyan, lineWidth: 1.6)
@@ -191,9 +195,9 @@ struct SpacesStrip: View {
             Group {
                 if showNumbers {
                     Text("\(g.number)").font(.system(size: icon * 0.72, weight: .heavy, design: .rounded))
-                        .foregroundStyle(on ? .white : accent.opacity(0.85))
+                        .foregroundStyle(on ? .white : BarColor.number.color.opacity(0.9))
                 } else {
-                    Circle().fill(on ? .white : accent).frame(width: 8, height: 8)
+                    Circle().fill(on ? .white : BarColor.number.color).frame(width: 8, height: 8)
                 }
             }
             .frame(width: Layout.numberCell(icon), height: h)
@@ -245,10 +249,10 @@ struct Card<Content: View>: View {
 }
 
 struct SettingsTab: View {
-    enum Page: String, CaseIterable { case general = "General", commands = "Commands", bar = "Bar", display = "Display on bar", spaces = "Spaces", mouse = "Mouse", hover = "Hover bar", panel = "Pages", utility = "Utility Bar" }
+    enum Page: String, CaseIterable { case general = "General", commands = "Commands", bar = "Bar", display = "Display on bar", spaces = "Spaces", mouse = "Mouse", hover = "Hover bar", panel = "Pages", utility = "Utility Bar", colors = "Colors" }
     /// Top tabs, each with its own sub-tabs.
     static let groups: [(name: String, tabs: [Page])] = [
-        ("General", [.general, .commands]), ("Main Bar", [.bar, .panel, .display, .spaces, .mouse, .hover]), ("Utility Bar", [.utility]),
+        ("General", [.general, .commands]), ("Main Bar", [.bar, .panel, .display, .spaces, .mouse, .hover]), ("Utility Bar", [.utility]), ("Colors", [.colors]),
     ]
     @AppStorage("settingsPage") var page = Page.general.rawValue
     @AppStorage("islandSize") var size = "large"
@@ -316,6 +320,7 @@ struct SettingsTab: View {
                     case .hover: hoverPage
                     case .commands: commandsPage
                     case .utility: utilityPage
+                    case .colors: ColorsPage()
                     }
                 }
             }
@@ -776,8 +781,10 @@ struct NotchButton: View {
     @EnvironmentObject var state: IslandState
     let toggle: () -> Void
     @AppStorage("notchHover") var hot = false
+    @AppStorage("colRev") var colRev = 0
 
     var body: some View {
+        let accent = BarColor.notch.color
         let shape = UnevenRoundedRectangle(bottomLeadingRadius: 10, bottomTrailingRadius: 10, style: .continuous)
         Button(action: toggle) {
             shape.fill(Color.black)

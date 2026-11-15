@@ -112,11 +112,12 @@ final class AudioLevels: ObservableObject {
 
 /// Five bars that move with the music.
 struct BeatWave: View {
+    @AppStorage("colRev") var colRev = 0
     @EnvironmentObject var levels: AudioLevels
     var body: some View {
         HStack(alignment: .center, spacing: 2.5) {
             ForEach(0 ..< 5, id: \.self) { i in
-                Capsule().fill(accent).frame(width: 2.5, height: 3 + levels.bars[i] * 15)
+                Capsule().fill(BarColor.status.color).frame(width: 2.5, height: 3 + levels.bars[i] * 15)
             }
         }
         .frame(height: 20)

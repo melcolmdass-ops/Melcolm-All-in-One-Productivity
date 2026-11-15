@@ -1,0 +1,82 @@
+import AppKit
+import SwiftUI
+
+/// The colours of the bar itself (the closed island). Stored as hex text; empty means the default.
+enum BarColor: String, CaseIterable {
+    case outline = "colOutline", notch = "colNotch", statusBox = "colStatusBox", status = "colStatus"
+    case displayBox = "colDisplayBox", number = "colNumber", space = "colSpace"
+
+    var title: String {
+        switch self {
+        case .outline: "Island outline"
+        case .notch: "Notch outline"
+        case .statusBox: "Play / Open box outline"
+        case .status: "Music note, wave and timer"
+        case .displayBox: "Display box outline"
+        case .number: "Display number"
+        case .space: "Space highlight"
+        }
+    }
+    var fallback: Color {
+        switch self {
+        case .outline: .white.opacity(0.28)
+        case .notch, .statusBox, .status, .number: accent
+        case .displayBox: .white.opacity(0.32)
+        case .space: Color(red: 0.25, green: 0.88, blue: 1.0)
+        }
+    }
+    /// The colour in use right now.
+    var color: Color { Color(hex: Prefs.d.string(forKey: rawValue) ?? "") ?? fallback }
+}
+
+extension Color {
+    init?(hex: String) {
+        let h = hex.trimmingCharacters(in: CharacterSet(charactersIn: "# "))
+        guard h.count == 6, let v = UInt32(h, radix: 16) else { return nil }
+        self.init(red: Double((v >> 16) & 255) / 255, green: Double((v >> 8) & 255) / 255, blue: Double(v & 255) / 255)
+    }
+    var hex: String {
+        let c = NSColor(self).usingColorSpace(.sRGB) ?? .white
+        return String(format: "%02X%02X%02X", Int(round(c.redComponent * 255)), Int(round(c.greenComponent * 255)), Int(round(c.blueComponent * 255)))
+    }
+}
+
+struct ColorsPage: View {
+    @AppStorage("colRev") var rev = 0       // views that draw the bar watch this, so a change shows at once
+    static let swatches = ["FFFFFF", "66A0FF", "40E0FF", "5CE08A", "FFD84D", "FF9F40", "FF5A6A", "C77DFF", "FF7ACB"]
+
+    var body: some View {
+        let _ = rev
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(BarColor.allCases, id: \.self) { c in
+                let cur = Prefs.d.string(forKey: c.rawValue) ?? ""
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(c.title).font(.system(size: 12.5, weight: .medium))
+                    HStack(spacing: 7) {
+                        ForEach(Self.swatches, id: \.self) { h in
+                            Button { set(c, h) } label: {
+                                Circle().fill(Color(hex: h) ?? .white).frame(width: 20, height: 20)
+                                    .overlay(Circle().strokeBorder(.white, lineWidth: cur.uppercased() == h ? 2 : 0))
+                                    .overlay(Circle().strokeBorder(.white.opacity(0.2), lineWidth: 1))
+                            }.buttonStyle(.plain)
+                        }
+                        ColorPicker("", selection: Binding(get: { c.color }, set: { set(c, $0.hex) }), supportsOpacity: false).labelsHidden()
+                        Spacer(minLength: 0)
+                        Button("Reset") { set(c, "") }.buttonStyle(.plain).font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(cur.isEmpty ? AnyShapeStyle(.tertiary) : AnyShapeStyle(accent)).disabled(cur.isEmpty)
+                    }
+                }.padding(.vertical, 6)
+                Divider().opacity(0.3)
+            }
+            Button { BarColor.allCases.forEach { Prefs.d.removeObject(forKey: $0.rawValue) }; rev += 1 } label: {
+                Text("Reset all colours").font(.system(size: 12, weight: .semibold)).frame(maxWidth: .infinity, minHeight: 30)
+                    .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(.white.opacity(0.08)))
+            }.buttonStyle(.plain).padding(.top, 6)
+        }
+    }
+
+    func set(_ c: BarColor, _ hex: String) {
+        if hex.isEmpty { Prefs.d.removeObject(forKey: c.rawValue) } else { Prefs.d.set(hex, forKey: c.rawValue) }
+        rev += 1
+    }
+}
