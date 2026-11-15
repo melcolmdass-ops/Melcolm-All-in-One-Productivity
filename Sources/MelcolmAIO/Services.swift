@@ -515,19 +515,24 @@ final class SystemModel: ObservableObject {
     private var assertion: IOPMAssertionID = 0
 
     func refresh() {
-        if let info = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
-           let list = IOPSCopyPowerSourcesList(info)?.takeRetainedValue() as? [CFTypeRef],
-           let first = list.first,
-           let d = IOPSGetPowerSourceDescription(info, first)?.takeUnretainedValue() as? [String: Any] {
-            battery = d[kIOPSCurrentCapacityKey] as? Int
-            charging = (d[kIOPSIsChargingKey] as? Bool) ?? false
-        }
+        refreshPower()
         let wifi = CWWiFiClient.shared().interface()
         wifiOn = wifi?.powerOn() ?? false
         wifiName = wifi?.ssid()
         bluetoothOn = IOBluetoothHostController.default()?.powerState == kBluetoothHCIPowerStateON
         dark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         brightness = Brightness.get().map(Double.init)
+    }
+
+    func refreshPower() {
+        if let info = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
+           let list = IOPSCopyPowerSourcesList(info)?.takeRetainedValue() as? [CFTypeRef],
+           let first = list.first,
+           let d = IOPSGetPowerSourceDescription(info, first)?.takeUnretainedValue() as? [String: Any] {
+            battery = d[kIOPSCurrentCapacityKey] as? Int
+            let c = (d[kIOPSPowerSourceStateKey] as? String) == kIOPSACPowerValue
+            if c != charging { charging = c }
+        }
     }
 
     func toggleBluetooth() {

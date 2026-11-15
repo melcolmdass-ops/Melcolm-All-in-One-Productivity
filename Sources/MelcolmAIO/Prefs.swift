@@ -26,7 +26,9 @@ enum Prefs {
         // Mouse
         "hoverToOpen": false,
         "hoverPeek": true,             // rest on the island to open the hover bar
-        "hoverBarMode": "summary",     // summary / volumeBrightness / shortcuts / media
+        "hoverBarMode": "smart",       // smart / summary / volumeBrightness / shortcuts / media
+        // Pop-ups under the island when something happens
+        "popSong": true, "popOutput": true, "popTimer": true, "popCharge": true, "popBattery": true, "popFocus": true, "popSpace": false,
         "shortcuts": "Google|https://google.com\nChatGPT|https://chatgpt.com\nYouTube|https://youtube.com",
         "scrollVolume": true,          // scroll on the right half = volume
         "scrollSwitches": true,

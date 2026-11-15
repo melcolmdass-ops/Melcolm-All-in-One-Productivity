@@ -80,14 +80,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Live activities: a short pop-up under the bar when something changes.
         playing.onTrackChange = { [weak self] title, artist in
-            guard let self, Prefs.bool("liveActivities") else { return }
+            guard let self, Prefs.bool("liveActivities"), Prefs.bool("popSong") else { return }
             islands.forEach { $0.peek(.init(text: artist.isEmpty ? title : "\(title) · \(artist)", icon: "music.note", image: self.playing.artwork)) }
         }
         sound.onDeviceChange = { [weak self] name in
-            guard let self, Prefs.bool("liveActivities") else { return }
+            guard let self, Prefs.bool("liveActivities"), Prefs.bool("popOutput") else { return }
             islands.forEach { $0.peek(.init(text: "Sound now on \(name)", icon: name.localizedCaseInsensitiveContains("airpods") ? "airpodspro" : "speaker.wave.2.fill")) }
         }
-        timer.onFinish = { [weak self] in self?.islands.forEach { $0.peek(.init(text: "Timer done", icon: "bell.fill")) } }
+        timer.onFinish = { [weak self] in
+            guard Prefs.bool("liveActivities"), Prefs.bool("popTimer") else { return }
+            self?.islands.forEach { $0.peek(.init(text: "Timer done", icon: "bell.fill")) }
+        }
+        // Charging plugged in / unplugged, and a low-battery warning at 20% and 10%.
+        var lastCharging: Bool?; var warned = 100
+        Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
+            guard let self, Prefs.bool("liveActivities") else { return }
+            system.refreshPower()
+            let c = system.charging, b = system.battery ?? 100
+            if let l = lastCharging, l != c, Prefs.bool("popCharge") {
+                islands.forEach { $0.peek(.init(text: c ? "Charging · \(b)%" : "On battery · \(b)%", icon: c ? "battery.100percent.bolt" : "battery.75percent")) }
+            }
+            lastCharging = c
+            if c { warned = 100 }
+            else if Prefs.bool("popBattery"), let level = [20, 10].first(where: { b <= $0 && warned > $0 }) {
+                warned = level
+                islands.forEach { $0.peek(.init(text: "Battery low · \(b)%", icon: "battery.25percent"), for: 5) }
+            }
+        }
+        // Focus started / ended.
+        focus.$active.removeDuplicates().dropFirst().receive(on: RunLoop.main).sink { [weak self] id in
+            guard let self, Prefs.bool("liveActivities"), Prefs.bool("popFocus") else { return }
+            let m = focus.modes.first { $0.id == id }
+            islands.forEach { $0.peek(.init(text: m.map { "\($0.name) on" } ?? "Focus off", icon: m?.icon ?? "moon")) }
+        }.store(in: &bag)
+        // Which Space you're on, after a switch.
+        spaces.$currentID.removeDuplicates().dropFirst().receive(on: RunLoop.main).sink { [weak self] id in
+            guard let self, Prefs.bool("liveActivities"), Prefs.bool("popSpace"),
+                  let s = spaces.spaces.first(where: { $0.id == id }) else { return }
+            let app = spaces.apps[id]?.first?.name
+            islands.forEach { $0.peek(.init(text: s.isFullscreen ? (app ?? "Full screen") : "Desktop \(s.number)", icon: "square.on.square"), for: 1.2) }
+        }.store(in: &bag)
 
         // Keyboard control while a panel is open from ⌃⌥Space.
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
@@ -244,7 +276,7 @@ final class Island: NSObject {
     func relayout() {
         state.iconSize = Layout.icon(forBar: barH)
         let left = 14 + Layout.stripWidth(spaces, icon: Layout.icon(forBar: barH)) + 12
-        var right: CGFloat = 10 + 34 + 12 + 12                // chevron box + divider
+        var right: CGFloat = 10 + 40 + 12 + 12                // chevron box + divider
         switch BarActivity.current(timerOn: timer.isActive, musicOn: playing.playing) {
         case .timer: right += 92
         case .music: right += 66                                            // music note + wave
@@ -332,7 +364,10 @@ final class Island: NSObject {
 
     /// What the hover bar shows, chosen in Settings ▸ Hover bar.
     var hoverBar: IslandState.Peek {
-        switch Prefs.d.string(forKey: "hoverBarMode") ?? "summary" {
+        var mode = Prefs.d.string(forKey: "hoverBarMode") ?? "smart"
+        // Smart: music controls while a song plays, otherwise the one-line summary.
+        if mode == "smart" { mode = playing.playing && !timer.isActive ? "media" : "summary" }
+        switch mode {
         case "volumeBrightness": return .init(text: "", icon: "", kind: .volumeBrightness)
         case "shortcuts": return .init(text: "", icon: "", kind: .shortcuts)
         case "media": return .init(text: "", icon: "", kind: .media)

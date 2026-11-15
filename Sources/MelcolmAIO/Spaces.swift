@@ -172,6 +172,8 @@ final class SpacesModel: ObservableObject {
             for _ in 0 ..< steps { FastSwitch.step(right: right, scale: Double(steps)) }
         }
         currentID = space.id // optimistic; refresh confirms
+        // Move the outline now, so it slides over while macOS is still switching.
+        displays = displays.map { g in g.spaces.contains(space) ? DisplayGroup(id: g.id, number: g.number, spaces: g.spaces, currentID: space.id) : g }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { self.refresh() }
     }
 

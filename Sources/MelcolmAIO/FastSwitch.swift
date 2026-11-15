@@ -60,6 +60,10 @@ enum FastSwitch {
     // so take it off screen for a moment.
     private static func parkWindow() {
         guard needsPayload, NSApp.isActive, let w = NSApp.keyWindow, w.isVisible else { return }
+        // Stop being the key window without hiding: the island stays on screen (no blink).
+        if let w = w as? NSPanel, w.becomesKeyOnlyIfNeeded || w.styleMask.contains(.nonactivatingPanel) {
+            w.resignKey(); NSApp.deactivate(); return
+        }
         w.orderOut(nil)
         // Come back the moment the new Space is on screen, not after a fixed wait.
         var token: NSObjectProtocol?

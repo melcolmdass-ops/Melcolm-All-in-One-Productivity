@@ -105,10 +105,10 @@ struct TopBar: View {
                 }
                 Button(action: toggle) {
                     Image(systemName: "chevron.down")
-                        .font(.system(size: 13, weight: .bold))
+                        .font(.system(size: 17, weight: .heavy))
                         .rotationEffect(.degrees(state.expanded ? 180 : 0))
                         .foregroundStyle(.white.opacity(0.92))
-                        .frame(width: 34).frame(maxHeight: .infinity)
+                        .frame(width: 40).frame(maxHeight: .infinity)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -137,7 +137,8 @@ struct SpacesStrip: View {
     @AppStorage("showAppIcons") var showIcons = true
     @AppStorage("iconClick") var iconClick = "app"
     @AppStorage("dimOthers") var dimOthers = false
-
+    @Namespace var ns
+    
     var body: some View {
         let icon = state.iconSize
         let h = min(icon + 2 * Layout.cellPad, state.barHeight - 2)
@@ -153,7 +154,7 @@ struct SpacesStrip: View {
                         Capsule().fill(.white.opacity(0.18)).frame(width: 1.5, height: icon * 0.7)
                             .padding(.horizontal, 4)
                     }
-                    ForEach(fulls) { s in appCell(s, on: s.id == g.currentID, icon: icon, h: h - 4) }
+                    ForEach(fulls) { s in appCell(g, s, on: s.id == g.currentID, icon: icon, h: h - 4) }
                 }
                 .padding(.horizontal, 8)
                 .frame(width: Layout.groupWidth(g, icon: icon, m: spaces), height: h, alignment: .leading)
@@ -166,17 +167,21 @@ struct SpacesStrip: View {
                 .help("Display \(g.number)")
             }
         }
-        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: spaces.displays)
+        .animation(.spring(response: 0.45, dampingFraction: 0.85), value: spaces.displays)
     }
 
-    func glow(_ on: Bool) -> some View {
+    /// One outline per display; it slides from cell to cell instead of vanishing and reappearing.
+    func glow(_ on: Bool, _ display: String) -> some View {
         let r = RoundedRectangle(cornerRadius: 8, style: .continuous)
         return ZStack {
             if on {
                 let cyan = Color(red: 0.25, green: 0.88, blue: 1.0)
-                r.fill(cyan.opacity(style == "box" ? 0.30 : 0.14))
-                r.strokeBorder(cyan, lineWidth: 1.6)
-                    .shadow(color: cyan.opacity(0.85), radius: style == "glow" ? 6 : 0)
+                ZStack {
+                    r.fill(cyan.opacity(style == "box" ? 0.30 : 0.14))
+                    r.strokeBorder(cyan, lineWidth: 1.6)
+                        .shadow(color: cyan.opacity(0.85), radius: style == "glow" ? 6 : 0)
+                }
+                .matchedGeometryEffect(id: "glow-\(display)", in: ns)
             }
         }
     }
@@ -192,14 +197,14 @@ struct SpacesStrip: View {
                 }
             }
             .frame(width: Layout.numberCell(icon), height: h)
-            .background(glow(on))
+            .background(glow(on, g.id))
             .contentShape(Rectangle())
         }
         .buttonStyle(PressStyle())
         .help("Desktop \(g.number)")
     }
 
-    func appCell(_ s: SpaceItem, on: Bool, icon: CGFloat, h: CGFloat) -> some View {
+    func appCell(_ g: DisplayGroup, _ s: SpaceItem, on: Bool, icon: CGFloat, h: CGFloat) -> some View {
         let list = Array((spaces.apps[s.id] ?? []).prefix(2))
         let app = list.first
         let dim = dimOthers && !on
@@ -219,7 +224,7 @@ struct SpacesStrip: View {
             }
             .opacity(dim ? 0.5 : 1).saturation(dim ? 0.4 : 1)
             .frame(width: Layout.iconCell(icon, apps: max(1, list.count)), height: h)
-            .background(glow(on))
+            .background(glow(on, g.id))
             .contentShape(Rectangle())
         }
         .buttonStyle(PressStyle())
@@ -465,7 +470,14 @@ struct SettingsTab: View {
         row("Close when clicking elsewhere") { Toggle("", isOn: $closeOutside).labelsHidden() }
     }
 
-    @AppStorage("hoverBarMode") var hoverMode = "summary"
+    @AppStorage("hoverBarMode") var hoverMode = "smart"
+    @AppStorage("popSong") var popSong = true
+    @AppStorage("popOutput") var popOutput = true
+    @AppStorage("popTimer") var popTimer = true
+    @AppStorage("popCharge") var popCharge = true
+    @AppStorage("popBattery") var popBattery = true
+    @AppStorage("popFocus") var popFocus = true
+    @AppStorage("popSpace") var popSpace = false
     @AppStorage("shortcuts") var shortcutsRaw = ""
     @AppStorage("draftShortcutName") var newName = ""
     @AppStorage("draftShortcutTarget") var newTarget = ""
@@ -478,11 +490,20 @@ struct SettingsTab: View {
         }
         row("Shows") {
             Picker("", selection: $hoverMode) {
+                Text("Smart").tag("smart"); Divider()
                 Text("Summary").tag("summary"); Text("Volume + Brightness").tag("volumeBrightness")
                 Text("Shortcuts").tag("shortcuts"); Text("Music controls").tag("media")
             }.labelsHidden().frame(width: 200)
         }
         Text(hoverHelp).font(.system(size: 10.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        sectionLabel("Pop up when")
+        row("A new song starts") { Toggle("", isOn: $popSong).labelsHidden() }
+        row("Sound moves to AirPods or speakers") { Toggle("", isOn: $popOutput).labelsHidden() }
+        row("The timer ends") { Toggle("", isOn: $popTimer).labelsHidden() }
+        row("Charger plugged in or out") { Toggle("", isOn: $popCharge).labelsHidden() }
+        row("Battery gets low (20%, 10%)") { Toggle("", isOn: $popBattery).labelsHidden() }
+        row("A Focus mode starts or ends") { Toggle("", isOn: $popFocus).labelsHidden() }
+        row("You switch Space (shows which)") { Toggle("", isOn: $popSpace).labelsHidden() }
         if hoverMode == "shortcuts" {
             sectionLabel("Shortcuts")
             let items = Shortcut.parse(shortcutsRaw)
@@ -510,6 +531,7 @@ struct SettingsTab: View {
         case "volumeBrightness": "Volume on the left half, brightness on the right. Click or drag either one."
         case "shortcuts": "Your own apps and links, one click each."
         case "media": "The current song with Previous, Play and Next."
+        case "smart": "Music controls while a song plays, otherwise one line with the timer, or battery and output."
         default: "One line: the timer, the song, or battery and output."
         }
     }
