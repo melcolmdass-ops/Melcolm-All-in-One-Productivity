@@ -182,7 +182,7 @@ struct HomePage: View {
     /// The little status line under each button, and whether it is "on" (lit).
     func status(_ p: PanelPage) -> (String, Bool) {
         switch p {
-        case .nowPlaying: return (playing.title.isEmpty ? "Nothing playing" : playing.title, playing.playing)
+        case .nowPlaying: return (playing.title.isEmpty ? "Nothing playing" : playing.title, true)
         case .sound: return ("\(sound.muted ? "Muted" : "\(Int(sound.volume * 100))%") · \(sound.outputName)", !sound.muted)
         case .mic: return (sound.inputMuted ? "Muted" : "\(Int(sound.inputVolume * 100))%", !sound.inputMuted)
         case .brightness: return (system.brightness.map { "\(Int($0 * 100))%" } ?? "External screen", system.brightness != nil)
@@ -410,7 +410,7 @@ struct NowPlayingPage: View {
             }
             ForEach(list, id: \.id) { r in
                 PlayerRow(title: r.title, artist: r.artist.isEmpty ? r.browser : r.artist,
-                          art: playing.thumbs[r.artwork] ?? (r.id == list.first?.id ? playing.artwork : nil), icon: nil,
+                          art: playing.thumbs[r.artwork] ?? (r.id == playing.mainResult?.id ? playing.artwork : nil), icon: nil,
                           playing: playing.isPlaying(r), position: r.position, duration: r.duration,
                           open: { playing.show(r) }, prev: { playing.skip(r, forward: false) },
                           play: { playing.toggle(r) }, next: { playing.skip(r, forward: true) },

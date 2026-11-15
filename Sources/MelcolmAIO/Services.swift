@@ -208,8 +208,12 @@ final class NowPlayingModel: ObservableObject {
         var list = BrowserMedia.scan()
         for i in list.indices { fillFromVideo(&list[i]) }
         for i in list.indices where !list[i].knownState { if let f = forced[list[i].id] { list[i].playing = f } }
-        others = list
-        applyBrowser(list.first)
+        let main = list.first(where: { forced[$0.id] ?? $0.playing }) ?? list.first
+        mainID = main?.id ?? ""
+        others = list.sorted { $0.id < $1.id }            // fixed order, so cards never swap places
+        jsHint = list.contains { $0.needsJS }
+        applyBrowser(main)
+        jsHint = list.contains { $0.needsJS }
     }
 
     /// Every other playing or paused tab / web app, shown under the main card.
@@ -247,6 +251,8 @@ final class NowPlayingModel: ObservableObject {
 
     /// Remembered play state per tab when the browser won't tell us (no JavaScript access).
     private var forced: [String: Bool] = [:]
+    private var mainID = ""
+    var mainResult: BrowserMedia.Result? { others.first { $0.id == mainID } ?? others.first }
     func isPlaying(_ r: BrowserMedia.Result) -> Bool { r.knownState ? r.playing : (forced[r.id] ?? r.playing) }
 
     /// Plays or pauses exactly that tab. Others keep doing what they were doing.
@@ -256,14 +262,21 @@ final class NowPlayingModel: ObservableObject {
             // No page access: bring that tab forward, press its own Space shortcut, then go back.
             let back = NSWorkspace.shared.frontmostApplication
             BrowserMedia.show(r)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+            let want = r.pwa != 0 ? r.pwa : (NSWorkspace.shared.runningApplications.first { $0.bundleIdentifier == "com.google.Chrome" }?.processIdentifier ?? 0)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in
+                // Never press Space into some other window: that would pause something else.
+                guard NSWorkspace.shared.frontmostApplication?.processIdentifier == want else {
+                    self?.forced[r.id] = was
+                    if let i = self?.others.firstIndex(where: { $0.id == r.id }) { self?.others[i].playing = was }
+                    return
+                }
                 Self.key(49)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { back?.activate() }
             }
         }
         forced[r.id] = !was
         if let i = others.firstIndex(where: { $0.id == r.id }) { others[i].playing = !was }
-        if others.first?.id == r.id { playing = !was }
+        if mainID == r.id { playing = !was }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { self.refresh() }
     }
 
@@ -280,12 +293,12 @@ final class NowPlayingModel: ObservableObject {
             NSAppleScript(source: "tell application \"\(app)\" to set player position to \(t)")?.executeAndReturnError(&err)
             position = t; return
         }
-        if let r = others.first { seek(r, to: t) }
+        if let r = mainResult { seek(r, to: t) }
     }
     func seek(_ r: BrowserMedia.Result, to t: Double) {
         if BrowserMedia.seek(r, to: t) {
             if let i = others.firstIndex(where: { $0.id == r.id }) { others[i].position = t }
-            if others.first?.id == r.id { position = t }
+            if mainID == r.id { position = t }
         }
     }
     func skip(_ r: BrowserMedia.Result, forward: Bool) {
@@ -365,13 +378,13 @@ final class NowPlayingModel: ObservableObject {
     }
 
     func playPause() {
-        if app == "Browser", let r = others.first { toggle(r); return }
+        if app == "Browser", let r = mainResult { toggle(r); return }
         Self.mediaKey(16); playing.toggle(); later()
     }
     func next() { Self.mediaKey(17); later() }
     func previous() { Self.mediaKey(18); later() }
     func openApp() {
-        if app == "Browser" { if let r = others.first { BrowserMedia.show(r) } else { BrowserMedia.focusPlayingBrowser() }; return }
+        if app == "Browser" { if let r = mainResult { BrowserMedia.show(r) } else { BrowserMedia.focusPlayingBrowser() }; return }
         if app == "Spotify" || app == "Music", let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: app == "Spotify" ? "com.spotify.client" : "com.apple.Music") {
             NSWorkspace.shared.open(url)
         }
@@ -542,7 +555,7 @@ enum Brightness {
 /// Finds what a web browser (or a web app like YouTube Music) is playing, by reading tab titles
 /// and, when the browser allows it, the page's media info (artist, artwork, progress).
 enum BrowserMedia {
-    struct Result { var title: String; var artist: String; var playing: Bool; var position: Double; var duration: Double; var artwork: String; var needsJS: Bool; var videoID = ""; var browser = ""; var window = 0; var tab = 0; var url = ""; var knownState = false; var generic = false
+    struct Result { var title: String; var artist: String; var playing: Bool; var position: Double; var duration: Double; var artwork: String; var needsJS: Bool; var videoID = ""; var browser = ""; var window = 0; var tab = 0; var url = ""; var knownState = false; var generic = false; var pwa: pid_t = 0
         var id: String { "\(browser)|\(url)" } }
     static func isSite(_ s: String) -> Bool { s.isEmpty || sites.contains { $0.caseInsensitiveCompare(s) == .orderedSame } }
     static func videoID(_ url: String) -> String {
@@ -562,13 +575,38 @@ enum BrowserMedia {
     private static let sites = ["YouTube Music", "YouTube", "Spotify", "SoundCloud", "Apple Music", "TIDAL", "Deezer", "Bandcamp", "Pandora", "Twitch", "Vimeo", "Amazon Music"]
     private static let mediaHosts = ["youtube.com", "spotify.com", "soundcloud.com", "music.apple.com", "tidal.com", "deezer.com", "bandcamp.com", "pandora.com", "twitch.tv", "vimeo.com", "music.amazon"]
 
+    /// Chrome / Edge / Brave "installed apps" (like the YouTube Music app) are their own little apps.
+    static func isAppShell(_ bundle: String) -> Bool {
+        bundle.hasPrefix("com.google.Chrome.app.") || bundle.hasPrefix("com.microsoft.edgemac.app.") || bundle.hasPrefix("com.brave.Browser.app.")
+    }
+
+    /// On-screen rectangles of those app windows, so a browser window can be matched to its app.
+    static func appWindows() -> [(pid: pid_t, rect: CGRect)] {
+        let pids = Set(NSWorkspace.shared.runningApplications.filter { isAppShell($0.bundleIdentifier ?? "") }.map(\.processIdentifier))
+        guard !pids.isEmpty, let arr = CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]] else { return [] }
+        return arr.compactMap { d in
+            guard let pid = d[kCGWindowOwnerPID as String] as? pid_t, pids.contains(pid),
+                  (d[kCGWindowLayer as String] as? Int) == 0, let bd = d[kCGWindowBounds as String],
+                  let r = CGRect(dictionaryRepresentation: bd as! CFDictionary), r.width > 100 else { return nil }
+            return (pid, r)
+        }
+    }
+
+    private static var lastAudible = Date.distantPast
+    /// "Is sound playing" with a few seconds of memory, so a brief gap doesn't flip every card.
+    static func audibleNow() -> Bool {
+        if audioPlayingProcess() != nil { lastAudible = Date() }
+        return Date().timeIntervalSince(lastAudible) < 4
+    }
+
     /// pid of a process holding a "Playing audio" power assertion (what Chrome/Safari do while sound plays).
     static func audioPlayingProcess() -> pid_t? {
         var raw: Unmanaged<CFDictionary>?
         guard IOPMCopyAssertionsByProcess(&raw) == kIOReturnSuccess, let d = raw?.takeRetainedValue() as? [NSNumber: [[String: Any]]] else { return nil }
         let ids = Set(browsers.map(\.bundle))
         for (pid, list) in d where list.contains(where: { ($0["AssertName"] as? String) == "Playing audio" }) {
-            if let b = NSRunningApplication(processIdentifier: pid_t(truncating: pid))?.bundleIdentifier, ids.contains(b) { return pid_t(truncating: pid) }
+            if let b = NSRunningApplication(processIdentifier: pid_t(truncating: pid))?.bundleIdentifier,
+               ids.contains(b) || isAppShell(b) { return pid_t(truncating: pid) }
         }
         return nil
     }
@@ -585,7 +623,8 @@ enum BrowserMedia {
 
     /// Every media tab or web-app window (e.g. the YouTube Music Chrome app), playing ones first.
     static func scan() -> [Result] {
-        let audible = audioPlayingProcess() != nil
+        let audible = audibleNow()
+        let appWins = appWindows()
         var all: [(Result, Int)] = []
         var needsJS = false
         for b in browsers {
@@ -599,9 +638,11 @@ enum BrowserMedia {
               repeat with w in windows
                 set wi to wi + 1
                 set ti to 0
+                set bb to bounds of w
+                set bs to ((item 1 of bb) as text) & "," & ((item 2 of bb) as text) & "," & ((item 3 of bb) as text) & "," & ((item 4 of bb) as text)
                 repeat with t in tabs of w
                   set ti to ti + 1
-                  set out to out & wi & sep & ti & sep & (\(nameExpr)) & sep & (URL of t) & linefeed
+                  set out to out & wi & sep & ti & sep & (\(nameExpr)) & sep & (URL of t) & sep & bs & linefeed
                 end repeat
               end repeat
             end tell
@@ -628,6 +669,18 @@ enum BrowserMedia {
                 guard !title.isEmpty || !vid.isEmpty else { continue }
                 var r = Result(title: title, artist: site, playing: false, position: 0, duration: 0, artwork: "", needsJS: false)
                 r.videoID = vid; r.generic = generic; r.browser = b.name; r.window = wi; r.tab = ti; r.url = url
+                if f.count >= 5 {
+                    let n = f[4].split(separator: ",").compactMap { Double($0.trimmingCharacters(in: .whitespaces)) }
+                    if n.count == 4 {
+                        let rect = CGRect(x: n[0], y: n[1], width: n[2] - n[0], height: n[3] - n[1])
+                        if let hit = appWins.first(where: { abs($0.rect.minX - rect.minX) < 4 && abs($0.rect.minY - rect.minY) < 4 && abs($0.rect.width - rect.width) < 4 }) { r.pwa = hit.pid }
+                    }
+                }
+                // The installed app (e.g. YouTube Music) keeps the plain page title; find it by name.
+                if r.pwa == 0, generic, !b.safari,
+                   let shell = NSWorkspace.shared.runningApplications.first(where: { isAppShell($0.bundleIdentifier ?? "") && $0.localizedName?.caseInsensitiveCompare(site) == .orderedSame }) {
+                    r.pwa = shell.processIdentifier
+                }
                 if !vid.isEmpty { r.artwork = "https://i.ytimg.com/vi/\(vid)/hqdefault.jpg" }
                 if let js = mediaInfo(b, wi, ti) {
                     if !js.title.isEmpty { r.title = js.title }
@@ -640,6 +693,7 @@ enum BrowserMedia {
             }
         }
         var list = all.sorted { $0.1 > $1.1 }.map(\.0)
+        log("results \(list.map { "\($0.title)|pwa=\($0.pwa)|play=\($0.playing)" }) appWins=\(appWins.map { "\($0.pid):\($0.rect)" })")
         // Without page access we only know that *something* in the browser is making sound.
         // YouTube Music only puts the song in the page title while it plays.
         if audible, !list.contains(where: \.playing), !list.isEmpty, !list[0].generic || list.count == 1 { list[0].playing = true }
@@ -679,6 +733,11 @@ enum BrowserMedia {
 
     /// Brings that tab (or web-app window) to the front.
     static func show(_ r: Result) {
+        if r.pwa != 0, let a = NSRunningApplication(processIdentifier: r.pwa) {
+            if let u = a.bundleURL { NSWorkspace.shared.openApplication(at: u, configuration: NSWorkspace.OpenConfiguration()) }
+            a.activate(options: [.activateAllWindows])
+            return
+        }
         let src = r.browser == "Safari"
             ? "tell application \"Safari\"\n set current tab of window \(r.window) to tab \(r.tab) of window \(r.window)\n set index of window \(r.window) to 1\n activate\n end tell"
             : "tell application \"\(r.browser)\"\n set active tab index of window \(r.window) to \(r.tab)\n set index of window \(r.window) to 1\n activate\n end tell"
