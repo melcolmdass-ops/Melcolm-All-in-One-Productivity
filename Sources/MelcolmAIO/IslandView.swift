@@ -173,14 +173,17 @@ struct SpacesStrip: View {
                     }
                     ForEach(fulls) { s in
                         appCell(g, s, on: s.id == g.currentID, icon: icon, h: h - 2)
-                            .overlay(alignment: .leading) { insertMark(g, before: s, fulls) }
-                            .overlay(alignment: .trailing) { insertMark(g, after: s, fulls) }
+                            .offset(x: drag.shift(s, in: g))
                             .zIndex(drag.dragging == s.id ? 2 : 0)
                     }
                 }
                 .padding(.horizontal, 8)
                 .frame(width: Layout.groupWidth(g, icon: icon, m: spaces), height: h, alignment: .leading)
-                .background { NeonBox(color: BarColor.displayBox.color, strength: drag.target.map { Self.display(of: $0) == g.id } == true ? 1.2 : 0.7) }
+                .background(alignment: .leading) {
+                    // The box stretches or shrinks with the apps sliding inside it while you drag.
+                    NeonBox(color: BarColor.displayBox.color, strength: drag.target.map { Self.display(of: $0) == g.id } == true ? 1.2 : 0.7)
+                        .frame(width: Layout.groupWidth(g, icon: icon, m: spaces) + drag.grow(g))
+                }
                 .dragFrame("box-\(g.id)")
                 .zIndex(g.spaces.contains { $0.id == drag.dragging } ? 2 : 0)
                 .help("Display \(g.number)")
@@ -191,20 +194,6 @@ struct SpacesStrip: View {
 
     static func display(of t: SpaceDrop) -> String {
         switch t { case .desktop(let d): d; case .slot(let d, _): d }
-    }
-
-    /// The cyan bar showing where a dragged app will land. Drawn over the cells so nothing shifts.
-    @ViewBuilder func insertMark(_ g: DisplayGroup, before s: SpaceItem, _ fulls: [SpaceItem]) -> some View {
-        let others = fulls.filter { $0.id != drag.dragging }
-        if s.id != drag.dragging, case .slot(let d, let k)? = drag.target, d == g.id, others.indices.contains(k), others[k].id == s.id { mark.offset(x: -2.5) }
-    }
-    @ViewBuilder func insertMark(_ g: DisplayGroup, after s: SpaceItem, _ fulls: [SpaceItem]) -> some View {
-        let others = fulls.filter { $0.id != drag.dragging }
-        if s.id != drag.dragging, case .slot(let d, let k)? = drag.target, d == g.id, k == others.count, others.last?.id == s.id { mark.offset(x: 2.5) }
-    }
-    var mark: some View {
-        Capsule().fill(BarColor.space.color).frame(width: 3, height: state.iconSize * 0.9).neon(BarColor.space.color, 1)
-            .transition(.opacity.combined(with: .scale(scale: 0.4)))
     }
 
     /// One outline per display; it slides from cell to cell instead of vanishing and reappearing.
@@ -288,7 +277,7 @@ struct SpacesStrip: View {
         .simultaneousGesture(
             DragGesture(minimumDistance: 6, coordinateSpace: .global)
                 .onChanged { v in
-                    drag.begin(s.id)
+                    drag.begin(s.id, model: spaces)
                     drag.update(v.location, offset: CGSize(width: v.translation.width, height: max(-6, min(6, v.translation.height))), model: spaces)
                 }
                 .onEnded { _ in drag.end(model: spaces) },
@@ -389,7 +378,7 @@ struct SettingsTab: View {
                 }
             }
             if cur == .spaces { DragSpacesCard() }
-            Text("Melcolm All-in-One Productivity · v2.8").font(.system(size: 10)).foregroundStyle(.tertiary)
+            Text("Melcolm All-in-One Productivity · v2.9").font(.system(size: 10)).foregroundStyle(.tertiary)
         }
         .font(.system(size: 12))
         .toggleStyle(.switch).controlSize(.small)

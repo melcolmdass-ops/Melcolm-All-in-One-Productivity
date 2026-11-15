@@ -24,6 +24,18 @@ enum UpdateLog {
 
     /// Newest first.
     static let all: [AppUpdate] = [
+        AppUpdate(version: "2.9", date: "November 15th, 2026", title: "Apps slide aside while you drag",
+                  improvements: [
+                      "While you drag an app, the others slide aside to open a space exactly where it will land.",
+                      "The space it came from closes up behind it, and a display's box stretches or shrinks as apps move in or out.",
+                  ],
+                  fixes: [
+                      "The drop spot no longer jumps around while the apps are moving.",
+                  ],
+                  features: [
+                      "Sliding apps replace the thin line that used to show the drop spot.",
+                  ],
+                  icons: ["arrow.left.and.right", "hand.draw.fill", "rectangle.split.3x1"], tint: Color(red: 0.25, green: 0.88, blue: 1.0)),
         AppUpdate(version: "2.8", date: "November 15th, 2026", title: "Faster swaps when you drag",
                   improvements: [
                       "Swapping two full-screen apps now moves just one of them, so it's about 2 seconds instead of 5 to 7.",
@@ -302,7 +314,7 @@ struct MasterRule: Identifiable {
         MasterRule(icon: "menubar.rectangle", title: "App menus are never covered",
                    detail: "If an app's menus (File, Edit, View…) would run under the island, your displays move to the right of the notch instead."),
         MasterRule(icon: "hand.draw.fill", title: "Dragging is always smooth",
-                   detail: "Anything you drag on the bar follows your pointer, a glowing line shows where it will land, and the bar shows the new order the moment you let go while macOS catches up. Only what has to move moves, so a swap is one quick step."),
+                   detail: "Anything you drag on the bar follows your pointer, the other apps slide aside to make room where it will land, and the bar shows the new order the moment you let go while macOS catches up. Only what has to move moves, so a swap is one quick step."),
     ]
 }
 

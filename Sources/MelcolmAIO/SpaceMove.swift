@@ -20,29 +20,59 @@ final class SpaceDragModel: ObservableObject {
     @Published var offset: CGSize = .zero
     @Published var target: SpaceDrop?
     var frames: [String: CGRect] = [:]       // "box-<display>", "num-<display>", "app-<space id>"
+    var home: [String: CGRect] = [:]         // where everything sat when the drag began (cells slide, these don't)
+    var source: String?                      // the display the app is dragged from
+    var gap: CGFloat = 0                     // room the dragged app takes up
     var droppedAt = Date.distantPast         // a drop isn't also a click
 
-    func begin(_ id: Int) { if dragging != id { dragging = id; NSCursor.closedHand.push() } }
+    func begin(_ id: Int, model m: SpacesModel) {
+        guard dragging != id else { return }
+        home = frames
+        source = m.displays.first { g in g.spaces.contains { $0.id == id } }?.id
+        gap = (frames["app-\(id)"]?.width ?? 30) + 2
+        dragging = id
+        NSCursor.closedHand.push()
+    }
+
+    /// How far a cell slides so the dragged app has room where it would land.
+    func shift(_ s: SpaceItem, in g: DisplayGroup) -> CGFloat {
+        guard let id = dragging, s.id != id else { return 0 }
+        var x: CGFloat = 0
+        let fulls = Layout.fullscreens(g)
+        // Close the hole the dragged app left behind.
+        if g.id == source, let a = fulls.firstIndex(where: { $0.id == id }), let b = fulls.firstIndex(of: s), b > a { x -= gap }
+        // Open a hole where it will land.
+        if case .slot(let d, let k)? = target, d == g.id, let j = fulls.filter({ $0.id != id }).firstIndex(of: s), j >= k { x += gap }
+        return x
+    }
+    /// How much wider (or narrower) a display's box looks while an app is dragged in (or out of) it.
+    func grow(_ g: DisplayGroup) -> CGFloat {
+        guard dragging != nil else { return 0 }
+        var x: CGFloat = 0
+        if g.id == source { x -= gap }
+        if case .slot(let d, _)? = target, d == g.id { x += gap }
+        return x
+    }
 
     /// Works out the drop spot under the pointer (x only: the bar is one row).
     func update(_ p: CGPoint, offset o: CGSize, model m: SpacesModel) {
         offset = o
         var t: SpaceDrop?
         for g in m.displays {
-            guard let box = frames["box-\(g.id)"], p.x >= box.minX - 6, p.x <= box.maxX + 6,
+            guard let box = home["box-\(g.id)"], p.x >= box.minX - 6, p.x <= box.maxX + 6,
                   p.y >= box.minY - 40, p.y <= box.maxY + 40 else { continue }
-            if let n = frames["num-\(g.id)"], p.x <= n.maxX + 2 { t = .desktop(g.id); break }
+            if let n = home["num-\(g.id)"], p.x <= n.maxX + 2 { t = .desktop(g.id); break }
             let others = Layout.fullscreens(g).filter { $0.id != dragging }
-            let k = others.filter { s in (frames["app-\(s.id)"]?.midX ?? .infinity) < p.x }.count
+            let k = others.filter { s in (home["app-\(s.id)"]?.midX ?? .infinity) < p.x }.count
             t = .slot(g.id, k); break
         }
-        if t != target { withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) { target = t } }
+        if t != target { withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) { target = t } }
     }
 
     func end(model m: SpacesModel) {
         defer {
             NSCursor.pop()
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { dragging = nil; offset = .zero; target = nil }
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { dragging = nil; offset = .zero; target = nil; source = nil }
             droppedAt = Date()
         }
         guard let id = dragging, let t = target,
@@ -278,7 +308,7 @@ struct DragSpacesCard: View {
                     Toggle("", isOn: $on).labelsHidden()
                 }
                 VStack(spacing: 8) {
-                    rule(true, "Drop it between two apps", "It moves there, on this display or another one.") { betweenPicture }
+                    rule(true, "Drop it between two apps", "The others slide aside to make room, and it moves there, on this display or another one.") { betweenPicture }
                     rule(true, "Drop it on a display number", "It leaves full screen and goes onto that desktop.") { numberPicture }
                     rule(false, "Desktops and Split View pairs", "The numbers themselves, and two apps sharing a box, can't be dragged.") { cantPicture }
                 }
