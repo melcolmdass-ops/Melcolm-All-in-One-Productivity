@@ -6,6 +6,10 @@ enum PanelPage: String, CaseIterable {
     case home, nowPlaying, sound, mic, brightness, wifi, bluetooth, awake, dark, timer, layouts, settings
 
     static var listed: [PanelPage] { allCases.filter { $0 != .home && $0 != .settings } }
+    static let maxPinned = 3
+    static func pinned(_ raw: String) -> [PanelPage] {
+        Array(raw.split(separator: ",").compactMap { PanelPage(rawValue: String($0)) }.prefix(maxPinned))
+    }
 
     var title: String {
         switch self {
@@ -52,16 +56,19 @@ struct PanelView: View {
             if state.page == .home {
                 HomePage().transition(.opacity.combined(with: .scale(scale: 0.98)))
             } else {
-                VStack(spacing: 16) {
+                VStack(spacing: 12) {
                     HStack {
                         Button { state.page = .home } label: {
-                            Label("Back", systemImage: "chevron.left").font(.system(size: 12, weight: .semibold))
-                        }.buttonStyle(.plain).foregroundStyle(accent).frame(width: 64, alignment: .leading)
+                            Image(systemName: "chevron.left").font(.system(size: 11, weight: .bold))
+                                .frame(width: 26, height: 26).background(Circle().fill(.white.opacity(0.08)))
+                        }.buttonStyle(PressStyle()).foregroundStyle(.white.opacity(0.85)).frame(width: 64, alignment: .leading)
+                        .help("Back (Esc)")
                         Spacer()
-                        Text(state.page.title).font(.system(size: 14, weight: .bold))
+                        Text(state.page.title).font(.system(size: 15, weight: .heavy))
                         Spacer()
                         Color.clear.frame(width: 64, height: 1)
                     }
+                    Hairline()
                     ScrollView(showsIndicators: false) { content.frame(maxWidth: .infinity) }
                 }
                 .transition(.opacity.combined(with: .move(edge: .trailing)))
@@ -72,8 +79,10 @@ struct PanelView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
-    @ViewBuilder var content: some View {
-        switch state.page {
+    @ViewBuilder var content: some View { Self.pageContent(state.page) }
+
+    @ViewBuilder static func pageContent(_ page: PanelPage) -> some View {
+        switch page {
         case .nowPlaying: NowPlayingPage()
         case .sound: SoundPage()
         case .mic: MicPage()
@@ -99,10 +108,30 @@ struct HomePage: View {
     @EnvironmentObject var timer: TimerModel
     @EnvironmentObject var playing: NowPlayingModel
     @AppStorage("hiddenTiles") var hidden = ""
+    @AppStorage("homePinned") var pinnedRaw = ""
 
     var body: some View {
         let pages = PanelPage.listed.filter { !hidden.split(separator: ",").contains(Substring($0.rawValue)) }
+        let pinned = PanelPage.pinned(pinnedRaw)
         VStack(spacing: 14) {
+          ScrollView(showsIndicators: true) {
+           VStack(spacing: 14) {
+            // Pages you chose to see open right here (Settings ▸ Pages, up to 3).
+            ForEach(pinned, id: \.self) { p in
+                VStack(spacing: 10) {
+                    Button { state.page = p } label: {
+                        HStack(spacing: 6) {
+                            Circle().fill(p.tint[0]).frame(width: 6, height: 6)
+                            Text(p.title.uppercased()).font(.system(size: 10, weight: .bold)).kerning(0.8)
+                            Spacer()
+                            Text("Open").font(.system(size: 10, weight: .semibold))
+                            Image(systemName: "chevron.right").font(.system(size: 8, weight: .bold))
+                        }.foregroundStyle(.white.opacity(0.45)).padding(.horizontal, 2).contentShape(Rectangle())
+                    }.buttonStyle(.plain)
+                    PanelView.pageContent(p)
+                    Hairline().padding(.top, 4)
+                }
+            }
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
                 ForEach(pages, id: \.self) { p in
                     let (sub, on) = status(p)
@@ -131,7 +160,10 @@ struct HomePage: View {
                     }.buttonStyle(PressStyle())
                 }
             }
-            Spacer(minLength: 0)
+           }.padding(.trailing, 2)
+          }
+          .scrollIndicators(.visible)
+            Hairline()
             HStack(spacing: 10) {
                 Button { SystemModel.open("com.apple.Battery-Settings.extension") } label: {
                     Label(system.battery.map { "\($0)%" } ?? "AC", systemImage: system.charging ? "battery.100percent.bolt" : "battery.75percent")
@@ -191,8 +223,9 @@ struct DeviceList: View {
     let devices: [OutputDevice]; let current: AudioDeviceID; let pick: (OutputDevice) -> Void
     var body: some View {
         Card {
-            VStack(spacing: 2) {
+            VStack(spacing: 0) {
                 ForEach(devices) { d in
+                    if d.id != devices.first?.id { Hairline() }
                     Button { pick(d) } label: {
                         HStack(spacing: 10) {
                             Image(systemName: d.id == current ? "checkmark.circle.fill" : "circle")
@@ -200,7 +233,7 @@ struct DeviceList: View {
                             Text(d.name).lineLimit(1)
                             Spacer()
                         }
-                        .font(.system(size: 13)).padding(.vertical, 7).contentShape(Rectangle())
+                        .font(.system(size: 13, weight: d.id == current ? .semibold : .regular)).padding(.vertical, 9).contentShape(Rectangle())
                     }.buttonStyle(.plain)
                 }
             }
@@ -233,7 +266,7 @@ struct SoundPage: View {
                       value: Binding(get: { sound.volume }, set: { sound.setVolume($0) }), tap: sound.toggleMute)
             sectionLabel("OUTPUT")
             DeviceList(devices: sound.devices, current: sound.currentDevice, pick: sound.select)
-            HStack { Spacer(); LinkButton("Sound Settings…") { SystemModel.open("com.apple.Sound-Settings.extension") } }
+            SettingsLink(title: "Sound Settings", pane: "com.apple.Sound-Settings.extension")
         }
     }
 }
@@ -251,6 +284,7 @@ struct MicPage: View {
             }
             sectionLabel("INPUT")
             DeviceList(devices: sound.inputs, current: sound.currentInput, pick: sound.selectInput)
+            SettingsLink(title: "Microphone Settings", pane: "com.apple.Sound-Settings.extension?input")
         }
     }
 }
@@ -265,7 +299,7 @@ struct BrightnessPage: View {
                 Card { Text("Brightness can only be changed here for the MacBook's built-in screen.")
                     .font(.system(size: 12.5)).foregroundStyle(.secondary) }
             }
-            HStack { Spacer(); LinkButton("Display Settings…") { SystemModel.open("com.apple.Displays-Settings.extension") } }
+            SettingsLink(title: "Display Settings", pane: "com.apple.Displays-Settings.extension")
         }
     }
 }
@@ -276,7 +310,7 @@ struct WifiPage: View {
         VStack(spacing: 14) {
             ToggleRow(icon: system.wifiOn ? "wifi" : "wifi.slash", title: "Wi-Fi",
                       subtitle: system.wifiOn ? (system.wifiName ?? "On") : "Off", on: system.wifiOn, action: system.toggleWifi)
-            HStack { Spacer(); LinkButton("Wi-Fi Settings…") { SystemModel.open("com.apple.wifi-settings-extension") } }
+            SettingsLink(title: "Wi-Fi Settings", pane: "com.apple.wifi-settings-extension")
         }
     }
 }
@@ -287,7 +321,7 @@ struct BluetoothPage: View {
         VStack(spacing: 14) {
             ToggleRow(icon: "dot.radiowaves.left.and.right", title: "Bluetooth",
                       subtitle: system.bluetoothOn ? "On" : "Off", on: system.bluetoothOn, action: system.toggleBluetooth)
-            HStack { Spacer(); LinkButton("Bluetooth Settings…") { SystemModel.open("com.apple.BluetoothSettings") } }
+            SettingsLink(title: "Bluetooth Settings", pane: "com.apple.BluetoothSettings")
         }
     }
 }
@@ -295,16 +329,22 @@ struct BluetoothPage: View {
 struct AwakePage: View {
     @EnvironmentObject var system: SystemModel
     var body: some View {
-        ToggleRow(icon: "cup.and.saucer.fill", title: "Keep Awake",
-                  subtitle: "Stops the screen from sleeping until you turn this off.", on: system.awake, action: system.toggleAwake)
+        VStack(spacing: 14) {
+            ToggleRow(icon: "cup.and.saucer.fill", title: "Keep Awake",
+                      subtitle: "Stops the screen from sleeping until you turn this off.", on: system.awake, action: system.toggleAwake)
+            SettingsLink(title: "Lock Screen Settings", pane: "com.apple.Lock-Screen-Settings.extension")
+        }
     }
 }
 
 struct DarkPage: View {
     @EnvironmentObject var system: SystemModel
     var body: some View {
-        ToggleRow(icon: "circle.lefthalf.filled", title: "Dark Mode",
-                  subtitle: system.dark ? "The Mac is using the dark look." : "The Mac is using the light look.", on: system.dark, action: system.toggleDark)
+        VStack(spacing: 14) {
+            ToggleRow(icon: "circle.lefthalf.filled", title: "Dark Mode",
+                      subtitle: system.dark ? "The Mac is using the dark look." : "The Mac is using the light look.", on: system.dark, action: system.toggleDark)
+            SettingsLink(title: "Appearance Settings", pane: "com.apple.Appearance-Settings.extension")
+        }
     }
 }
 
@@ -339,14 +379,19 @@ struct TimerPage: View {
             } else {
                 Pill("Start stopwatch", filled: true) { timer.startStopwatch() }
             }
-            LinkButton("Open Clock app") { timer.openClock() }
+            SettingsLink(title: "Open Clock app", action: { timer.openClock() })
         }
     }
 }
 
 func sectionLabel(_ t: String) -> some View {
-    Text(t).font(.system(size: 10, weight: .heavy)).kerning(0.6).foregroundStyle(.secondary)
-        .frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 4)
+    Text(t.uppercased()).font(.system(size: 10, weight: .bold)).kerning(0.8).foregroundStyle(.white.opacity(0.45))
+        .frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 2).padding(.top, 4)
+}
+
+/// The one divider used across the app: a single soft line.
+struct Hairline: View {
+    var body: some View { Rectangle().fill(.white.opacity(0.07)).frame(height: 1) }
 }
 
 // MARK: - Now playing
@@ -354,83 +399,133 @@ func sectionLabel(_ t: String) -> some View {
 struct NowPlayingPage: View {
     @EnvironmentObject var playing: NowPlayingModel
     var body: some View {
-        let rest = playing.others.filter { !(playing.app == "Browser" && $0.title == playing.title) }
-        VStack(spacing: 12) {
-            PlayerCard(title: playing.title, artist: playing.artist, art: playing.artwork, icon: playing.appIcon,
-                       playing: playing.playing, position: playing.position, duration: playing.duration,
-                       open: playing.openApp, prev: playing.previous, play: playing.playPause, next: playing.next)
-            ForEach(rest, id: \.id) { r in
-                PlayerCard(title: r.title, artist: r.artist.isEmpty ? r.browser : r.artist, art: playing.thumbs[r.artwork], icon: nil,
-                           playing: r.playing, position: r.position, duration: r.duration,
-                           open: { playing.show(r) }, prev: { playing.skip(r, forward: false) },
-                           play: { playing.toggle(r) }, next: { playing.skip(r, forward: true) })
+        let browserMain = playing.app == "Browser"
+        let list = playing.others
+        VStack(spacing: 8) {
+            if !browserMain {
+                PlayerRow(title: playing.title, artist: playing.artist, art: playing.artwork, icon: playing.appIcon,
+                          playing: playing.playing, position: playing.position, duration: playing.duration,
+                          open: playing.openApp, prev: playing.previous, play: playing.playPause, next: playing.next,
+                          seek: playing.seek)
             }
+            ForEach(list, id: \.id) { r in
+                PlayerRow(title: r.title, artist: r.artist.isEmpty ? r.browser : r.artist,
+                          art: playing.thumbs[r.artwork] ?? (r.id == list.first?.id ? playing.artwork : nil), icon: nil,
+                          playing: playing.isPlaying(r), position: r.position, duration: r.duration,
+                          open: { playing.show(r) }, prev: { playing.skip(r, forward: false) },
+                          play: { playing.toggle(r) }, next: { playing.skip(r, forward: true) },
+                          seek: { playing.seek(r, to: $0) })
+            }
+            Label("Click the artwork to open it where it's playing", systemImage: "hand.point.up.left.fill")
+                .font(.system(size: 10.5, weight: .medium)).foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 4).padding(.top, 2)
             if playing.jsHint {
-                Text("For exact play/pause on each tab and a progress bar: in Chrome, View ▸ Developer ▸ Allow JavaScript from Apple Events (Safari: Develop menu).")
-                    .font(.system(size: 10.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Text("To scrub the play bar on browser tabs (and play/pause without the tab coming forward), turn on Chrome ▸ View ▸ Developer ▸ Allow JavaScript from Apple Events. Chrome doesn't share the time otherwise.")
+                    .font(.system(size: 10.5)).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 4)
             }
+            SettingsLink(title: "Sound Settings", pane: "com.apple.Sound-Settings.extension")
         }
     }
 }
 
-/// One player: artwork, title, artist, progress, and Previous / Play / Next. Every player looks the same.
-struct PlayerCard: View {
+/// One player, compact: artwork, title, artist, then Previous / Play / Next. Every player looks the same.
+struct PlayerRow: View {
     let title: String; let artist: String; let art: NSImage?; let icon: NSImage?
     let playing: Bool; let position: Double; let duration: Double
     let open: () -> Void; let prev: () -> Void; let play: () -> Void; let next: () -> Void
+    var seek: ((Double) -> Void)? = nil
 
     var body: some View {
-        Card {
-            VStack(spacing: 14) {
-                HStack(spacing: 14) {
+        VStack(spacing: 8) {
+            HStack(spacing: 11) {
+                Button(action: open) {
                     Group {
                         if let art { Image(nsImage: art).resizable().aspectRatio(contentMode: .fill) }
-                        else if let icon { Image(nsImage: icon).resizable().padding(14) }
-                        else { Image(systemName: "music.note").font(.system(size: 26, weight: .semibold)).foregroundStyle(accent) }
+                        else if let icon { Image(nsImage: icon).resizable().padding(6) }
+                        else { Image(systemName: "music.note").font(.system(size: 16, weight: .semibold)).foregroundStyle(accent) }
                     }
-                    .frame(width: 76, height: 76)
-                    .background(Color(white: 0.16))
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    .onTapGesture(perform: open)
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(title.isEmpty ? "Not playing" : title)
-                            .font(.system(size: 15, weight: .heavy)).lineLimit(2).fixedSize(horizontal: false, vertical: true)
-                        Text(title.isEmpty ? "Controls work with any player, including YouTube" : artist)
-                            .font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
-                        if duration > 0 {
-                            HStack(spacing: 6) {
-                                Text(TimerModel.format(position))
-                                GeometryReader { g in
-                                    Capsule().fill(.white.opacity(0.14))
-                                        .overlay(alignment: .leading) {
-                                            Capsule().fill(accent).frame(width: g.size.width * min(1, position / duration))
-                                        }
-                                }.frame(height: 3)
-                                Text(TimerModel.format(duration))
-                            }
-                            .font(.system(size: 9, weight: .medium).monospacedDigit()).foregroundStyle(.secondary).padding(.top, 2)
-                        }
-                    }
-                    Spacer(minLength: 0)
+                    .frame(width: 46, height: 46).background(Color(white: 0.16))
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .contentShape(Rectangle())
+                }.buttonStyle(PressStyle()).help("Open it")
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title.isEmpty ? "Not playing" : title).font(.system(size: 13, weight: .bold)).lineLimit(1)
+                    Text(title.isEmpty ? "Play something in any app or tab" : artist)
+                        .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
                 }
-                HStack(spacing: 34) {
-                    MediaButton(icon: "backward.fill", action: prev)
-                    MediaButton(icon: playing ? "pause.fill" : "play.fill", big: true, action: play)
-                    MediaButton(icon: "forward.fill", action: next)
+                Spacer(minLength: 4)
+                HStack(spacing: 2) {
+                    MediaButton(icon: "backward.fill", small: true, action: prev)
+                    MediaButton(icon: playing ? "pause.fill" : "play.fill", big: true, small: true, action: play)
+                    MediaButton(icon: "forward.fill", small: true, action: next)
                 }
             }
+            Scrubber(position: position, duration: duration, seek: seek)
         }
+        .padding(.horizontal, 10).padding(.vertical, 9)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color(white: 0.105))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(.white.opacity(0.08), lineWidth: 1)))
+    }
+}
+
+/// The play bar: drag or click anywhere on it to jump. Times on each side.
+struct Scrubber: View {
+    let position: Double; let duration: Double; let seek: ((Double) -> Void)?
+    var body: some View {
+        let known = duration > 0
+        HStack(spacing: 8) {
+            Text(known ? TimerModel.format(position) : "--:--")
+            GeometryReader { g in
+                let f = known ? min(1, max(0, position / duration)) : 0
+                ZStack(alignment: .leading) {
+                    Capsule().fill(.white.opacity(0.14)).frame(height: 4)
+                    Capsule().fill(.white).frame(width: g.size.width * f, height: 4)
+                    if known && seek != nil {
+                        Circle().fill(.white).frame(width: 10, height: 10).offset(x: g.size.width * f - 5)
+                    }
+                }
+                .frame(maxHeight: .infinity)
+                .contentShape(Rectangle())
+                .gesture(DragGesture(minimumDistance: 0).onEnded { v in
+                    guard known, let seek else { return }
+                    seek(min(1, max(0, v.location.x / g.size.width)) * duration)
+                })
+            }.frame(height: 14)
+            Text(known ? TimerModel.format(duration) : "--:--")
+        }
+        .font(.system(size: 9.5, weight: .semibold).monospacedDigit()).foregroundStyle(.secondary)
+        .opacity(known ? 1 : 0.5)
+        .help(known ? "Click or drag to jump" : "The browser isn't sharing the time yet (see the tip below)")
+    }
+}
+
+/// A clean "go to the real settings" row at the bottom of a page.
+struct SettingsLink: View {
+    let title: String; var pane: String? = nil; var action: (() -> Void)? = nil
+    var body: some View {
+        Button { if let action { action() } else if let pane { SystemModel.open(pane) } } label: {
+            HStack {
+                Image(systemName: "gearshape").font(.system(size: 11, weight: .semibold))
+                Text(title).font(.system(size: 12, weight: .semibold))
+                Spacer()
+                Image(systemName: "arrow.up.right").font(.system(size: 10, weight: .bold))
+            }
+            .foregroundStyle(.white.opacity(0.75))
+            .padding(.horizontal, 12).frame(height: 32)
+            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(.white.opacity(0.05)))
+            .contentShape(Rectangle())
+        }.buttonStyle(PressStyle())
     }
 }
 
 struct MediaButton: View {
-    let icon: String; var big = false; let action: () -> Void
+    let icon: String; var big = false; var small = false; let action: () -> Void
     var body: some View {
+        let d: CGFloat = small ? (big ? 30 : 26) : (big ? 40 : 32)
         Button(action: action) {
-            Image(systemName: icon).font(.system(size: big ? 16 : 14, weight: .bold))
-                .frame(width: big ? 40 : 32, height: big ? 40 : 32)
+            Image(systemName: icon).font(.system(size: small ? (big ? 12 : 11) : (big ? 16 : 14), weight: .bold))
+                .frame(width: d, height: d)
                 .background(Circle().fill(big ? AnyShapeStyle(.white) : AnyShapeStyle(.clear)))
                 .foregroundStyle(big ? .black : .white.opacity(0.9))
                 .contentShape(Circle())

@@ -162,8 +162,7 @@ struct LayoutsPage: View {
             Button { _ = Tiler.autoArrange() } label: {
                 Label("Auto-arrange all windows", systemImage: "sparkles.rectangle.stack")
                     .font(.system(size: 13, weight: .semibold)).frame(maxWidth: .infinity, minHeight: 42)
-                    .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(accentGradient))
-                    .shadow(color: accent.opacity(0.5), radius: 10, y: 3)
+                    .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(accent))
                     .foregroundStyle(.white)
             }.buttonStyle(PressStyle())
             group("HALVES", WindowLayout.halves)
@@ -172,6 +171,7 @@ struct LayoutsPage: View {
             group("OTHER", WindowLayout.other)
             Text("Snaps the window you were just using. Auto-arrange tidies every window on this screen into a grid.")
                 .font(.system(size: 10.5)).foregroundStyle(.tertiary).multilineTextAlignment(.center)
+            SettingsLink(title: "Desktop & Dock Settings", pane: "com.apple.Desktop-Settings.extension")
         }
     }
 

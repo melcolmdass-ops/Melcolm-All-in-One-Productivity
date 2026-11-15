@@ -224,6 +224,7 @@ struct SettingsTab: View {
     @AppStorage("scrollVolume") var scrollVolume = true
     @AppStorage("liveActivities") var live = true
     @AppStorage("hiddenTiles") var hiddenTiles = ""
+    @AppStorage("homePinned") var homePinned = ""
     @AppStorage("scrollSwitches") var scrollSwitch = true
     @AppStorage("closeOnClickOutside") var closeOutside = true
     @AppStorage("hotkeyToggle") var hkToggle = true
@@ -242,7 +243,7 @@ struct SettingsTab: View {
                 }
             }
             Card {
-                VStack(alignment: .leading, spacing: 11) {
+                VStack(alignment: .leading, spacing: 6) {
                     switch Page(rawValue: page) ?? .general {
                     case .general: general
                     case .bar: bar
@@ -289,16 +290,30 @@ struct SettingsTab: View {
     }
 
     @ViewBuilder var panelPage: some View {
-        Text("Tick the pages you want on the home screen").font(.system(size: 10, weight: .bold)).foregroundStyle(.secondary)
+        HStack {
+            Text("PAGE").font(.system(size: 10, weight: .heavy)).foregroundStyle(.secondary)
+            Spacer()
+            Text("OPEN ON HOME (\(PanelPage.pinned(homePinned).count)/\(PanelPage.maxPinned))").font(.system(size: 10, weight: .heavy)).foregroundStyle(.secondary).frame(width: 130)
+            Text("SHOW").font(.system(size: 10, weight: .heavy)).foregroundStyle(.secondary).frame(width: 44)
+        }
         ForEach(PanelPage.listed, id: \.self) { t in
             row(t.title) {
+                let pins = PanelPage.pinned(homePinned)
+                Toggle("", isOn: Binding(
+                    get: { pins.contains(t) },
+                    set: { on in
+                        var l = pins.filter { $0 != t }
+                        if on { l.append(t) }
+                        homePinned = l.prefix(PanelPage.maxPinned).map(\.rawValue).joined(separator: ",")
+                    })).labelsHidden().disabled(!pins.contains(t) && pins.count >= PanelPage.maxPinned)
+                    .frame(width: 130)
                 Toggle("", isOn: Binding(
                     get: { !hiddenTiles.split(separator: ",").contains(Substring(t.rawValue)) },
                     set: { show in
                         var set = Set(hiddenTiles.split(separator: ",").map(String.init))
                         if show { set.remove(t.rawValue) } else { set.insert(t.rawValue) }
                         hiddenTiles = set.sorted().joined(separator: ",")
-                    })).labelsHidden()
+                    })).labelsHidden().frame(width: 44)
             }
         }
     }
@@ -354,8 +369,7 @@ struct SettingsTab: View {
         }
         Text(hoverHelp).font(.system(size: 10.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         if hoverMode == "shortcuts" {
-            Divider().opacity(0.3)
-            Text("SHORTCUTS").font(.system(size: 10, weight: .bold)).foregroundStyle(.secondary)
+            sectionLabel("Shortcuts")
             let items = Shortcut.parse(shortcutsRaw)
             ForEach(Array(items.enumerated()), id: \.offset) { i, s in
                 HStack(spacing: 8) {
@@ -400,7 +414,10 @@ struct SettingsTab: View {
     }
 
     func row<C: View>(_ title: String, @ViewBuilder _ control: () -> C) -> some View {
-        HStack { Text(title); Spacer(); control() }.frame(minHeight: 22)
+        VStack(spacing: 0) {
+            HStack { Text(title).font(.system(size: 12.5, weight: .medium)); Spacer(); control() }.frame(minHeight: 30)
+            Hairline().padding(.top, 6)
+        }
     }
 }
 

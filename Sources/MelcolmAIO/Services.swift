@@ -182,8 +182,11 @@ final class NowPlayingModel: ObservableObject {
     init() {
         // Move the progress bar smoothly between the 3-second refreshes.
         Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            guard let self, playing, duration > 0 else { return }
-            position = min(duration, position + 1)
+            guard let self else { return }
+            if playing, duration > 0 { position = min(duration, position + 1) }
+            for i in others.indices where others[i].playing && others[i].duration > 0 {
+                others[i].position = min(others[i].duration, others[i].position + 1)
+            }
         }
     }
 
@@ -204,6 +207,7 @@ final class NowPlayingModel: ObservableObject {
         // AppleScript has to run on the main thread; the scan is a few milliseconds.
         var list = BrowserMedia.scan()
         for i in list.indices { fillFromVideo(&list[i]) }
+        for i in list.indices where !list[i].knownState { if let f = forced[list[i].id] { list[i].playing = f } }
         others = list
         applyBrowser(list.first)
     }
@@ -241,11 +245,49 @@ final class NowPlayingModel: ObservableObject {
     }
     private var fetching = Set<String>()
 
+    /// Remembered play state per tab when the browser won't tell us (no JavaScript access).
+    private var forced: [String: Bool] = [:]
+    func isPlaying(_ r: BrowserMedia.Result) -> Bool { r.knownState ? r.playing : (forced[r.id] ?? r.playing) }
+
+    /// Plays or pauses exactly that tab. Others keep doing what they were doing.
     func toggle(_ r: BrowserMedia.Result) {
-        if !BrowserMedia.togglePlay(r) { BrowserMedia.show(r); Self.mediaKey(16) }
-        later()
+        let was = isPlaying(r)
+        if !BrowserMedia.togglePlay(r) {
+            // No page access: bring that tab forward, press its own Space shortcut, then go back.
+            let back = NSWorkspace.shared.frontmostApplication
+            BrowserMedia.show(r)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                Self.key(49)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { back?.activate() }
+            }
+        }
+        forced[r.id] = !was
+        if let i = others.firstIndex(where: { $0.id == r.id }) { others[i].playing = !was }
+        if others.first?.id == r.id { playing = !was }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { self.refresh() }
+    }
+
+    private static func key(_ code: CGKeyCode) {
+        CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: true)?.post(tap: .cghidEventTap)
+        CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: false)?.post(tap: .cghidEventTap)
     }
     func show(_ r: BrowserMedia.Result) { BrowserMedia.show(r) }
+
+    /// Jumps to a point in the track (seconds).
+    func seek(_ t: Double) {
+        if app == "Spotify" || app == "Music" {
+            var err: NSDictionary?
+            NSAppleScript(source: "tell application \"\(app)\" to set player position to \(t)")?.executeAndReturnError(&err)
+            position = t; return
+        }
+        if let r = others.first { seek(r, to: t) }
+    }
+    func seek(_ r: BrowserMedia.Result, to t: Double) {
+        if BrowserMedia.seek(r, to: t) {
+            if let i = others.firstIndex(where: { $0.id == r.id }) { others[i].position = t }
+            if others.first?.id == r.id { position = t }
+        }
+    }
     func skip(_ r: BrowserMedia.Result, forward: Bool) {
         if !BrowserMedia.skip(r, forward: forward) { BrowserMedia.show(r); Self.mediaKey(forward ? 17 : 18) }
         later()
@@ -322,11 +364,14 @@ final class NowPlayingModel: ObservableObject {
         }.resume()
     }
 
-    func playPause() { Self.mediaKey(16); playing.toggle(); later() }
+    func playPause() {
+        if app == "Browser", let r = others.first { toggle(r); return }
+        Self.mediaKey(16); playing.toggle(); later()
+    }
     func next() { Self.mediaKey(17); later() }
     func previous() { Self.mediaKey(18); later() }
     func openApp() {
-        if app == "Browser" { BrowserMedia.focusPlayingBrowser(); return }
+        if app == "Browser" { if let r = others.first { BrowserMedia.show(r) } else { BrowserMedia.focusPlayingBrowser() }; return }
         if app == "Spotify" || app == "Music", let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: app == "Spotify" ? "com.spotify.client" : "com.apple.Music") {
             NSWorkspace.shared.open(url)
         }
@@ -571,6 +616,8 @@ enum BrowserMedia {
                 guard f.count >= 4, let wi = Int(f[0]), let ti = Int(f[1]) else { continue }
                 let url = f[3]
                 guard mediaHosts.contains(where: { url.contains($0) }) else { continue }
+                // YouTube Studio and other dashboards are not players.
+                guard !url.contains("studio.youtube.com"), !url.contains("accounts.") else { continue }
                 var (title, site) = clean(f[2]); var generic = false
                 let vid = videoID(url)
                 // YouTube Music often titles the page just "YouTube Music"; the video id still says what it is.
@@ -603,6 +650,15 @@ enum BrowserMedia {
     /// Plays or pauses one particular tab (needs the browser's JavaScript-from-Apple-Events setting).
     static func togglePlay(_ r: Result) -> Bool {
         let js = "(function(){var v=document.querySelector('video,audio');if(!v)return 'no';if(v.paused){v.play()}else{v.pause()}return 'ok'})()"
+        let src = r.browser == "Safari"
+            ? "tell application \"Safari\" to do JavaScript \"\(js)\" in tab \(r.tab) of window \(r.window)"
+            : "tell application \"\(r.browser)\" to tell tab \(r.tab) of window \(r.window) to execute javascript \"\(js)\""
+        var err: NSDictionary?
+        return NSAppleScript(source: src)?.executeAndReturnError(&err).stringValue == "ok"
+    }
+
+    static func seek(_ r: Result, to t: Double) -> Bool {
+        let js = "(function(){var v=document.querySelector('video,audio');if(!v)return 'no';v.currentTime=\(t);return 'ok'})()"
         let src = r.browser == "Safari"
             ? "tell application \"Safari\" to do JavaScript \"\(js)\" in tab \(r.tab) of window \(r.window)"
             : "tell application \"\(r.browser)\" to tell tab \(r.tab) of window \(r.window) to execute javascript \"\(js)\""
