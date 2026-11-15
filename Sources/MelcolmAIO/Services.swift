@@ -313,8 +313,8 @@ final class NowPlayingModel: ObservableObject {
         let was = isPlaying(r)
         // Never bring the tab forward: only the artwork does that. Page JavaScript first, then the
         // page's own Play/Pause button (accessibility), then the keyboard's play/pause key.
-        if !BrowserMedia.togglePlay(r) && !WebAX.press(ax[r.id]?.found.play) { Self.mediaKey(16) }
-        ax[r.id] = nil
+        if !WebAX.press(ax[r.id]?.found.play) && !BrowserMedia.togglePlay(r) { Self.mediaKey(16) }
+        if let f = ax[r.id] { ax[r.id] = (f.found, .distantPast) }   // keep the button, drop its old play state
         forced[r.id] = !was
         if let i = others.firstIndex(where: { $0.id == r.id }) { others[i].playing = !was }
         if mainID == r.id { playing = !was }
@@ -352,9 +352,12 @@ final class NowPlayingModel: ObservableObject {
 
     private func applyBrowser(_ m: BrowserMedia.Result?) {
         guard let m else {
+            // One empty read (the browser busy right after a click) shouldn't make the card blink away.
+            if app == "Browser", Date().timeIntervalSince(lastSeen) < 4 { return }
             if app == "Browser" { title = ""; artist = ""; app = ""; duration = 0; artwork = nil; artURL = ""; playing = false }
             return
         }
+        lastSeen = Date()
         let changed = m.title != title
         title = m.title; artist = m.artist; app = "Browser"; playing = m.playing
         position = m.position; duration = m.duration
@@ -363,6 +366,7 @@ final class NowPlayingModel: ObservableObject {
         if changed { onTrackChange?(title, artist) }
     }
 
+    private var lastSeen = Date.distantPast
     private var artistCache: [String: String] = [:]
 
     /// YouTube's public "oEmbed" info gives the channel (the artist for music) for a video id.
@@ -753,7 +757,9 @@ enum BrowserMedia {
 
     /// Plays or pauses one particular tab (needs the browser's JavaScript-from-Apple-Events setting).
     static func togglePlay(_ r: Result) -> Bool {
-        let js = "(function(){var v=document.querySelector('video,audio');if(!v)return 'no';if(v.paused){v.play()}else{v.pause()}return 'ok'})()"
+        // Press the site's own Play/Pause button first (YouTube Music and YouTube re-pause the video
+        // a second later if only the <video> is played, because their player still thinks it's paused).
+        let js = "(function(){var b=document.querySelector('ytmusic-player-bar #play-pause-button,.ytp-play-button,[data-testid=control-button-playpause]');if(b){b.click();return 'ok'}var v=document.querySelector('video,audio');if(!v)return 'no';if(v.paused){v.play()}else{v.pause()}return 'ok'})()"
         let src = r.browser == "Safari"
             ? "tell application \"Safari\" to do JavaScript \"\(js)\" in tab \(r.tab) of window \(r.window)"
             : "tell application \"\(r.browser)\" to tell tab \(r.tab) of window \(r.window) to execute javascript \"\(js)\""
