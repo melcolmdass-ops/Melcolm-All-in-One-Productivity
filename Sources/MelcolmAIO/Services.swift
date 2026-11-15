@@ -222,7 +222,7 @@ final class NowPlayingModel: ObservableObject {
         var list = BrowserMedia.scan()
         for i in list.indices { fillFromVideo(&list[i]); applyAX(&list[i]) }
         probeAX(list)
-        for i in list.indices where !list[i].knownState { if let f = forced[list[i].id] { list[i].playing = f } }
+        for i in list.indices where !list[i].knownState || held(list[i].id) { if let f = forced[list[i].id] { list[i].playing = f } }
         let main = list.first(where: { forced[$0.id] ?? $0.playing }) ?? list.first
         mainID = main?.id ?? ""
         others = list.sorted { $0.id < $1.id }            // fixed order, so cards never swap places
@@ -236,6 +236,7 @@ final class NowPlayingModel: ObservableObject {
     private var ax: [String: (found: WebAX.Found, at: Date)] = [:]
     private var probing = false
     private func applyAX(_ r: inout BrowserMedia.Result) {
+        if held(r.id) { r.playing = forced[r.id] ?? r.playing; return }
         guard !r.knownState, let (f, at) = ax[r.id], Date().timeIntervalSince(at) < 10 else { return }
         if let p = f.playing { r.playing = p; r.knownState = true; forced[r.id] = nil }
         if f.hasTime {
@@ -261,7 +262,7 @@ final class NowPlayingModel: ObservableObject {
                 for (id, f) in out { self.ax[id] = (f, now) }
                 for i in self.others.indices { self.applyAX(&self.others[i]) }
                 if let m = self.mainResult, self.app == "Browser", let f = out[m.id] {
-                    if let p = f.playing { self.playing = p }
+                    if let p = f.playing, !self.held(m.id) { self.playing = p }
                     if f.hasTime { self.position = f.pos; self.duration = f.dur }
                 }
                 BrowserMedia.log("ax \(out.map { "\($0.key) pos=\($0.value.pos)/\($0.value.dur) play=\(String(describing: $0.value.playing))" })")
@@ -306,7 +307,10 @@ final class NowPlayingModel: ObservableObject {
     private var forced: [String: Bool] = [:]
     private var mainID = ""
     var mainResult: BrowserMedia.Result? { others.first { $0.id == mainID } ?? others.first }
-    func isPlaying(_ r: BrowserMedia.Result) -> Bool { r.knownState ? r.playing : (forced[r.id] ?? r.playing) }
+    func isPlaying(_ r: BrowserMedia.Result) -> Bool { r.knownState && !held(r.id) ? r.playing : (forced[r.id] ?? r.playing) }
+    /// For 3 seconds after you press Play/Pause, what you pressed wins over the page (which updates late).
+    private var pressedAt: [String: Date] = [:]
+    func held(_ id: String) -> Bool { Date().timeIntervalSince(pressedAt[id] ?? .distantPast) < 3 }
 
     /// Plays or pauses exactly that tab. Others keep doing what they were doing.
     func toggle(_ r: BrowserMedia.Result) {
@@ -316,9 +320,10 @@ final class NowPlayingModel: ObservableObject {
         if !WebAX.press(ax[r.id]?.found.play) && !BrowserMedia.togglePlay(r) { Self.mediaKey(16) }
         if let f = ax[r.id] { ax[r.id] = (f.found, .distantPast) }   // keep the button, drop its old play state
         forced[r.id] = !was
+        pressedAt[r.id] = Date()
         if let i = others.firstIndex(where: { $0.id == r.id }) { others[i].playing = !was }
         if mainID == r.id { playing = !was }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { self.refresh() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.2) { self.refresh() }
     }
 
     private static func key(_ code: CGKeyCode) {
