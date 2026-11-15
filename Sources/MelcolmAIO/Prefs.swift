@@ -56,7 +56,7 @@ enum Layout {
     /// One box per display: [desktop number] | [full-screen app icons…]
     static func groupWidth(_ g: DisplayGroup, icon: CGFloat) -> CGFloat {
         let n = fullscreens(g).count
-        return 8 + numberCell(icon) + (n > 0 ? 9 : 0) + CGFloat(n) * iconCell(icon) + CGFloat(max(0, n - 1)) * 2 + 8
+        return 16 + numberCell(icon) + (n > 0 ? 14 : 0) + CGFloat(n) * iconCell(icon) + CGFloat(max(0, n - 1)) * 2
     }
 
     static func stripWidth(_ m: SpacesModel, icon: CGFloat) -> CGFloat {

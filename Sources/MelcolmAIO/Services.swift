@@ -188,13 +188,39 @@ final class NowPlayingModel: ObservableObject {
     }
 
     var appIcon: NSImage? {
-        guard !app.isEmpty, let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: app == "Spotify" ? "com.spotify.client" : "com.apple.Music") else { return nil }
+        guard app == "Spotify" || app == "Music", let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: app == "Spotify" ? "com.spotify.client" : "com.apple.Music") else { return nil }
         return NSWorkspace.shared.icon(forFile: url.path)
     }
 
-    /// Reads Spotify or Music (the two apps that expose their track to scripts).
-    /// Controls use the system media keys, so they also drive YouTube in a browser.
+    @Published var jsHint = false          // true when Chrome/Safari refused to share the artist
+    private var busy = false
+    private var lastBrowserTitle = ""
+    private let browserQueue = DispatchQueue(label: "melcolm.browser-media")
+
+    /// What's playing: Spotify / Music first (they report everything), then any browser tab or
+    /// web app (Chrome, Safari, Brave, Edge, Arc) such as YouTube Music.
     func refresh() {
+        if refreshScripts() { return }
+        // AppleScript has to run on the main thread; the scan is a few milliseconds.
+        applyBrowser(BrowserMedia.scan())
+    }
+
+    private func applyBrowser(_ m: BrowserMedia.Result?) {
+        guard let m else {
+            if app == "Browser" { title = ""; artist = ""; app = ""; duration = 0; artwork = nil; artURL = ""; playing = false }
+            return
+        }
+        let changed = m.title != title
+        title = m.title; artist = m.artist; app = "Browser"; playing = m.playing
+        position = m.position; duration = m.duration
+        jsHint = m.needsJS
+        if !m.artwork.isEmpty { loadArt(m.artwork) } else if changed { artwork = nil; artURL = "" }
+        if changed { onTrackChange?(title, artist) }
+    }
+
+    /// Asks Spotify or Music directly. Returns true if one of them is the thing playing.
+    @discardableResult
+    private func refreshScripts() -> Bool {
         for player in ["Spotify", "Music"] {
             guard NSWorkspace.shared.runningApplications.contains(where: { $0.localizedName == player }) else { continue }
             let extra = player == "Spotify"
@@ -216,10 +242,10 @@ final class NowPlayingModel: ObservableObject {
                 duration = Double(at(4).replacingOccurrences(of: ",", with: ".")) ?? 0
                 loadArt(at(5))
                 if changed, !title.isEmpty { onTrackChange?(title, artist) }
-                return
+                return playing || BrowserMedia.audioPlayingProcess() == nil
             }
         }
-        if !app.isEmpty { title = ""; artist = ""; app = ""; duration = 0; artwork = nil; artURL = "" }
+        return false
     }
 
     private func loadArt(_ url: String) {
@@ -236,7 +262,8 @@ final class NowPlayingModel: ObservableObject {
     func next() { Self.mediaKey(17); later() }
     func previous() { Self.mediaKey(18); later() }
     func openApp() {
-        if !app.isEmpty, let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: app == "Spotify" ? "com.spotify.client" : "com.apple.Music") {
+        if app == "Browser" { BrowserMedia.focusPlayingBrowser(); return }
+        if app == "Spotify" || app == "Music", let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: app == "Spotify" ? "com.spotify.client" : "com.apple.Music") {
             NSWorkspace.shared.open(url)
         }
     }
@@ -399,5 +426,127 @@ enum Brightness {
     static func set(_ v: Float) {
         guard let lib, let f = dlsym(lib, "DisplayServicesSetBrightness"), let d = builtIn else { return }
         _ = unsafeBitCast(f, to: Set.self)(d, v)
+    }
+}
+
+
+/// Finds what a web browser (or a web app like YouTube Music) is playing, by reading tab titles
+/// and, when the browser allows it, the page's media info (artist, artwork, progress).
+enum BrowserMedia {
+    struct Result { var title: String; var artist: String; var playing: Bool; var position: Double; var duration: Double; var artwork: String; var needsJS: Bool }
+
+    private struct Browser { let name: String; let bundle: String; let safari: Bool }
+    private static let browsers = [
+        Browser(name: "Google Chrome", bundle: "com.google.Chrome", safari: false),
+        Browser(name: "Brave Browser", bundle: "com.brave.Browser", safari: false),
+        Browser(name: "Microsoft Edge", bundle: "com.microsoft.edgemac", safari: false),
+        Browser(name: "Arc", bundle: "company.thebrowser.Browser", safari: false),
+        Browser(name: "Chromium", bundle: "org.chromium.Chromium", safari: false),
+        Browser(name: "Safari", bundle: "com.apple.Safari", safari: true),
+    ]
+    private static let sites = ["YouTube Music", "YouTube", "Spotify", "SoundCloud", "Apple Music", "TIDAL", "Deezer", "Bandcamp", "Pandora", "Twitch", "Vimeo", "Amazon Music"]
+    private static let mediaHosts = ["youtube.com", "spotify.com", "soundcloud.com", "music.apple.com", "tidal.com", "deezer.com", "bandcamp.com", "pandora.com", "twitch.tv", "vimeo.com", "music.amazon"]
+
+    /// pid of a process holding a "Playing audio" power assertion (what Chrome/Safari do while sound plays).
+    static func audioPlayingProcess() -> pid_t? {
+        var raw: Unmanaged<CFDictionary>?
+        guard IOPMCopyAssertionsByProcess(&raw) == kIOReturnSuccess, let d = raw?.takeRetainedValue() as? [NSNumber: [[String: Any]]] else { return nil }
+        let ids = Set(browsers.map(\.bundle))
+        for (pid, list) in d where list.contains(where: { ($0["AssertName"] as? String) == "Playing audio" }) {
+            if let b = NSRunningApplication(processIdentifier: pid_t(truncating: pid))?.bundleIdentifier, ids.contains(b) { return pid_t(truncating: pid) }
+        }
+        return nil
+    }
+
+    static func focusPlayingBrowser() {
+        if let pid = audioPlayingProcess() { NSRunningApplication(processIdentifier: pid)?.activate() }
+    }
+
+    static func log(_ m: String) {
+        guard UserDefaults.standard.bool(forKey: "debugLog") else { return }
+        let line = "\(Date()) \(m)\n"
+        if let h = FileHandle(forWritingAtPath: "/tmp/melcolm-np.log") { h.seekToEndOfFile(); h.write(Data(line.utf8)); h.closeFile() } else { try? line.write(toFile: "/tmp/melcolm-np.log", atomically: true, encoding: .utf8) }
+    }
+
+    static func scan() -> Result? {
+        let audible = audioPlayingProcess() != nil
+        log("scan audible=\(audible) running=\(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier).filter { $0.contains("chrome") || $0.contains("Chrome") })")
+        var best: (Result, score: Int)?
+        var needsJS = false
+        for b in browsers {
+            guard NSWorkspace.shared.runningApplications.contains(where: { $0.bundleIdentifier == b.bundle }) else { continue }
+            let nameExpr = b.safari ? "name of t" : "title of t"
+            let src = """
+            set out to ""
+            set sep to (ASCII character 9)
+            tell application "\(b.name)"
+              set wi to 0
+              repeat with w in windows
+                set wi to wi + 1
+                set ti to 0
+                repeat with t in tabs of w
+                  set ti to ti + 1
+                  set out to out & wi & sep & ti & sep & (\(nameExpr)) & sep & (URL of t) & linefeed
+                end repeat
+              end repeat
+            end tell
+            return out
+            """
+            var err: NSDictionary?
+            let res = NSAppleScript(source: src)?.executeAndReturnError(&err)
+            if UserDefaults.standard.bool(forKey: "debugLog") {
+                let line = "\(Date()) \(b.name) audible=\(audible) err=\(String(describing: err)) text=\(String(describing: res?.stringValue?.prefix(300)))\n"
+                if let h = FileHandle(forWritingAtPath: "/tmp/melcolm-np.log") { h.seekToEndOfFile(); h.write(Data(line.utf8)); h.closeFile() } else { try? line.write(toFile: "/tmp/melcolm-np.log", atomically: true, encoding: .utf8) }
+            }
+            guard let text = res?.stringValue else { continue }
+            for line in text.split(separator: "\n") {
+                let f = line.components(separatedBy: "\t")
+                guard f.count >= 4, let wi = Int(f[0]), let ti = Int(f[1]) else { continue }
+                let url = f[3]
+                guard mediaHosts.contains(where: { url.contains($0) }) else { continue }
+                let (title, site) = clean(f[2])
+                guard !title.isEmpty, !sites.contains(where: { $0.caseInsensitiveCompare(title) == .orderedSame }) else { continue }
+                // Prefer actual watch/track pages over home pages.
+                let score = (url.contains("watch") || url.contains("/track") || url.contains("/album") ? 2 : 0) + (b.safari ? 0 : 1)
+                if best == nil || score > best!.score {
+                    var r = Result(title: title, artist: site, playing: audible, position: 0, duration: 0, artwork: "", needsJS: false)
+                    if let js = mediaInfo(b, wi, ti) {
+                        if !js.title.isEmpty { r.title = js.title }
+                        if !js.artist.isEmpty { r.artist = js.artist }
+                        r.artwork = js.art; r.position = js.pos; r.duration = js.dur
+                        if audible == false { r.playing = js.playing }
+                    } else { needsJS = true }
+                    best = (r, score)
+                }
+            }
+        }
+        if var r = best?.0 { r.needsJS = needsJS && r.artwork.isEmpty; return r }
+        return nil
+    }
+
+    private static func clean(_ raw: String) -> (String, String) {
+        var t = raw.trimmingCharacters(in: .whitespaces)
+        t = t.replacingOccurrences(of: #"^\(\d+\)\s*"#, with: "", options: .regularExpression)
+        for s in sites {
+            for sep in [" | ", " - ", " – ", " · ", " • "] where t.lowercased().hasSuffix((sep + s).lowercased()) {
+                return (String(t.dropLast((sep + s).count)), s)
+            }
+        }
+        return (t, "")
+    }
+
+    private struct Info { var title: String; var artist: String; var art: String; var playing: Bool; var pos: Double; var dur: Double }
+
+    /// The page's own media info. Needs "Allow JavaScript from Apple Events" turned on in the browser.
+    private static func mediaInfo(_ b: Browser, _ w: Int, _ t: Int) -> Info? {
+        let js = "(function(){var m=navigator.mediaSession&&navigator.mediaSession.metadata;var v=document.querySelector('video,audio');var a='';if(m&&m.artwork&&m.artwork.length){a=m.artwork[m.artwork.length-1].src}return JSON.stringify({t:m?m.title:'',a:m?m.artist:'',art:a,p:v?!v.paused:false,pos:v?v.currentTime:0,dur:v&&isFinite(v.duration)?v.duration:0})})()"
+        let src = b.safari
+            ? "tell application \"Safari\" to do JavaScript \"\(js)\" in tab \(t) of window \(w)"
+            : "tell application \"\(b.name)\" to tell tab \(t) of window \(w) to execute javascript \"\(js)\""
+        var err: NSDictionary?
+        guard let out = NSAppleScript(source: src)?.executeAndReturnError(&err).stringValue,
+              let d = out.data(using: .utf8), let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return nil }
+        return Info(title: o["t"] as? String ?? "", artist: o["a"] as? String ?? "", art: o["art"] as? String ?? "",
+                    playing: o["p"] as? Bool ?? false, pos: (o["pos"] as? NSNumber)?.doubleValue ?? 0, dur: (o["dur"] as? NSNumber)?.doubleValue ?? 0)
     }
 }

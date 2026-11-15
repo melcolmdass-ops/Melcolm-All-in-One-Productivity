@@ -3,7 +3,7 @@ import SwiftUI
 
 /// Every page the panel can show. `home` is the grid of buttons; the rest open from it.
 enum PanelPage: String, CaseIterable {
-    case home, sound, mic, brightness, wifi, bluetooth, awake, dark, timer, settings
+    case home, sound, mic, brightness, wifi, bluetooth, awake, dark, timer, layouts, settings
 
     static var listed: [PanelPage] { allCases.filter { $0 != .home && $0 != .settings } }
 
@@ -11,14 +11,14 @@ enum PanelPage: String, CaseIterable {
         switch self {
         case .home: "Melcolm"; case .sound: "Sound"; case .mic: "Microphone"; case .brightness: "Brightness"
         case .wifi: "Wi-Fi"; case .bluetooth: "Bluetooth"; case .awake: "Keep Awake"; case .dark: "Dark Mode"
-        case .timer: "Timer"; case .settings: "Settings"
+        case .timer: "Timer"; case .layouts: "Layouts"; case .settings: "Settings"
         }
     }
     var icon: String {
         switch self {
         case .home: "house"; case .sound: "speaker.wave.2.fill"; case .mic: "mic.fill"; case .brightness: "sun.max.fill"
         case .wifi: "wifi"; case .bluetooth: "dot.radiowaves.left.and.right"; case .awake: "cup.and.saucer.fill"
-        case .dark: "circle.lefthalf.filled"; case .timer: "timer"; case .settings: "gearshape.fill"
+        case .dark: "circle.lefthalf.filled"; case .timer: "timer"; case .layouts: "rectangle.split.2x2.fill"; case .settings: "gearshape.fill"
         }
     }
 }
@@ -62,6 +62,7 @@ struct PanelView: View {
         case .awake: AwakePage()
         case .dark: DarkPage()
         case .timer: TimerPage()
+        case .layouts: LayoutsPage()
         case .settings: SettingsTab()
         case .home: EmptyView()
         }
@@ -128,6 +129,7 @@ struct HomePage: View {
         case .awake: return (system.awake ? "On" : "Off", system.awake)
         case .dark: return (system.dark ? "Dark" : "Light", system.dark)
         case .timer: return (timer.isActive ? timer.display : "Ready", timer.isActive)
+        case .layouts: return ("Snap windows", false)
         default: return ("", false)
         }
     }
@@ -192,9 +194,15 @@ struct BigSlider: View {
 
 struct SoundPage: View {
     @EnvironmentObject var sound: SoundModel
+    @EnvironmentObject var playing: NowPlayingModel
     var body: some View {
         VStack(spacing: 14) {
             NowPlayingCard()
+            if playing.app == "Browser" && playing.jsHint {
+                Text("Want the artist and cover art too? In Chrome: View ▸ Developer ▸ Allow JavaScript from Apple Events (Safari: Develop menu).")
+                    .font(.system(size: 10.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 4)
+            }
             BigSlider(icon: sound.muted ? "speaker.slash.fill" : "speaker.wave.2.fill",
                       value: Binding(get: { sound.volume }, set: { sound.setVolume($0) }), tap: sound.toggleMute)
             sectionLabel("OUTPUT")

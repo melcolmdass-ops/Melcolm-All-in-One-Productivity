@@ -13,6 +13,10 @@ final class IslandState: ObservableObject {
     @Published var peek: Peek?
     @Published var iconSize: CGFloat = 20
     var collapsedWidth: CGFloat { leftWing + notchWidth + rightWing }
+    /// The open panel is centred, so on a notched screen it is symmetric around the notch.
+    var expandedWidth: CGFloat {
+        max(AppDelegate.expandedSize.width, notchWidth > 0 ? 2 * max(leftWing, rightWing) + notchWidth : collapsedWidth)
+    }
 
     struct Peek: Equatable {
         var text: String
@@ -36,6 +40,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let playing = NowPlayingModel()
     let timer = TimerModel()
     let system = SystemModel()
+    let levels = AudioLevels()
     var islands: [Island] = []
     var bag = Set<AnyCancellable>()
     static let expandedSize = CGSize(width: 480, height: 480)
@@ -43,6 +48,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ note: Notification) {
         Prefs.register()
+        Tiler.watch()
         NSApp.setActivationPolicy(.accessory)
         rebuildIslands()
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
@@ -53,6 +59,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .sink { [weak self] _ in self?.reloadHotkeys(); self?.rebuildIslands() }
             .store(in: &bag)
         reloadHotkeys()
+        // Only listen to the sound while music is playing and the wave is on.
+        playing.$playing.removeDuplicates().receive(on: RunLoop.main).sink { [weak self] on in
+            guard let self else { return }
+            on && Prefs.bool("barShowMusic") ? levels.start() : levels.stop()
+        }.store(in: &bag)
 
         // Live activities: a short pop-up under the bar when something changes.
         playing.onTrackChange = { [weak self] title, artist in
@@ -97,6 +108,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             islands.append(Island(screen: s, app: self))
         }
         islands.forEach { $0.measureScreen(); $0.relayout() }
+        BrowserMedia.log("islands=\(islands.count) frames=\(islands.map { $0.panel.frame }) visible=\(islands.map { $0.panel.isVisible }) screens=\(NSScreen.screens.map { $0.frame })")
     }
 
     func closeOthers(except keep: Island) { islands.filter { $0 !== keep && $0.state.expanded }.forEach { $0.setExpanded(false) } }
@@ -157,7 +169,7 @@ final class Island: NSObject {
         let root = IslandView(toggle: { [weak self] in self?.toggle() },
                               hover: { [weak self] in self?.hover($0) })
             .environmentObject(state).environmentObject(spaces).environmentObject(app.sound)
-            .environmentObject(app.playing).environmentObject(app.timer).environmentObject(app.system)
+            .environmentObject(app.playing).environmentObject(app.timer).environmentObject(app.system).environmentObject(app.levels)
         panel.contentView = FirstClickHostingView(rootView: root)
         measureScreen()
         relayout()
@@ -194,20 +206,16 @@ final class Island: NSObject {
     func relayout() {
         state.iconSize = Layout.icon(forBar: barH)
         let left = 14 + Layout.stripWidth(spaces, icon: Layout.icon(forBar: barH)) + 12
-        var right: CGFloat = 10 + 24 + 12                     // chevron
+        var right: CGFloat = 10 + 36 + 12                     // chevron
         if timer.isActive && Prefs.bool("barShowTimer") { right += 74 }
-        else if playing.playing && Prefs.bool("barShowMusic") { right += 22 }
+        else if playing.playing && Prefs.bool("barShowMusic") { right += 30 }
         if !playing.title.isEmpty { right += 28 }            // mini play button
         let h = Prefs.d.string(forKey: "heightMode") == "custom" ? CGFloat(Prefs.d.double(forKey: "customHeight")) : screenBar
         icon = Layout.icon(forBar: h)
-        if state.notchWidth > 0 {
-            let wing = max(left, right, 120)                   // symmetric around the notch
-            set(&state.leftWing, wing); set(&state.rightWing, wing)
-        } else {
-            set(&state.leftWing, left); set(&state.rightWing, right)
-        }
+        // Each island is only as wide as its own content, so it fits whatever screen it is on.
+        set(&state.leftWing, left); set(&state.rightWing, right)
         set(&state.barHeight, h)
-        if state.peek != nil, state.notchWidth == 0, state.collapsedWidth < 300 {
+        if state.peek != nil, state.collapsedWidth < 300 {
             // Give the pop-up room on screens without a notch.
             let extra = (300 - state.collapsedWidth) / 2
             state.leftWing += extra; state.rightWing += extra
@@ -221,11 +229,15 @@ final class Island: NSObject {
     func frame(expanded: Bool) -> NSRect {
         guard let screen else { return .zero }
         let size = expanded
-            ? CGSize(width: max(AppDelegate.expandedSize.width, state.collapsedWidth), height: AppDelegate.expandedSize.height)
+            ? CGSize(width: state.expandedWidth, height: AppDelegate.expandedSize.height)
             : CGSize(width: max(state.collapsedWidth, state.peek != nil ? 300 : 0),
                      height: state.barHeight + (state.peek != nil ? AppDelegate.peekHeight : 0))
-        return NSRect(x: (screen.frame.midX - size.width / 2).rounded(), y: screen.frame.maxY - size.height,
-                      width: size.width.rounded(), height: size.height)
+        // Collapsed on a notched screen: the Spaces sit left of the notch, so line the notch up
+        // with its gap. Otherwise the island is simply centred.
+        let x = !expanded && state.notchWidth > 0
+            ? screen.frame.midX - state.leftWing - state.notchWidth / 2
+            : screen.frame.midX - size.width / 2
+        return NSRect(x: x.rounded(), y: screen.frame.maxY - size.height, width: size.width.rounded(), height: size.height)
     }
 
     func toggle() {

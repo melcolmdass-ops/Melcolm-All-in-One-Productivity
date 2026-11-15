@@ -10,7 +10,7 @@ struct IslandView: View {
 
     var body: some View {
         let collapsedW = state.collapsedWidth
-        let w = state.expanded ? max(AppDelegate.expandedSize.width, collapsedW) : collapsedW
+        let w = state.expanded ? state.expandedWidth : collapsedW
         let h = state.expanded ? AppDelegate.expandedSize.height : state.barHeight + (state.peek != nil ? AppDelegate.peekHeight : 0)
         let radius: CGFloat = state.expanded ? 26 : state.peek != nil ? 16 : min(14, state.barHeight / 2.2)
         let shape = UnevenRoundedRectangle(bottomLeadingRadius: radius, bottomTrailingRadius: radius, style: .continuous)
@@ -55,7 +55,7 @@ struct TopBar: View {
         HStack(spacing: 0) {
             SpacesStrip()
                 .padding(.leading, 14)
-                .frame(width: state.leftWing, alignment: .leading)
+                .frame(width: state.expanded && state.notchWidth > 0 ? max(state.leftWing, state.rightWing) : state.leftWing, alignment: .leading)
             if state.notchWidth > 0 { Color.clear.frame(width: state.notchWidth) }
             Spacer(minLength: 0)
             HStack(spacing: 8) {
@@ -65,8 +65,7 @@ struct TopBar: View {
                         .foregroundStyle(timer.finished ? .orange : accent)
                         .lineLimit(1)
                 } else if playing.playing && showMusic {
-                    Image(systemName: "waveform").font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(accent).symbolEffect(.variableColor.iterative, isActive: true)
+                    BeatWave()
                 }
                 if !playing.title.isEmpty && !state.expanded {
                     Button { playing.playPause() } label: {
@@ -77,11 +76,11 @@ struct TopBar: View {
                 }
                 Button(action: toggle) {
                     Image(systemName: "chevron.down")
-                        .font(.system(size: 10, weight: .bold))
+                        .font(.system(size: 13, weight: .bold))
                         .rotationEffect(.degrees(state.expanded ? 180 : 0))
-                        .foregroundStyle(.white.opacity(0.8))
-                        .frame(width: 22, height: 22)
-                        .background(Circle().fill(.white.opacity(0.08)))
+                        .foregroundStyle(.white.opacity(0.9))
+                        .frame(width: 36, height: 26)
+                        .background(Capsule().fill(.white.opacity(0.12)))
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -115,7 +114,7 @@ struct SpacesStrip: View {
                     else { Color.clear.frame(width: Layout.numberCell(icon), height: h - 4) }
                     let fulls = Layout.fullscreens(g)
                     if !fulls.isEmpty {
-                        Rectangle().fill(.white.opacity(0.16)).frame(width: 1, height: icon * 0.7)
+                        Capsule().fill(.white.opacity(0.32)).frame(width: 2, height: icon * 0.8)
                             .padding(.horizontal, 4)
                     }
                     ForEach(fulls) { s in appCell(s, on: s.id == g.currentID, icon: icon, h: h - 4) }
@@ -124,8 +123,8 @@ struct SpacesStrip: View {
                 .frame(width: Layout.groupWidth(g, icon: icon), height: h, alignment: .leading)
                 .background {
                     let r = RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    r.fill(.white.opacity(0.06))
-                    r.strokeBorder(.white.opacity(0.1), lineWidth: 0.7)
+                    r.fill(.white.opacity(0.11))
+                    r.strokeBorder(.white.opacity(0.22), lineWidth: 0.8)
                 }
                 .help("Display \(g.number)")
             }

@@ -13,4 +13,6 @@
   <key>NSBluetoothAlwaysUsageDescription</key><string>Shows whether Bluetooth is on.</string>
   <key>NSAppleEventsUsageDescription</key><string>Shows what's playing in Spotify and Music.</string>
   <key>NSLocationWhenInUseUsageDescription</key><string>macOS needs this to show your Wi-Fi network name.</string>
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>Melcolm listens to the sound your Mac plays so the music wave in the bar can move with the beat. Nothing is recorded or saved.</string>
 </dict></plist>
