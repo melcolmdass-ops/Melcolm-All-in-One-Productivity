@@ -56,7 +56,7 @@ struct TopBar: View {
             SpacesStrip()
                 .padding(.leading, 14)
                 .frame(width: state.expanded && state.notchWidth > 0 ? max(state.leftWing, state.rightWing) : state.leftWing, alignment: .leading)
-            if state.notchWidth > 0 { Color.clear.frame(width: state.notchWidth) }
+            if state.notchWidth > 0 && state.expanded { Color.clear.frame(width: state.notchWidth) }
             Spacer(minLength: 0)
             HStack(spacing: 8) {
                 if timer.isActive && showTimer {
@@ -194,7 +194,7 @@ struct Card<Content: View>: View {
 }
 
 struct SettingsTab: View {
-    enum Page: String, CaseIterable { case general = "General", bar = "Bar", panel = "Panel", spaces = "Spaces", mouse = "Mouse", keyboard = "Keyboard" }
+    enum Page: String, CaseIterable { case general = "General", bar = "Bar", panel = "Pages", spaces = "Spaces", mouse = "Mouse", keyboard = "Keyboard" }
     @AppStorage("settingsPage") var page = Page.general.rawValue
     @AppStorage("islandSize") var size = "large"
     @AppStorage("heightMode") var heightMode = "menu"
@@ -278,7 +278,7 @@ struct SettingsTab: View {
     }
 
     @ViewBuilder var panelPage: some View {
-        Text("Pages on the home screen").font(.system(size: 10, weight: .bold)).foregroundStyle(.secondary)
+        Text("Tick the pages you want on the home screen").font(.system(size: 10, weight: .bold)).foregroundStyle(.secondary)
         ForEach(PanelPage.listed, id: \.self) { t in
             row(t.title) {
                 Toggle("", isOn: Binding(

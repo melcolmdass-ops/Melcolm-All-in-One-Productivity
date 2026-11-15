@@ -12,7 +12,8 @@ final class IslandState: ObservableObject {
     @Published var rightWing: CGFloat = 130
     @Published var peek: Peek?
     @Published var iconSize: CGFloat = 20
-    var collapsedWidth: CGFloat { leftWing + notchWidth + rightWing }
+    /// Collapsed, the island sits beside the notch instead of wrapping around it, so it is as short as on any other screen.
+    var collapsedWidth: CGFloat { leftWing + rightWing }
     /// The open panel is centred, so on a notched screen it is symmetric around the notch.
     var expandedWidth: CGFloat {
         max(AppDelegate.expandedSize.width, notchWidth > 0 ? 2 * max(leftWing, rightWing) + notchWidth : collapsedWidth)
@@ -232,10 +233,10 @@ final class Island: NSObject {
             ? CGSize(width: state.expandedWidth, height: AppDelegate.expandedSize.height)
             : CGSize(width: max(state.collapsedWidth, state.peek != nil ? 300 : 0),
                      height: state.barHeight + (state.peek != nil ? AppDelegate.peekHeight : 0))
-        // Collapsed on a notched screen: the Spaces sit left of the notch, so line the notch up
-        // with its gap. Otherwise the island is simply centred.
+        // Collapsed on a notched screen: end flush against the left edge of the notch.
+        // Otherwise the island is simply centred.
         let x = !expanded && state.notchWidth > 0
-            ? screen.frame.midX - state.leftWing - state.notchWidth / 2
+            ? screen.frame.midX - state.notchWidth / 2 - size.width
             : screen.frame.midX - size.width / 2
         return NSRect(x: x.rounded(), y: screen.frame.maxY - size.height, width: size.width.rounded(), height: size.height)
     }

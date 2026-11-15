@@ -329,37 +329,41 @@ struct NowPlayingCard: View {
 
     var body: some View {
         Card {
-            HStack(spacing: 12) {
-                Group {
-                    if let art = playing.artwork { Image(nsImage: art).resizable().aspectRatio(contentMode: .fill) }
-                    else if let icon = playing.appIcon { Image(nsImage: icon).resizable().padding(6) }
-                    else { Image(systemName: "music.note").font(.system(size: 20, weight: .semibold)).foregroundStyle(accent) }
-                }
-                .frame(width: 52, height: 52)
-                .background(accent.opacity(0.18))
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .onTapGesture { playing.openApp() }
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(playing.title.isEmpty ? "Not playing" : playing.title)
-                        .font(.system(size: 13, weight: .semibold)).lineLimit(1)
-                    Text(playing.title.isEmpty ? "Controls work with any player, including YouTube" : playing.artist)
-                        .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
-                    if playing.duration > 0 {
-                        HStack(spacing: 6) {
-                            Text(TimerModel.format(playing.position))
-                            GeometryReader { g in
-                                Capsule().fill(.white.opacity(0.12))
-                                    .overlay(alignment: .leading) {
-                                        Capsule().fill(accent).frame(width: g.size.width * min(1, playing.position / playing.duration))
-                                    }
-                            }.frame(height: 3)
-                            Text(TimerModel.format(playing.duration))
-                        }
-                        .font(.system(size: 9, weight: .medium).monospacedDigit()).foregroundStyle(.secondary)
+            VStack(spacing: 14) {
+                HStack(spacing: 14) {
+                    Group {
+                        if let art = playing.artwork { Image(nsImage: art).resizable().aspectRatio(contentMode: .fill) }
+                        else if let icon = playing.appIcon { Image(nsImage: icon).resizable().padding(14) }
+                        else { Image(systemName: "music.note").font(.system(size: 26, weight: .semibold)).foregroundStyle(accent) }
                     }
+                    .frame(width: 84, height: 84)
+                    .background(accent.opacity(0.18))
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .shadow(color: .black.opacity(0.4), radius: 6, y: 3)
+                    .onTapGesture { playing.openApp() }
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(playing.title.isEmpty ? "Not playing" : playing.title)
+                            .font(.system(size: 15, weight: .bold)).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                        Text(playing.title.isEmpty ? "Controls work with any player, including YouTube" : playing.artist)
+                            .font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
+                        if playing.duration > 0 {
+                            HStack(spacing: 6) {
+                                Text(TimerModel.format(playing.position))
+                                GeometryReader { g in
+                                    Capsule().fill(.white.opacity(0.14))
+                                        .overlay(alignment: .leading) {
+                                            Capsule().fill(accent).frame(width: g.size.width * min(1, playing.position / playing.duration))
+                                        }
+                                }.frame(height: 3)
+                                Text(TimerModel.format(playing.duration))
+                            }
+                            .font(.system(size: 9, weight: .medium).monospacedDigit()).foregroundStyle(.secondary).padding(.top, 2)
+                        }
+                    }
+                    Spacer(minLength: 0)
                 }
-                HStack(spacing: 6) {
+                HStack(spacing: 30) {
                     MediaButton(icon: "backward.fill") { playing.previous() }
                     MediaButton(icon: playing.playing ? "pause.fill" : "play.fill", big: true) { playing.playPause() }
                     MediaButton(icon: "forward.fill") { playing.next() }

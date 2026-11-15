@@ -214,8 +214,27 @@ final class NowPlayingModel: ObservableObject {
         title = m.title; artist = m.artist; app = "Browser"; playing = m.playing
         position = m.position; duration = m.duration
         jsHint = m.needsJS
+        if BrowserMedia.isSite(m.artist), !m.videoID.isEmpty { fetchArtist(m.videoID) }
         if !m.artwork.isEmpty { loadArt(m.artwork) } else if changed { artwork = nil; artURL = "" }
         if changed { onTrackChange?(title, artist) }
+    }
+
+    private var artistCache: [String: String] = [:]
+
+    /// YouTube's public "oEmbed" info gives the channel (the artist for music) for a video id.
+    private func fetchArtist(_ id: String) {
+        if let a = artistCache[id] { artist = a; return }
+        guard let u = URL(string: "https://www.youtube.com/oembed?format=json&url=https://www.youtube.com/watch?v=\(id)") else { return }
+        URLSession.shared.dataTask(with: u) { [weak self] d, _, _ in
+            guard let d, let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+                  var name = o["author_name"] as? String else { return }
+            name = name.replacingOccurrences(of: " - Topic", with: "")
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.artistCache[id] = name
+                if self.app == "Browser" { self.artist = name }
+            }
+        }.resume()
     }
 
     /// Asks Spotify or Music directly. Returns true if one of them is the thing playing.
@@ -433,7 +452,12 @@ enum Brightness {
 /// Finds what a web browser (or a web app like YouTube Music) is playing, by reading tab titles
 /// and, when the browser allows it, the page's media info (artist, artwork, progress).
 enum BrowserMedia {
-    struct Result { var title: String; var artist: String; var playing: Bool; var position: Double; var duration: Double; var artwork: String; var needsJS: Bool }
+    struct Result { var title: String; var artist: String; var playing: Bool; var position: Double; var duration: Double; var artwork: String; var needsJS: Bool; var videoID = "" }
+    static func isSite(_ s: String) -> Bool { s.isEmpty || sites.contains { $0.caseInsensitiveCompare(s) == .orderedSame } }
+    static func videoID(_ url: String) -> String {
+        guard url.contains("youtube.com"), let c = URLComponents(string: url), let v = c.queryItems?.first(where: { $0.name == "v" })?.value else { return "" }
+        return v
+    }
 
     private struct Browser { let name: String; let bundle: String; let safari: Bool }
     private static let browsers = [
@@ -510,17 +534,21 @@ enum BrowserMedia {
                 let score = (url.contains("watch") || url.contains("/track") || url.contains("/album") ? 2 : 0) + (b.safari ? 0 : 1)
                 if best == nil || score > best!.score {
                     var r = Result(title: title, artist: site, playing: audible, position: 0, duration: 0, artwork: "", needsJS: false)
+                    r.videoID = videoID(url)
+                    // YouTube / YouTube Music: the video's own thumbnail works as cover art (centre-cropped).
+                    if !r.videoID.isEmpty { r.artwork = "https://i.ytimg.com/vi/\(r.videoID)/hqdefault.jpg" }
                     if let js = mediaInfo(b, wi, ti) {
                         if !js.title.isEmpty { r.title = js.title }
                         if !js.artist.isEmpty { r.artist = js.artist }
-                        r.artwork = js.art; r.position = js.pos; r.duration = js.dur
+                        if !js.art.isEmpty { r.artwork = js.art }
+                        r.position = js.pos; r.duration = js.dur
                         if audible == false { r.playing = js.playing }
                     } else { needsJS = true }
                     best = (r, score)
                 }
             }
         }
-        if var r = best?.0 { r.needsJS = needsJS && r.artwork.isEmpty; return r }
+        if var r = best?.0 { r.needsJS = needsJS && r.videoID.isEmpty && r.artwork.isEmpty; return r }
         return nil
     }
 
