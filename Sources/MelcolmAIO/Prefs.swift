@@ -22,7 +22,9 @@ enum Prefs {
         "iconClick": "app",            // app = open that app, space = only go to the Space
         // Mouse
         "hoverToOpen": false,
-        "hoverPeek": true,             // rest on the island to see a one-line summary
+        "hoverPeek": true,             // rest on the island to open the hover bar
+        "hoverBarMode": "summary",     // summary / volumeBrightness / shortcuts / media
+        "shortcuts": "Google|https://google.com\nChatGPT|https://chatgpt.com\nYouTube|https://youtube.com",
         "scrollVolume": true,          // scroll on the right half = volume
         "scrollSwitches": true,
         "closeOnClickOutside": true,

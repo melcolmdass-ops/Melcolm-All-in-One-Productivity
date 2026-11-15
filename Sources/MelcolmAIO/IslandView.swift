@@ -15,7 +15,7 @@ struct IslandView: View {
         let attached = state.notchWidth > 0 && !state.expanded
         let collapsedW = attached ? state.collapsedWidth + state.notchWidth : state.collapsedWidth
         let w = state.expanded ? state.expandedWidth : collapsedW
-        let h = state.expanded ? AppDelegate.expandedSize.height : state.barHeight + (state.peek != nil ? AppDelegate.peekHeight : 0)
+        let h = state.expanded ? AppDelegate.expandedSize.height : state.barHeight + (state.peek?.height ?? 0)
         let radius: CGFloat = state.expanded ? 26 : state.peek != nil ? 16 : min(14, state.barHeight / 2.2)
         let shape = UnevenRoundedRectangle(bottomLeadingRadius: radius, bottomTrailingRadius: radius, style: .continuous)
 
@@ -27,7 +27,7 @@ struct IslandView: View {
                     .transition(.asymmetric(insertion: .opacity.combined(with: .scale(scale: 0.96, anchor: .top)),
                                             removal: .opacity))
             } else if let p = state.peek {
-                PeekRow(peek: p).frame(height: AppDelegate.peekHeight)
+                PeekRow(peek: p).frame(height: p.height)
                     .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
@@ -211,7 +211,7 @@ struct Card<Content: View>: View {
 }
 
 struct SettingsTab: View {
-    enum Page: String, CaseIterable { case general = "General", bar = "Bar", panel = "Pages", spaces = "Spaces", mouse = "Mouse", keyboard = "Keyboard" }
+    enum Page: String, CaseIterable { case general = "General", bar = "Bar", panel = "Pages", spaces = "Spaces", mouse = "Mouse", hover = "Hover bar", keyboard = "Keyboard" }
     @AppStorage("settingsPage") var page = Page.general.rawValue
     @AppStorage("islandSize") var size = "large"
     @AppStorage("heightMode") var heightMode = "menu"
@@ -256,11 +256,12 @@ struct SettingsTab: View {
                     case .panel: panelPage
                     case .spaces: spacesPage
                     case .mouse: mouse
+                    case .hover: hoverPage
                     case .keyboard: keyboard
                     }
                 }
             }
-            Text("Melcolm All-in-One Productivity · v1.2").font(.system(size: 10)).foregroundStyle(.tertiary)
+            Text("Melcolm All-in-One Productivity · v1.8").font(.system(size: 10)).foregroundStyle(.tertiary)
         }
         .font(.system(size: 12))
         .toggleStyle(.switch).controlSize(.small)
@@ -336,10 +337,65 @@ struct SettingsTab: View {
 
     @ViewBuilder var mouse: some View {
         row("Open the whole panel on hover") { Toggle("", isOn: $hoverOpen).labelsHidden() }
-        row("Rest on the island for a quick summary") { Toggle("", isOn: $hoverPeek).labelsHidden() }
         row("Scroll on the right side to change volume") { Toggle("", isOn: $scrollVolume).labelsHidden() }
         row("Scroll on the island to change Space") { Toggle("", isOn: $scrollSwitch).labelsHidden() }
         row("Close when clicking elsewhere") { Toggle("", isOn: $closeOutside).labelsHidden() }
+    }
+
+    @AppStorage("hoverBarMode") var hoverMode = "summary"
+    @AppStorage("shortcuts") var shortcutsRaw = ""
+    @AppStorage("draftShortcutName") var newName = ""
+    @AppStorage("draftShortcutTarget") var newTarget = ""
+
+    @ViewBuilder var hoverPage: some View {
+        row("Show the hover bar when resting on the island") { Toggle("", isOn: $hoverPeek).labelsHidden() }
+        if hoverOpen {
+            Text("“Open the whole panel on hover” is on (Mouse), so the panel opens instead.")
+                .font(.system(size: 10.5)).foregroundStyle(.orange)
+        }
+        row("Shows") {
+            Picker("", selection: $hoverMode) {
+                Text("Summary").tag("summary"); Text("Volume + Brightness").tag("volumeBrightness")
+                Text("Shortcuts").tag("shortcuts"); Text("Music controls").tag("media")
+            }.labelsHidden().frame(width: 200)
+        }
+        Text(hoverHelp).font(.system(size: 10.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        if hoverMode == "shortcuts" {
+            Divider().opacity(0.3)
+            Text("SHORTCUTS").font(.system(size: 10, weight: .bold)).foregroundStyle(.secondary)
+            let items = Shortcut.parse(shortcutsRaw)
+            ForEach(Array(items.enumerated()), id: \.offset) { i, s in
+                HStack(spacing: 8) {
+                    s.icon.frame(width: 16, height: 16)
+                    Text(s.name).fontWeight(.semibold)
+                    Text(s.target).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                    Spacer()
+                    Button { var l = items; l.remove(at: i); save(l) } label: { Image(systemName: "minus.circle.fill").foregroundStyle(.red.opacity(0.85)) }
+                        .buttonStyle(.plain).help("Remove")
+                }
+            }
+            HStack(spacing: 6) {
+                TextField("Name", text: $newName).textFieldStyle(.roundedBorder).frame(width: 90)
+                TextField("Link or app name (e.g. https://chatgpt.com or Notes)", text: $newTarget).textFieldStyle(.roundedBorder)
+                Button { add() } label: { Image(systemName: "plus.circle.fill").foregroundStyle(accent) }
+                    .buttonStyle(.plain).disabled(newName.isEmpty || newTarget.isEmpty)
+            }.onSubmit(add)
+        }
+    }
+
+    var hoverHelp: String {
+        switch hoverMode {
+        case "volumeBrightness": "Volume on the left half, brightness on the right. Click or drag either one."
+        case "shortcuts": "Your own apps and links, one click each."
+        case "media": "The current song with Previous, Play and Next."
+        default: "One line: the timer, the song, or battery and output."
+        }
+    }
+    func save(_ l: [Shortcut]) { shortcutsRaw = l.map { "\($0.name)|\($0.target)" }.joined(separator: "\n") }
+    func add() {
+        guard !newName.isEmpty, !newTarget.isEmpty else { return }
+        save(Shortcut.parse(shortcutsRaw) + [Shortcut(name: newName, target: newTarget)])
+        newName = ""; newTarget = ""
     }
 
     @ViewBuilder var keyboard: some View {
@@ -381,6 +437,15 @@ struct LinkButton: View {
 struct PeekRow: View {
     let peek: IslandState.Peek
     var body: some View {
+        switch peek.kind {
+        case .volumeBrightness: VolumeBrightnessBar()
+        case .shortcuts: ShortcutsBar()
+        case .media: MediaBar()
+        case .text: textRow
+        }
+    }
+
+    var textRow: some View {
         HStack(spacing: 8) {
             if let art = peek.image {
                 Image(nsImage: art).resizable().aspectRatio(contentMode: .fill)
@@ -402,5 +467,113 @@ struct PeekRow: View {
         }
         .padding(.horizontal, 16)
         .foregroundStyle(.white.opacity(0.9))
+    }
+}
+
+// MARK: - Hover bar modes
+
+/// A thin slider you can click or drag. Scrolling over it nudges it too.
+struct MiniSlider: View {
+    let icon: String; let value: Double; let set: (Double) -> Void
+    var body: some View {
+        HStack(spacing: 7) {
+            Image(systemName: icon).font(.system(size: 11, weight: .semibold)).foregroundStyle(accent).frame(width: 16)
+            GeometryReader { g in
+                Capsule().fill(.white.opacity(0.15))
+                    .overlay(alignment: .leading) { Capsule().fill(accentGradient).frame(width: max(6, g.size.width * value)) }
+                    .frame(height: 6).frame(maxHeight: .infinity)
+                    .contentShape(Rectangle())
+                    .gesture(DragGesture(minimumDistance: 0).onChanged { set(min(1, max(0, $0.location.x / g.size.width))) })
+            }
+            Text("\(Int(value * 100))%").font(.system(size: 10, weight: .semibold).monospacedDigit()).frame(width: 32, alignment: .trailing)
+        }
+    }
+}
+
+/// Volume on one half, brightness on the other.
+struct VolumeBrightnessBar: View {
+    @EnvironmentObject var sound: SoundModel
+    @EnvironmentObject var system: SystemModel
+    var body: some View {
+        HStack(spacing: 16) {
+            MiniSlider(icon: sound.muted ? "speaker.slash.fill" : "speaker.wave.2.fill", value: sound.volume) { sound.setVolume($0) }
+            if let b = system.brightness {
+                MiniSlider(icon: "sun.max.fill", value: b) { system.setBrightness($0) }
+            } else {
+                Label("Brightness: built-in screen only", systemImage: "sun.max.fill").font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
+            }
+        }
+        .padding(.horizontal, 16).foregroundStyle(.white.opacity(0.9))
+        .onAppear { system.refresh() }
+    }
+}
+
+/// Your own apps and links, one click each. Set them in Settings ▸ Hover bar.
+struct ShortcutsBar: View {
+    @AppStorage("shortcuts") var raw = ""
+    var body: some View {
+        HStack(spacing: 8) {
+            ForEach(Shortcut.parse(raw)) { s in
+                Button { s.open() } label: {
+                    HStack(spacing: 5) {
+                        s.icon.frame(width: 16, height: 16)
+                        Text(s.name).font(.system(size: 11, weight: .semibold)).lineLimit(1)
+                    }
+                    .padding(.horizontal, 9).frame(height: 26)
+                    .background(Capsule().fill(.white.opacity(0.09)).overlay(Capsule().strokeBorder(.white.opacity(0.14), lineWidth: 0.7)))
+                }.buttonStyle(PressStyle()).help(s.target)
+            }
+            if Shortcut.parse(raw).isEmpty {
+                Text("Add apps and links in Settings ▸ Hover bar").font(.system(size: 11)).foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal, 12).foregroundStyle(.white.opacity(0.92))
+    }
+}
+
+/// The current track with Previous / Play / Next.
+struct MediaBar: View {
+    @EnvironmentObject var playing: NowPlayingModel
+    var body: some View {
+        HStack(spacing: 10) {
+            Group {
+                if let a = playing.artwork { Image(nsImage: a).resizable().aspectRatio(contentMode: .fill) }
+                else { Image(systemName: "music.note").foregroundStyle(accent) }
+            }.frame(width: 24, height: 24).clipShape(RoundedRectangle(cornerRadius: 5))
+            Text(playing.title.isEmpty ? "Not playing" : playing.title).font(.system(size: 11, weight: .semibold)).lineLimit(1)
+            Spacer(minLength: 0)
+            MediaButton(icon: "backward.fill") { playing.previous() }
+            MediaButton(icon: playing.playing ? "pause.fill" : "play.fill") { playing.playPause() }
+            MediaButton(icon: "forward.fill") { playing.next() }
+        }
+        .padding(.horizontal, 14).foregroundStyle(.white.opacity(0.92))
+    }
+}
+
+/// One shortcut: "Name|https://link" or "Name|App Name".
+struct Shortcut: Identifiable {
+    let name: String; let target: String
+    var id: String { name + target }
+    var isLink: Bool { target.contains("://") || target.hasPrefix("www.") }
+    var url: URL? {
+        if isLink { return URL(string: target.hasPrefix("www.") ? "https://" + target : target) }
+        for dir in ["/Applications", "/System/Applications", "/Applications/Utilities", NSHomeDirectory() + "/Applications"] {
+            let p = "\(dir)/\(target).app"
+            if FileManager.default.fileExists(atPath: p) { return URL(fileURLWithPath: p) }
+        }
+        return nil
+    }
+    @ViewBuilder var icon: some View {
+        if !isLink, let u = url { Image(nsImage: NSWorkspace.shared.icon(forFile: u.path)).resizable() }
+        else { Image(systemName: isLink ? "globe" : "app.dashed").font(.system(size: 11, weight: .semibold)).foregroundStyle(accent) }
+    }
+    func open() { if let u = url { NSWorkspace.shared.open(u) } }
+
+    static func parse(_ raw: String) -> [Shortcut] {
+        raw.split(separator: "\n").compactMap { line in
+            let p = line.split(separator: "|", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
+            guard p.count == 2, !p[0].isEmpty, !p[1].isEmpty else { return nil }
+            return Shortcut(name: p[0], target: p[1])
+        }
     }
 }

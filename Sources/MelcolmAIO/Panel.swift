@@ -3,20 +3,20 @@ import SwiftUI
 
 /// Every page the panel can show. `home` is the grid of buttons; the rest open from it.
 enum PanelPage: String, CaseIterable {
-    case home, sound, mic, brightness, wifi, bluetooth, awake, dark, timer, layouts, settings
+    case home, nowPlaying, sound, mic, brightness, wifi, bluetooth, awake, dark, timer, layouts, settings
 
     static var listed: [PanelPage] { allCases.filter { $0 != .home && $0 != .settings } }
 
     var title: String {
         switch self {
-        case .home: "Melcolm"; case .sound: "Sound"; case .mic: "Microphone"; case .brightness: "Brightness"
+        case .home: "Melcolm"; case .nowPlaying: "Now Playing"; case .sound: "Sound"; case .mic: "Microphone"; case .brightness: "Brightness"
         case .wifi: "Wi-Fi"; case .bluetooth: "Bluetooth"; case .awake: "Keep Awake"; case .dark: "Dark Mode"
         case .timer: "Timer"; case .layouts: "Layouts"; case .settings: "Settings"
         }
     }
     var icon: String {
         switch self {
-        case .home: "house"; case .sound: "speaker.wave.2.fill"; case .mic: "mic.fill"; case .brightness: "sun.max.fill"
+        case .home: "house"; case .nowPlaying: "music.note"; case .sound: "speaker.wave.2.fill"; case .mic: "mic.fill"; case .brightness: "sun.max.fill"
         case .wifi: "wifi"; case .bluetooth: "dot.radiowaves.left.and.right"; case .awake: "cup.and.saucer.fill"
         case .dark: "circle.lefthalf.filled"; case .timer: "timer"; case .layouts: "rectangle.split.2x2.fill"; case .settings: "gearshape.fill"
         }
@@ -28,6 +28,7 @@ extension PanelPage {
     var tint: [Color] {
         func c(_ r: Double, _ g: Double, _ b: Double) -> Color { Color(red: r, green: g, blue: b) }
         switch self {
+        case .nowPlaying: return [c(1.0, 0.36, 0.62), c(0.78, 0.34, 1.0)]
         case .sound: return [c(0.36, 0.60, 1.0), c(0.58, 0.42, 1.0)]
         case .mic: return [c(1.0, 0.40, 0.55), c(1.0, 0.26, 0.34)]
         case .brightness: return [c(1.0, 0.82, 0.28), c(1.0, 0.55, 0.20)]
@@ -73,6 +74,7 @@ struct PanelView: View {
 
     @ViewBuilder var content: some View {
         switch state.page {
+        case .nowPlaying: NowPlayingPage()
         case .sound: SoundPage()
         case .mic: MicPage()
         case .brightness: BrightnessPage()
@@ -95,6 +97,7 @@ struct HomePage: View {
     @EnvironmentObject var system: SystemModel
     @EnvironmentObject var sound: SoundModel
     @EnvironmentObject var timer: TimerModel
+    @EnvironmentObject var playing: NowPlayingModel
     @AppStorage("hiddenTiles") var hidden = ""
 
     var body: some View {
@@ -152,6 +155,7 @@ struct HomePage: View {
     /// The little status line under each button, and whether it is "on" (lit).
     func status(_ p: PanelPage) -> (String, Bool) {
         switch p {
+        case .nowPlaying: return (playing.title.isEmpty ? "Nothing playing" : playing.title, playing.playing)
         case .sound: return ("\(sound.muted ? "Muted" : "\(Int(sound.volume * 100))%") · \(sound.outputName)", !sound.muted)
         case .mic: return (sound.inputMuted ? "Muted" : "\(Int(sound.inputVolume * 100))%", !sound.inputMuted)
         case .brightness: return (system.brightness.map { "\(Int($0 * 100))%" } ?? "External screen", system.brightness != nil)
@@ -231,12 +235,6 @@ struct SoundPage: View {
     @EnvironmentObject var playing: NowPlayingModel
     var body: some View {
         VStack(spacing: 14) {
-            NowPlayingCard()
-            if playing.app == "Browser" && playing.jsHint {
-                Text("Want the artist and cover art too? In Chrome: View ▸ Developer ▸ Allow JavaScript from Apple Events (Safari: Develop menu).")
-                    .font(.system(size: 10.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 4)
-            }
             BigSlider(icon: sound.muted ? "speaker.slash.fill" : "speaker.wave.2.fill",
                       value: Binding(get: { sound.volume }, set: { sound.setVolume($0) }), tap: sound.toggleMute)
             sectionLabel("OUTPUT")
@@ -359,39 +357,65 @@ func sectionLabel(_ t: String) -> some View {
 
 // MARK: - Now playing
 
-struct NowPlayingCard: View {
+struct NowPlayingPage: View {
     @EnvironmentObject var playing: NowPlayingModel
+    var body: some View {
+        let rest = playing.others.filter { !(playing.app == "Browser" && $0.title == playing.title) }
+        VStack(spacing: 12) {
+            PlayerCard(title: playing.title, artist: playing.artist, art: playing.artwork, icon: playing.appIcon,
+                       playing: playing.playing, position: playing.position, duration: playing.duration,
+                       open: playing.openApp, prev: playing.previous, play: playing.playPause, next: playing.next)
+            ForEach(rest, id: \.id) { r in
+                PlayerCard(title: r.title, artist: r.artist.isEmpty ? r.browser : r.artist, art: playing.thumbs[r.artwork], icon: nil,
+                           playing: r.playing, position: r.position, duration: r.duration,
+                           open: { playing.show(r) }, prev: { playing.skip(r, forward: false) },
+                           play: { playing.toggle(r) }, next: { playing.skip(r, forward: true) })
+            }
+            if playing.jsHint {
+                Text("For exact play/pause on each tab and a progress bar: in Chrome, View ▸ Developer ▸ Allow JavaScript from Apple Events (Safari: Develop menu).")
+                    .font(.system(size: 10.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 4)
+            }
+        }
+    }
+}
+
+/// One player: artwork, title, artist, progress, and Previous / Play / Next. Every player looks the same.
+struct PlayerCard: View {
+    let title: String; let artist: String; let art: NSImage?; let icon: NSImage?
+    let playing: Bool; let position: Double; let duration: Double
+    let open: () -> Void; let prev: () -> Void; let play: () -> Void; let next: () -> Void
 
     var body: some View {
         Card {
             VStack(spacing: 14) {
                 HStack(spacing: 14) {
                     Group {
-                        if let art = playing.artwork { Image(nsImage: art).resizable().aspectRatio(contentMode: .fill) }
-                        else if let icon = playing.appIcon { Image(nsImage: icon).resizable().padding(14) }
+                        if let art { Image(nsImage: art).resizable().aspectRatio(contentMode: .fill) }
+                        else if let icon { Image(nsImage: icon).resizable().padding(14) }
                         else { Image(systemName: "music.note").font(.system(size: 26, weight: .semibold)).foregroundStyle(accent) }
                     }
                     .frame(width: 84, height: 84)
                     .background(accent.opacity(0.18))
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     .shadow(color: .black.opacity(0.4), radius: 6, y: 3)
-                    .onTapGesture { playing.openApp() }
+                    .onTapGesture(perform: open)
 
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(playing.title.isEmpty ? "Not playing" : playing.title)
+                        Text(title.isEmpty ? "Not playing" : title)
                             .font(.system(size: 15, weight: .bold)).lineLimit(2).fixedSize(horizontal: false, vertical: true)
-                        Text(playing.title.isEmpty ? "Controls work with any player, including YouTube" : playing.artist)
+                        Text(title.isEmpty ? "Controls work with any player, including YouTube" : artist)
                             .font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
-                        if playing.duration > 0 {
+                        if duration > 0 {
                             HStack(spacing: 6) {
-                                Text(TimerModel.format(playing.position))
+                                Text(TimerModel.format(position))
                                 GeometryReader { g in
                                     Capsule().fill(.white.opacity(0.14))
                                         .overlay(alignment: .leading) {
-                                            Capsule().fill(accent).frame(width: g.size.width * min(1, playing.position / playing.duration))
+                                            Capsule().fill(accent).frame(width: g.size.width * min(1, position / duration))
                                         }
                                 }.frame(height: 3)
-                                Text(TimerModel.format(playing.duration))
+                                Text(TimerModel.format(duration))
                             }
                             .font(.system(size: 9, weight: .medium).monospacedDigit()).foregroundStyle(.secondary).padding(.top, 2)
                         }
@@ -399,9 +423,9 @@ struct NowPlayingCard: View {
                     Spacer(minLength: 0)
                 }
                 HStack(spacing: 30) {
-                    MediaButton(icon: "backward.fill") { playing.previous() }
-                    MediaButton(icon: playing.playing ? "pause.fill" : "play.fill", big: true) { playing.playPause() }
-                    MediaButton(icon: "forward.fill") { playing.next() }
+                    MediaButton(icon: "backward.fill", action: prev)
+                    MediaButton(icon: playing ? "pause.fill" : "play.fill", big: true, action: play)
+                    MediaButton(icon: "forward.fill", action: next)
                 }
             }
         }

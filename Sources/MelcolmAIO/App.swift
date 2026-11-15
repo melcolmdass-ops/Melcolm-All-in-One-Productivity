@@ -24,6 +24,9 @@ final class IslandState: ObservableObject {
         var icon: String
         var value: Double? = nil
         var image: NSImage? = nil
+        var kind: Kind = .text
+        enum Kind { case text, volumeBrightness, shortcuts, media }
+        var height: CGFloat { kind == .text ? AppDelegate.peekHeight : 40 }
     }
 }
 
@@ -95,7 +98,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         playing.refresh()
         // For testing: `open … --args -debugOpen Settings` opens the panel on launch (not saved).
         if let t = UserDefaults.standard.string(forKey: "debugOpen"), let i = islands.first {
-            i.state.page = PanelPage(rawValue: t.lowercased()) ?? .home; i.setExpanded(true)
+            i.state.page = PanelPage.allCases.first { $0.rawValue.lowercased() == t.lowercased() } ?? .home; i.setExpanded(true)
         }
     }
 
@@ -216,9 +219,10 @@ final class Island: NSObject {
         // Each island is only as wide as its own content, so it fits whatever screen it is on.
         set(&state.leftWing, left); set(&state.rightWing, right)
         set(&state.barHeight, h)
-        if state.peek != nil, state.collapsedWidth < 300 {
+        let minPeek: CGFloat = state.peek?.kind == .text || state.peek == nil ? 300 : 360
+        if state.peek != nil, state.notchWidth == 0, state.collapsedWidth < minPeek {
             // Give the pop-up room on screens without a notch.
-            let extra = (300 - state.collapsedWidth) / 2
+            let extra = (minPeek - state.collapsedWidth) / 2
             state.leftWing += extra; state.rightWing += extra
         }
         let f = frame(expanded: state.expanded)
@@ -231,8 +235,8 @@ final class Island: NSObject {
         guard let screen else { return .zero }
         let size = expanded
             ? CGSize(width: state.expandedWidth, height: AppDelegate.expandedSize.height)
-            : CGSize(width: state.notchWidth > 0 ? state.collapsedWidth + state.notchWidth : max(state.collapsedWidth, state.peek != nil ? 300 : 0),
-                     height: state.barHeight + (state.peek != nil ? AppDelegate.peekHeight : 0))
+            : CGSize(width: state.notchWidth > 0 ? state.collapsedWidth + state.notchWidth : max(state.collapsedWidth, state.peek == nil ? 0 : state.peek!.kind == .text ? 300 : 360),
+                     height: state.barHeight + (state.peek?.height ?? 0))
         // Centred on every screen; on a notched screen it straddles the notch.
         // Collapsed on a notched screen, each side is only as wide as its content.
         let x = !expanded && state.notchWidth > 0
@@ -279,6 +283,16 @@ final class Island: NSObject {
         return .init(text: "\(b) · \(sound.outputName)", icon: system.charging ? "battery.100percent.bolt" : "battery.75percent")
     }
 
+    /// What the hover bar shows, chosen in Settings ▸ Hover bar.
+    var hoverBar: IslandState.Peek {
+        switch Prefs.d.string(forKey: "hoverBarMode") ?? "summary" {
+        case "volumeBrightness": return .init(text: "", icon: "", kind: .volumeBrightness)
+        case "shortcuts": return .init(text: "", icon: "", kind: .shortcuts)
+        case "media": return .init(text: "", icon: "", kind: .media)
+        default: return summary
+        }
+    }
+
     func handleKey(_ e: NSEvent) -> Bool {
         switch e.keyCode {
         case 53: if state.page != .home { state.page = .home } else { setExpanded(false) }; return true   // esc: back, then close
@@ -300,7 +314,7 @@ final class Island: NSObject {
             // Hover to peek: rest on the island for a moment to see a one-line summary.
             DispatchQueue.main.asyncAfter(deadline: .now() + (inside ? 0.6 : 0.15)) { [weak self] in
                 guard let self, hovering == inside, Prefs.bool("hoverPeek"), !state.expanded else { return }
-                if inside { hoverPeek = true; peek(summary, for: 0) }
+                if inside { hoverPeek = true; peek(hoverBar, for: 0) }
                 else if hoverPeek { hoverPeek = false; endPeek() }
             }
             return

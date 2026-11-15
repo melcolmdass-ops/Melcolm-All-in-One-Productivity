@@ -200,9 +200,55 @@ final class NowPlayingModel: ObservableObject {
     /// What's playing: Spotify / Music first (they report everything), then any browser tab or
     /// web app (Chrome, Safari, Brave, Edge, Arc) such as YouTube Music.
     func refresh() {
-        if refreshScripts() { return }
+        if refreshScripts() { others = BrowserMedia.scan(); for i in others.indices { fillFromVideo(&others[i]) }; return }
         // AppleScript has to run on the main thread; the scan is a few milliseconds.
-        applyBrowser(BrowserMedia.scan())
+        var list = BrowserMedia.scan()
+        for i in list.indices { fillFromVideo(&list[i]) }
+        others = list
+        applyBrowser(list.first)
+    }
+
+    /// Every other playing or paused tab / web app, shown under the main card.
+    @Published var others: [BrowserMedia.Result] = []
+    @Published var thumbs: [String: NSImage] = [:]
+    private var videoInfo: [String: (String, String)] = [:]
+
+    /// Title, channel and thumbnail from the YouTube video id (no browser setting needed).
+    private func fillFromVideo(_ r: inout BrowserMedia.Result) {
+        let id = r.videoID
+        guard !id.isEmpty else { return }
+        if let (t, a) = videoInfo[id] {
+            if r.title.isEmpty { r.title = t }
+            if BrowserMedia.isSite(r.artist) { r.artist = a }
+        } else if !fetching.contains(id) {
+            fetching.insert(id)
+            guard let u = URL(string: "https://www.youtube.com/oembed?format=json&url=https://www.youtube.com/watch?v=\(id)") else { return }
+            URLSession.shared.dataTask(with: u) { [weak self] d, _, _ in
+                let o = d.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+                let t = o?["title"] as? String ?? ""
+                let a = (o?["author_name"] as? String ?? "").replacingOccurrences(of: " - Topic", with: "")
+                DispatchQueue.main.async { self?.videoInfo[id] = (t, a); self?.refresh() }
+            }.resume()
+        }
+        if r.title.isEmpty { r.title = r.artist.isEmpty ? "YouTube" : r.artist }
+        if thumbs[r.artwork] == nil, !r.artwork.isEmpty, !fetching.contains(r.artwork), let u = URL(string: r.artwork) {
+            let key = r.artwork; fetching.insert(key)
+            URLSession.shared.dataTask(with: u) { [weak self] d, _, _ in
+                guard let d, let img = NSImage(data: d) else { return }
+                DispatchQueue.main.async { self?.thumbs[key] = img }
+            }.resume()
+        }
+    }
+    private var fetching = Set<String>()
+
+    func toggle(_ r: BrowserMedia.Result) {
+        if !BrowserMedia.togglePlay(r) { BrowserMedia.show(r); Self.mediaKey(16) }
+        later()
+    }
+    func show(_ r: BrowserMedia.Result) { BrowserMedia.show(r) }
+    func skip(_ r: BrowserMedia.Result, forward: Bool) {
+        if !BrowserMedia.skip(r, forward: forward) { BrowserMedia.show(r); Self.mediaKey(forward ? 17 : 18) }
+        later()
     }
 
     private func applyBrowser(_ m: BrowserMedia.Result?) {
@@ -214,7 +260,6 @@ final class NowPlayingModel: ObservableObject {
         title = m.title; artist = m.artist; app = "Browser"; playing = m.playing
         position = m.position; duration = m.duration
         jsHint = m.needsJS
-        if BrowserMedia.isSite(m.artist), !m.videoID.isEmpty { fetchArtist(m.videoID) }
         if !m.artwork.isEmpty { loadArt(m.artwork) } else if changed { artwork = nil; artURL = "" }
         if changed { onTrackChange?(title, artist) }
     }
@@ -452,7 +497,8 @@ enum Brightness {
 /// Finds what a web browser (or a web app like YouTube Music) is playing, by reading tab titles
 /// and, when the browser allows it, the page's media info (artist, artwork, progress).
 enum BrowserMedia {
-    struct Result { var title: String; var artist: String; var playing: Bool; var position: Double; var duration: Double; var artwork: String; var needsJS: Bool; var videoID = "" }
+    struct Result { var title: String; var artist: String; var playing: Bool; var position: Double; var duration: Double; var artwork: String; var needsJS: Bool; var videoID = ""; var browser = ""; var window = 0; var tab = 0; var url = ""; var knownState = false; var generic = false
+        var id: String { "\(browser)|\(url)" } }
     static func isSite(_ s: String) -> Bool { s.isEmpty || sites.contains { $0.caseInsensitiveCompare(s) == .orderedSame } }
     static func videoID(_ url: String) -> String {
         guard url.contains("youtube.com"), let c = URLComponents(string: url), let v = c.queryItems?.first(where: { $0.name == "v" })?.value else { return "" }
@@ -492,10 +538,10 @@ enum BrowserMedia {
         if let h = FileHandle(forWritingAtPath: "/tmp/melcolm-np.log") { h.seekToEndOfFile(); h.write(Data(line.utf8)); h.closeFile() } else { try? line.write(toFile: "/tmp/melcolm-np.log", atomically: true, encoding: .utf8) }
     }
 
-    static func scan() -> Result? {
+    /// Every media tab or web-app window (e.g. the YouTube Music Chrome app), playing ones first.
+    static func scan() -> [Result] {
         let audible = audioPlayingProcess() != nil
-        log("scan audible=\(audible) running=\(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier).filter { $0.contains("chrome") || $0.contains("Chrome") })")
-        var best: (Result, score: Int)?
+        var all: [(Result, Int)] = []
         var needsJS = false
         for b in browsers {
             guard NSWorkspace.shared.runningApplications.contains(where: { $0.bundleIdentifier == b.bundle }) else { continue }
@@ -518,38 +564,70 @@ enum BrowserMedia {
             """
             var err: NSDictionary?
             let res = NSAppleScript(source: src)?.executeAndReturnError(&err)
-            if UserDefaults.standard.bool(forKey: "debugLog") {
-                let line = "\(Date()) \(b.name) audible=\(audible) err=\(String(describing: err)) text=\(String(describing: res?.stringValue?.prefix(300)))\n"
-                if let h = FileHandle(forWritingAtPath: "/tmp/melcolm-np.log") { h.seekToEndOfFile(); h.write(Data(line.utf8)); h.closeFile() } else { try? line.write(toFile: "/tmp/melcolm-np.log", atomically: true, encoding: .utf8) }
-            }
+            log("\(b.name) audible=\(audible) err=\(String(describing: err)) text=\(String(describing: res?.stringValue?.prefix(400)))")
             guard let text = res?.stringValue else { continue }
             for line in text.split(separator: "\n") {
                 let f = line.components(separatedBy: "\t")
                 guard f.count >= 4, let wi = Int(f[0]), let ti = Int(f[1]) else { continue }
                 let url = f[3]
                 guard mediaHosts.contains(where: { url.contains($0) }) else { continue }
-                let (title, site) = clean(f[2])
-                guard !title.isEmpty, !sites.contains(where: { $0.caseInsensitiveCompare(title) == .orderedSame }) else { continue }
-                // Prefer actual watch/track pages over home pages.
-                let score = (url.contains("watch") || url.contains("/track") || url.contains("/album") ? 2 : 0) + (b.safari ? 0 : 1)
-                if best == nil || score > best!.score {
-                    var r = Result(title: title, artist: site, playing: audible, position: 0, duration: 0, artwork: "", needsJS: false)
-                    r.videoID = videoID(url)
-                    // YouTube / YouTube Music: the video's own thumbnail works as cover art (centre-cropped).
-                    if !r.videoID.isEmpty { r.artwork = "https://i.ytimg.com/vi/\(r.videoID)/hqdefault.jpg" }
-                    if let js = mediaInfo(b, wi, ti) {
-                        if !js.title.isEmpty { r.title = js.title }
-                        if !js.artist.isEmpty { r.artist = js.artist }
-                        if !js.art.isEmpty { r.artwork = js.art }
-                        r.position = js.pos; r.duration = js.dur
-                        if audible == false { r.playing = js.playing }
-                    } else { needsJS = true }
-                    best = (r, score)
+                var (title, site) = clean(f[2]); var generic = false
+                let vid = videoID(url)
+                // YouTube Music often titles the page just "YouTube Music"; the video id still says what it is.
+                if sites.contains(where: { $0.caseInsensitiveCompare(title) == .orderedSame }) {
+                    guard !vid.isEmpty else { continue }
+                    site = title; title = ""; generic = true
                 }
+                guard !title.isEmpty || !vid.isEmpty else { continue }
+                var r = Result(title: title, artist: site, playing: false, position: 0, duration: 0, artwork: "", needsJS: false)
+                r.videoID = vid; r.generic = generic; r.browser = b.name; r.window = wi; r.tab = ti; r.url = url
+                if !vid.isEmpty { r.artwork = "https://i.ytimg.com/vi/\(vid)/hqdefault.jpg" }
+                if let js = mediaInfo(b, wi, ti) {
+                    if !js.title.isEmpty { r.title = js.title }
+                    if !js.artist.isEmpty { r.artist = js.artist }
+                    if !js.art.isEmpty { r.artwork = js.art }
+                    r.position = js.pos; r.duration = js.dur; r.playing = js.playing; r.knownState = true
+                } else { needsJS = true }
+                let score = (r.playing ? 8 : 0) + (r.generic ? 0 : 4) + (url.contains("watch") || url.contains("/track") || url.contains("/album") ? 2 : 0) + (b.safari ? 0 : 1)
+                all.append((r, score))
             }
         }
-        if var r = best?.0 { r.needsJS = needsJS && r.videoID.isEmpty && r.artwork.isEmpty; return r }
-        return nil
+        var list = all.sorted { $0.1 > $1.1 }.map(\.0)
+        // Without page access we only know that *something* in the browser is making sound.
+        // YouTube Music only puts the song in the page title while it plays.
+        if audible, !list.contains(where: \.playing), !list.isEmpty, !list[0].generic || list.count == 1 { list[0].playing = true }
+        for i in list.indices { list[i].needsJS = needsJS && !list[i].knownState }
+        return list
+    }
+
+    /// Plays or pauses one particular tab (needs the browser's JavaScript-from-Apple-Events setting).
+    static func togglePlay(_ r: Result) -> Bool {
+        let js = "(function(){var v=document.querySelector('video,audio');if(!v)return 'no';if(v.paused){v.play()}else{v.pause()}return 'ok'})()"
+        let src = r.browser == "Safari"
+            ? "tell application \"Safari\" to do JavaScript \"\(js)\" in tab \(r.tab) of window \(r.window)"
+            : "tell application \"\(r.browser)\" to tell tab \(r.tab) of window \(r.window) to execute javascript \"\(js)\""
+        var err: NSDictionary?
+        return NSAppleScript(source: src)?.executeAndReturnError(&err).stringValue == "ok"
+    }
+
+    /// Next / previous track inside one tab (YouTube Music and YouTube buttons).
+    static func skip(_ r: Result, forward: Bool) -> Bool {
+        let sel = forward ? ".next-button,.ytp-next-button" : ".previous-button,.ytp-prev-button"
+        let js = "(function(){var b=document.querySelector('\(sel)');if(!b)return 'no';b.click();return 'ok'})()"
+        let src = r.browser == "Safari"
+            ? "tell application \"Safari\" to do JavaScript \"\(js)\" in tab \(r.tab) of window \(r.window)"
+            : "tell application \"\(r.browser)\" to tell tab \(r.tab) of window \(r.window) to execute javascript \"\(js)\""
+        var err: NSDictionary?
+        return NSAppleScript(source: src)?.executeAndReturnError(&err).stringValue == "ok"
+    }
+
+    /// Brings that tab (or web-app window) to the front.
+    static func show(_ r: Result) {
+        let src = r.browser == "Safari"
+            ? "tell application \"Safari\"\n set current tab of window \(r.window) to tab \(r.tab) of window \(r.window)\n set index of window \(r.window) to 1\n activate\n end tell"
+            : "tell application \"\(r.browser)\"\n set active tab index of window \(r.window) to \(r.tab)\n set index of window \(r.window) to 1\n activate\n end tell"
+        var err: NSDictionary?
+        NSAppleScript(source: src)?.executeAndReturnError(&err)
     }
 
     private static func clean(_ raw: String) -> (String, String) {
