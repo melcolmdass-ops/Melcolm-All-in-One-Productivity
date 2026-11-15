@@ -65,15 +65,17 @@ struct TopBar: View {
     var body: some View {
         HStack(spacing: 0) {
             if !state.stripRight {
+                // With a notch, both sides hug the notch so the island reads as centred on it.
                 SpacesStrip()
-                    .padding(.leading, 14)
-                    .frame(width: state.expanded && state.notchWidth > 0 ? max(state.leftWing, state.rightWing) : state.leftWing, alignment: .leading)
+                    .padding(state.notchWidth > 0 ? .trailing : .leading, state.notchWidth > 0 ? 12 : 14)
+                    .frame(width: state.expanded && state.notchWidth > 0 ? (state.expandedWidth - state.notchWidth) / 2 : state.leftWing,
+                           alignment: state.notchWidth > 0 ? .trailing : .leading)
             } else if state.expanded {
                 Color.clear.frame(width: max(state.leftWing, state.rightWing))
             }
             if state.notchWidth > 0 { Color.clear.frame(width: state.notchWidth) }
             if state.stripRight { SpacesStrip().padding(.leading, 10) }
-            Spacer(minLength: 0)
+            if state.notchWidth == 0 { Spacer(minLength: 0) }
             HStack(spacing: 8) {
                 if sound.micInUse {
                     Image(systemName: "mic.fill").font(.system(size: 11, weight: .bold)).foregroundStyle(.white)
@@ -110,7 +112,8 @@ struct TopBar: View {
                 .buttonStyle(.plain)
                 .help("Open Melcolm (⌃⌥Space)")
             }
-            .padding(.trailing, 10)
+            .padding(state.notchWidth > 0 ? .leading : .trailing, state.notchWidth > 0 ? 12 : 10)
+            .frame(maxWidth: .infinity, alignment: state.notchWidth > 0 ? .leading : .trailing)
         }
     }
 }
