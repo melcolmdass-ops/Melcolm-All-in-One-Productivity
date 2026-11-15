@@ -117,7 +117,7 @@ struct TopBar: View {
                 .buttonStyle(.plain)
                 .help("Open Melcolm (⌃⌥Space)")
                 }
-                .frame(height: max(20, state.barHeight - 6))
+                .frame(height: max(20, state.barHeight - 10))
                 .background {
                     let r = RoundedRectangle(cornerRadius: 9, style: .continuous)
                     r.fill(Color(white: 0.11))
@@ -145,7 +145,7 @@ struct SpacesStrip: View {
     
     var body: some View {
         let icon = state.iconSize
-        let h = min(icon + 2 * Layout.cellPad, state.barHeight - 2)
+        let h = min(icon + 2 * Layout.cellPad, state.barHeight - 8)
         HStack(spacing: Layout.chipGap) {
             ForEach(spaces.displays) { g in
                 let desktops = Layout.desktops(g)
