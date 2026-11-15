@@ -13,11 +13,11 @@ struct IslandView: View {
     var body: some View {
         // On a notched screen the collapsed island reaches into the notch so the two read as one shape.
         let attached = state.notchWidth > 0 && !state.expanded
-        let collapsedW = state.collapsedWidth + (attached ? state.notchWidth / 2 : 0)
+        let collapsedW = attached ? 2 * max(state.leftWing, state.rightWing) + state.notchWidth : state.collapsedWidth
         let w = state.expanded ? state.expandedWidth : collapsedW
         let h = state.expanded ? AppDelegate.expandedSize.height : state.barHeight + (state.peek != nil ? AppDelegate.peekHeight : 0)
         let radius: CGFloat = state.expanded ? 26 : state.peek != nil ? 16 : min(14, state.barHeight / 2.2)
-        let shape = UnevenRoundedRectangle(bottomLeadingRadius: radius, bottomTrailingRadius: attached ? 0 : radius, style: .continuous)
+        let shape = UnevenRoundedRectangle(bottomLeadingRadius: radius, bottomTrailingRadius: radius, style: .continuous)
 
         VStack(spacing: 0) {
             TopBar(toggle: toggle)
@@ -28,7 +28,6 @@ struct IslandView: View {
                                             removal: .opacity))
             } else if let p = state.peek {
                 PeekRow(peek: p).frame(height: AppDelegate.peekHeight)
-                    .padding(.trailing, attached ? state.notchWidth / 2 : 0)
                     .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
@@ -68,8 +67,8 @@ struct TopBar: View {
         HStack(spacing: 0) {
             SpacesStrip()
                 .padding(.leading, 14)
-                .frame(width: state.expanded && state.notchWidth > 0 ? max(state.leftWing, state.rightWing) : state.leftWing, alignment: .leading)
-            if state.notchWidth > 0 && state.expanded { Color.clear.frame(width: state.notchWidth) }
+                .frame(width: state.notchWidth > 0 ? max(state.leftWing, state.rightWing) : state.leftWing, alignment: .leading)
+            if state.notchWidth > 0 { Color.clear.frame(width: state.notchWidth) }
             Spacer(minLength: 0)
             HStack(spacing: 8) {
                 if timer.isActive && showTimer {
@@ -100,7 +99,6 @@ struct TopBar: View {
                 .help("Open Melcolm (⌃⌥Space)")
             }
             .padding(.trailing, 10)
-            if state.notchWidth > 0 && !state.expanded { Color.clear.frame(width: state.notchWidth / 2) }
         }
     }
 }
