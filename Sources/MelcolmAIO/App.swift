@@ -59,6 +59,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ note: Notification) {
         let ds = UserDefaults.standard.double(forKey: "debugSeek")
         if ds > 0 { DispatchQueue.main.asyncAfter(deadline: .now() + 10) { self.playing.seek(ds) } }
+        if UserDefaults.standard.bool(forKey: "debugToggle") {
+            for (i, t) in [8.0, 14.0, 20.0].enumerated() { DispatchQueue.main.asyncAfter(deadline: .now() + t) {
+                BrowserMedia.log("debugToggle \(i) app=\(self.playing.app) playing=\(self.playing.playing) main=\(String(describing: self.playing.mainResult))")
+                self.playing.playPause()
+            } }
+        }
         if UserDefaults.standard.bool(forKey: "debugSpacesDry") { DispatchQueue.main.asyncAfter(deadline: .now() + 2) { Tiler.minimizeSpaces(dry: true) } }
         Prefs.register()
         Tiler.watch()

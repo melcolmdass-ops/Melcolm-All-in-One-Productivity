@@ -317,12 +317,27 @@ final class NowPlayingModel: ObservableObject {
         let was = isPlaying(r)
         // Never bring the tab forward: only the artwork does that. Page JavaScript first, then the
         // page's own Play/Pause button (accessibility), then the keyboard's play/pause key.
-        if !WebAX.press(ax[r.id]?.found.play) && !BrowserMedia.togglePlay(r) { Self.mediaKey(16) }
+        let viaAX = WebAX.press(ax[r.id]?.found.play)
+        let viaJS = !viaAX && BrowserMedia.togglePlay(r)
+        if !viaAX && !viaJS { Self.mediaKey(16) }
+        BrowserMedia.log("toggle \(r.id) was=\(was) ax=\(viaAX) js=\(viaJS) axAge=\(ax[r.id].map { Date().timeIntervalSince($0.at) } ?? -1)")
         if let f = ax[r.id] { ax[r.id] = (f.found, .distantPast) }   // keep the button, drop its old play state
         forced[r.id] = !was
         pressedAt[r.id] = Date()
         if let i = others.firstIndex(where: { $0.id == r.id }) { others[i].playing = !was }
         if mainID == r.id { playing = !was }
+        // Check the press really took; if the page is still in the old state, press once more another way.
+        if let pid = BrowserMedia.pid(r), AXIsProcessTrusted() {
+            let title = r.pwa != 0 ? "" : r.title; let want = !was; let stamp = pressedAt[r.id]
+            browserQueue.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                guard let f = WebAX.find(pid: pid, title: title), let now = f.playing, now != want else { return }
+                DispatchQueue.main.async {
+                    guard let self, self.pressedAt[r.id] == stamp else { return }   // pressed again since: leave it
+                    BrowserMedia.log("toggle retry \(r.id) page still \(now)")
+                    if !BrowserMedia.togglePlay(r) { Self.mediaKey(16) }
+                }
+            }
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + 3.2) { self.refresh() }
     }
 
