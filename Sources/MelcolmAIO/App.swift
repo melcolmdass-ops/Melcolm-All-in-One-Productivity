@@ -113,13 +113,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let m = focus.modes.first { $0.id == id }
             islands.forEach { $0.peek(.init(text: m.map { "\($0.name) on" } ?? "Focus off", icon: m?.icon ?? "moon")) }
         }.store(in: &bag)
-        // Which Space you're on, after a switch.
-        spaces.$currentID.removeDuplicates().dropFirst().receive(on: RunLoop.main).sink { [weak self] id in
-            guard let self, Prefs.bool("liveActivities"), Prefs.bool("popSpace"),
-                  let s = spaces.spaces.first(where: { $0.id == id }) else { return }
-            let app = spaces.apps[id]?.first?.name
-            islands.forEach { $0.peek(.init(text: s.isFullscreen ? (app ?? "Full screen") : "Desktop \(s.number)", icon: "square.on.square"), for: 1.2) }
-        }.store(in: &bag)
 
         // Keyboard control while a panel is open from ⌃⌥Space.
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
@@ -207,12 +200,20 @@ final class Island: NSObject {
     var screen: NSScreen? { NSScreen.screens.first { Island.id(of: $0) == screenID } }
     static func id(of s: NSScreen) -> CGDirectDisplayID { (s.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID) ?? 0 }
 
+    private var spaceBag = Set<AnyCancellable>()
     init(screen: NSScreen, app: AppDelegate) {
         let sid = Island.id(of: screen)
         screenID = sid
         self.app = app
         spaces = SpacesModel(screen: { NSScreen.screens.first { Island.id(of: $0) == sid } })
         super.init()
+        // Which Space you're on, after a switch.
+        spaces.$currentID.removeDuplicates().dropFirst().receive(on: RunLoop.main).sink { [weak self] (id: Int) in
+            guard let self, Prefs.bool("liveActivities"), Prefs.bool("popSpace"),
+                  let s = spaces.spaces.first(where: { $0.id == id }) else { return }
+            let name = spaces.apps[id]?.first?.name
+            peek(.init(text: s.isFullscreen ? (name ?? "Full screen") : "Desktop \(s.number)", icon: "square.on.square"), for: 1.2)
+        }.store(in: &spaceBag)
         panel = IslandPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.isOpaque = false
         panel.backgroundColor = .clear
