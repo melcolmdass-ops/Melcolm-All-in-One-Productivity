@@ -50,6 +50,41 @@ struct WindowLayout: Identifiable {
     }
 }
 
+/// A whole-screen arrangement: the front window takes the first spot, the next window the second, and so on.
+struct Arrangement: Identifiable {
+    let id: String
+    let title: String
+    let slots: [WindowLayout]
+
+    private static func w(_ x: CGFloat, _ y: CGFloat, _ wd: CGFloat, _ h: CGFloat) -> WindowLayout { WindowLayout(id: "a", title: "", x: x, y: y, w: wd, h: h) }
+    static let all: [Arrangement] = [
+        Arrangement(id: "centre", title: "Centre (1 window)", slots: [w(0.15, 0.1, 0.7, 0.8)]),
+        Arrangement(id: "full", title: "Full screen (1 window)", slots: [w(0, 0, 1, 1)]),
+        Arrangement(id: "halves", title: "Half and half (2)", slots: [w(0, 0, 0.5, 1), w(0.5, 0, 0.5, 1)]),
+        Arrangement(id: "twothirds", title: "Two-thirds and a third (2)", slots: [w(0, 0, 2 / 3, 1), w(2 / 3, 0, 1 / 3, 1)]),
+        Arrangement(id: "stack", title: "Top and bottom (2)", slots: [w(0, 0, 1, 0.5), w(0, 0.5, 1, 0.5)]),
+        Arrangement(id: "thirds", title: "Thirds (3)", slots: [w(0, 0, 1 / 3, 1), w(1 / 3, 0, 1 / 3, 1), w(2 / 3, 0, 1 / 3, 1)]),
+        Arrangement(id: "halfstack", title: "Half and two stacked (3)", slots: [w(0, 0, 0.5, 1), w(0.5, 0, 0.5, 0.5), w(0.5, 0.5, 0.5, 0.5)]),
+        Arrangement(id: "quarters", title: "Quarters (4)", slots: [w(0, 0, 0.5, 0.5), w(0.5, 0, 0.5, 0.5), w(0, 0.5, 0.5, 0.5), w(0.5, 0.5, 0.5, 0.5)]),
+    ]
+
+    /// A small picture: the screen with every window spot filled in.
+    var picture: NSImage {
+        NSImage(size: NSSize(width: 30, height: 20), flipped: true) { r in
+            let screen = r.insetBy(dx: 1, dy: 1)
+            NSColor.white.withAlphaComponent(0.55).setStroke()
+            let frame = NSBezierPath(roundedRect: screen, xRadius: 3, yRadius: 3); frame.lineWidth = 1.2; frame.stroke()
+            for (i, l) in slots.enumerated() {
+                let win = NSRect(x: screen.minX + screen.width * l.x + 1.5, y: screen.minY + screen.height * l.y + 1.5,
+                                 width: screen.width * l.w - 3, height: screen.height * l.h - 3)
+                NSColor(red: 0.45, green: 0.6, blue: 1, alpha: i == 0 ? 1 : 0.6).setFill()
+                NSBezierPath(roundedRect: win, xRadius: 2, yRadius: 2).fill()
+            }
+            return true
+        }
+    }
+}
+
 /// Moves and resizes other apps' windows through Accessibility (the same way Rectangle does).
 enum Tiler {
     private static var lastApp: NSRunningApplication?
@@ -178,34 +213,42 @@ enum Tiler {
         }
     }
 
-    /// Tidy every open window on the screen the mouse is on into an even grid.
-    @discardableResult
-    static func autoArrange() -> Int {
-        guard trusted else { return 0 }
+    /// Every normal window on the screen the mouse is on, front-most first.
+    private static func screenWindows() -> (NSScreen, [AXUIElement]) {
         let mouse = NSEvent.mouseLocation
         let target = NSScreen.screens.first { $0.frame.contains(mouse) } ?? NSScreen.main ?? NSScreen.screens[0]
         let me = ProcessInfo.processInfo.processIdentifier
-        // Apps that currently have a normal on-screen window.
         let info = (CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]]) ?? []
-        var pids: [pid_t] = []
+        var axByPid: [pid_t: [(AXUIElement, CGRect)]] = [:]
+        var out: [AXUIElement] = []
         for w in info where (w[kCGWindowLayer as String] as? Int) == 0 {
-            guard let pid = w[kCGWindowOwnerPID as String] as? pid_t, pid != me, !pids.contains(pid),
-                  NSRunningApplication(processIdentifier: pid)?.activationPolicy == .regular else { continue }
-            pids.append(pid)
-        }
-        var windows: [AXUIElement] = []
-        for pid in pids {
-            var v: CFTypeRef?
-            guard AXUIElementCopyAttributeValue(AXUIElementCreateApplication(pid), kAXWindowsAttribute as CFString, &v) == .success,
-                  let list = v as? [AXUIElement] else { continue }
-            for w in list {
-                var mini: CFTypeRef?
-                AXUIElementCopyAttributeValue(w, kAXMinimizedAttribute as CFString, &mini)
-                guard (mini as? Bool) != true, let f = frame(of: w), f.width > 120, f.height > 80,
-                      screen(for: f) == target else { continue }
-                windows.append(w)
+            guard let pid = w[kCGWindowOwnerPID as String] as? pid_t, pid != me,
+                  NSRunningApplication(processIdentifier: pid)?.activationPolicy == .regular,
+                  let bd = w[kCGWindowBounds as String], let cg = CGRect(dictionaryRepresentation: bd as! CFDictionary) else { continue }
+            if axByPid[pid] == nil {
+                var v: CFTypeRef?
+                let list = AXUIElementCopyAttributeValue(AXUIElementCreateApplication(pid), kAXWindowsAttribute as CFString, &v) == .success ? (v as? [AXUIElement] ?? []) : []
+                axByPid[pid] = list.compactMap { e in
+                    var mini: CFTypeRef?
+                    AXUIElementCopyAttributeValue(e, kAXMinimizedAttribute as CFString, &mini)
+                    guard (mini as? Bool) != true, let f = frame(of: e) else { return nil }
+                    return (e, f)
+                }
             }
+            // The on-screen window list is front to back; match each one to its Accessibility window.
+            guard let hit = axByPid[pid]?.first(where: { abs($0.1.minX - cg.minX) < 3 && abs($0.1.minY - cg.minY) < 3 && abs($0.1.width - cg.width) < 3 }),
+                  hit.1.width > 120, hit.1.height > 80, screen(for: hit.1) == target,
+                  !out.contains(where: { CFEqual($0, hit.0) }) else { continue }
+            out.append(hit.0)
         }
+        return (target, out)
+    }
+
+    /// One click: tidy every open window on the screen the mouse is on into an even grid.
+    @discardableResult
+    static func autoArrange() -> Int {
+        guard trusted else { return 0 }
+        let (target, windows) = screenWindows()
         guard !windows.isEmpty else { return 0 }
         let n = windows.count
         let cols = Int(ceil(Double(n).squareRoot()))
@@ -218,6 +261,15 @@ enum Tiler {
             set(w, rect(l, on: target))
         }
         return n
+    }
+
+    /// Put the front windows into the spots of one arrangement (front-most window gets the first spot).
+    @discardableResult
+    static func arrange(_ a: Arrangement) -> Int {
+        guard trusted else { return 0 }
+        let (target, windows) = screenWindows()
+        for (w, slot) in zip(windows, a.slots) { set(w, rect(slot, on: target)) }
+        return min(windows.count, a.slots.count)
     }
 }
 
@@ -242,7 +294,7 @@ struct LayoutsPage: View {
             let hiddenSet = Set(hiddenRaw.split(separator: ",").map(String.init))
             let shownList = WindowLayout.all.filter { !hiddenSet.contains($0.id) }
             HStack(spacing: 6) {
-                action("Auto-arrange", "sparkles.rectangle.stack", filled: true) { _ = Tiler.autoArrange() }
+                arrangeButton
                 action("Minimize all\n(desktop)", "rectangle.compress.vertical") { Tiler.minimizeDesktop() }
                 action("Minimize all\n(Spaces)", "arrow.down.right.and.arrow.up.left") { Tiler.minimizeSpaces() }
                 if light {
@@ -265,8 +317,10 @@ struct LayoutsPage: View {
                 let hidden = Set(hiddenRaw.split(separator: ",").map(String.init))
                 let shown = WindowLayout.all.filter { !hidden.contains($0.id) }
                 let gone = WindowLayout.all.filter { hidden.contains($0.id) }
+                sectionLabel("ARRANGE EVERY WINDOW")
+                arrangeGrid
                 HStack {
-                    sectionLabel("SNAP")
+                    sectionLabel("SNAP ONE WINDOW")
                     LinkButton(editing ? "Done" : "Edit") { withAnimation(.easeOut(duration: 0.2)) { editing.toggle() } }
                 }
                 grid(shown, hide: true)
@@ -276,9 +330,54 @@ struct LayoutsPage: View {
                         Text("Click a layout above to hide it.").font(.system(size: 11)).foregroundStyle(.secondary)
                     } else { grid(gone, hide: false) }
                 }
-                Text(editing ? "Click a layout to move it between shown and hidden." : "Snaps the window you were just using. Auto-arrange tidies every window on this screen into a grid.")
+                Text(editing ? "Click a layout to move it between shown and hidden." : "Arrange lays out your front windows (front-most first). Snap moves only the window you were just using.")
                     .font(.system(size: 10.5)).foregroundStyle(.tertiary).multilineTextAlignment(.center)
                 SettingsLink(title: "Desktop & Dock Settings", pane: "com.apple.Desktop-Settings.extension")
+            }
+        }
+    }
+
+    /// Click = arrange everything in one go. The arrow opens every arrangement as a picture to pick from.
+    var arrangeButton: some View {
+        Menu {
+            Button { _ = Tiler.autoArrange() } label: { Label("Auto-arrange every window", systemImage: "sparkles.rectangle.stack") }
+            Divider()
+            ForEach(Arrangement.all) { a in
+                Button { _ = Tiler.arrange(a) } label: { Label { Text(a.title) } icon: { Image(nsImage: a.picture) } }
+            }
+        } label: {
+            Label("Auto-arrange", systemImage: "sparkles.rectangle.stack").font(.system(size: 10.5, weight: .semibold))
+        } primaryAction: { _ = Tiler.autoArrange() }
+        .menuStyle(.borderlessButton).fixedSize()
+        .padding(.horizontal, 8).frame(maxWidth: .infinity, minHeight: 36)
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(accent))
+        .help("Click to arrange every window. The arrow picks an arrangement.")
+    }
+
+    /// The arrangements as big pictures (full page): click one to lay out your front windows like that.
+    var arrangeGrid: some View {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 4), spacing: 6) {
+            ForEach(Arrangement.all) { a in
+                Button { _ = Tiler.arrange(a) } label: {
+                    VStack(spacing: 4) {
+                        ZStack(alignment: .topLeading) {
+                            RoundedRectangle(cornerRadius: 3).fill(.white.opacity(0.1))
+                            GeometryReader { g in
+                                ForEach(Array(a.slots.enumerated()), id: \.offset) { i, l in
+                                    RoundedRectangle(cornerRadius: 2).fill(accentGradient).opacity(i == 0 ? 1 : 0.6)
+                                        .frame(width: g.size.width * l.w - 3, height: g.size.height * l.h - 3)
+                                        .offset(x: g.size.width * l.x + 1.5, y: g.size.height * l.y + 1.5)
+                                }
+                            }
+                        }
+                        .frame(height: 24)
+                        Text(a.title).font(.system(size: 8.5, weight: .medium)).foregroundStyle(.secondary)
+                            .lineLimit(1).minimumScaleFactor(0.6)
+                    }
+                    .padding(5).frame(maxWidth: .infinity)
+                    .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(.white.opacity(0.06)))
+                    .contentShape(Rectangle())
+                }.buttonStyle(PressStyle()).help(a.title)
             }
         }
     }

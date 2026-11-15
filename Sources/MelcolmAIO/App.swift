@@ -15,6 +15,8 @@ final class IslandState: ObservableObject {
     @Published var iconSize: CGFloat = 20
     /// True when the app's menus reach the notch: the Spaces strip moves right of the notch so no menu is covered.
     @Published var stripRight = false
+    /// How many display boxes sit left of the notch (the rest go right). 0 when menus would be covered.
+    @Published var leftDisplays = 1
     /// Collapsed, the island sits beside the notch instead of wrapping around it, so it is as short as on any other screen.
     var collapsedWidth: CGFloat { leftWing + rightWing }
     /// The open panel is centred, so on a notched screen it is symmetric around the notch.
@@ -202,6 +204,7 @@ final class Island: NSObject {
     var hoverPeek = false
     var hoverWatch: Timer?
     var previousApp: NSRunningApplication?
+    var closeToken = 0
 
     var screen: NSScreen? { NSScreen.screens.first { Island.id(of: $0) == screenID } }
     static func id(of s: NSScreen) -> CGDirectDisplayID { (s.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID) ?? 0 }
@@ -255,6 +258,15 @@ final class Island: NSObject {
         .receive(on: RunLoop.main)
         .sink { [weak self] in self?.relayout() }
         .store(in: &bag)
+        // Master rule: opening anything outside (a link, an app, the artwork) closes the panel.
+        NotificationCenter.default.publisher(for: .melcolmOpenedOutside)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                if state.expanded { setExpanded(false, restoreFocus: false) }
+                if state.peek != nil { endPeek() }
+            }
+            .store(in: &bag)
         // Menus are built a moment after an app comes forward; look again then.
         NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didActivateApplicationNotification)
             .delay(for: .milliseconds(350), scheduler: RunLoop.main)
@@ -282,23 +294,38 @@ final class Island: NSObject {
 
     func relayout() {
         state.iconSize = Layout.icon(forBar: barH)
-        let left = 24 + Layout.stripWidth(spaces, icon: Layout.icon(forBar: barH)) + 18
-        var right: CGFloat = 24 + 40 + 12 + 18                // chevron box + divider
+        let ic = Layout.icon(forBar: barH)
+        var status: CGFloat = 40 + 12                                       // arrow + divider
         switch BarActivity.current(timerOn: timer.isActive, musicOn: playing.playing) {
-        case .timer: right += 92
-        case .music: right += 66                                            // music note + wave
-        case nil: break
+        case .timer: status += 92
+        case .music: status += 66                                           // music note + wave
+        case nil: status -= 12
         }
-        if app.sound.micInUse { right += 30 }                                   // microphone icon
+        if app.sound.micInUse { status += 30 }                                  // microphone icon
         let h = Prefs.d.string(forKey: "heightMode") == "custom" ? CGFloat(Prefs.d.double(forKey: "customHeight")) : screenBar
         icon = Layout.icon(forBar: h)
-        // Each island is only as wide as its own content, so it fits whatever screen it is on.
-        // If the front app's menus run up to the notch, don't cover them: put the strip on the right.
-        // Always centred on the middle of the screen (the notch): both sides equally wide.
-        if state.stripRight { state.stripRight = false }
-        let wing = state.notchWidth > 0 ? max(left, right) : 0
-        if wing > 0 { set(&state.leftWing, wing); set(&state.rightWing, wing) }
-        else { set(&state.leftWing, left); set(&state.rightWing, right) }
+        let groups = spaces.displays.map { Layout.groupWidth($0, icon: ic, m: spaces) }
+        func strip(_ g: ArraySlice<CGFloat>) -> CGFloat { g.reduce(0, +) + CGFloat(max(0, g.count - 1)) * Layout.chipGap }
+        if state.notchWidth > 0, let screen {
+            // Display 1 left of the notch, the others right of it; both sides equally wide so it stays centred.
+            func wings(_ k: Int) -> (CGFloat, CGFloat) {
+                let l = k > 0 ? 24 + strip(groups.prefix(k)) + 18 : 16
+                let rest = groups.dropFirst(k)
+                let r = 18 + (rest.isEmpty ? 0 : strip(rest) + 8) + status + 24
+                return k > 0 ? (max(l, r), max(l, r)) : (l, r)
+            }
+            var k = groups.isEmpty ? 0 : 1
+            // If the front app's menus would run under the left side, every display goes right instead.
+            if k > 0,
+               let menuEnd = MenuBar.rightEdge(on: screen),
+               screen.frame.midX - state.notchWidth / 2 - wings(k).0 < menuEnd + 6 { k = 0 }
+            if state.leftDisplays != k { state.leftDisplays = k }
+            let (l, r) = wings(k)
+            set(&state.leftWing, l); set(&state.rightWing, r)
+        } else {
+            if state.leftDisplays != groups.count { state.leftDisplays = groups.count }
+            set(&state.leftWing, 24 + strip(groups[...]) + 18); set(&state.rightWing, 24 + status + 18)
+        }
         set(&state.barHeight, h)
         let minPeek: CGFloat = state.peek?.kind == .text || state.peek == nil ? 300 : 360
         let baseW = state.collapsedWidth + state.notchWidth
@@ -451,13 +478,15 @@ final class Island: NSObject {
         scrollAccum = 0; lastScrollSwitch = Date()
     }
 
-    func setExpanded(_ open: Bool) {
+    /// `restoreFocus: false` when closing because something else was just opened (it keeps the focus).
+    func setExpanded(_ open: Bool, restoreFocus: Bool = true) {
+        closeToken += 1; let token = closeToken
         if open {
             state.peek = nil; hoverPeek = false; hoverWatch?.invalidate()
             panel.setFrame(frame(expanded: true), display: true)
             // Animate first; the slow refreshes (browser scan etc.) wait until the panel is already moving.
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.86)) { state.expanded = true }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.32) { [weak self] in
+            withAnimation(.spring(response: 0.42, dampingFraction: 0.84, blendDuration: 0.1)) { state.expanded = true }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.42) { [weak self] in
                 guard let self, state.expanded else { return }
                 sound.refresh(); system.refresh(); playing.refresh()
             }
@@ -467,10 +496,13 @@ final class Island: NSObject {
             }
         } else {
             if let m = clickMonitor { NSEvent.removeMonitor(m); clickMonitor = nil }
-            if panel.isKeyWindow { panel.resignKey(); previousApp?.activate(); previousApp = nil }
-            withAnimation(.spring(response: 0.26, dampingFraction: 0.94)) { state.expanded = false; state.page = .home }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) { [weak self] in
-                guard let self, !state.expanded else { return }
+            if panel.isKeyWindow { panel.resignKey(); if restoreFocus { previousApp?.activate() }; previousApp = nil }
+            // The same motion as opening, in reverse: the panel shrinks back up into the notch.
+            // The page only resets to Home once it is out of sight, so nothing swaps while it closes.
+            withAnimation(.spring(response: 0.36, dampingFraction: 0.95)) { state.expanded = false }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.38) { [weak self] in
+                guard let self, !state.expanded, closeToken == token else { return }
+                state.page = .home
                 panel.setFrame(frame(expanded: false), display: true)
             }
         }
@@ -495,8 +527,19 @@ enum Main {
 }
 
 /// Where the front app's menus end, read through Accessibility (only on the menu-bar screen).
+/// How far the front app's menus (File, Edit, View…) reach on a given screen, read through Accessibility.
+/// Menus sit at the same distance from each screen's left edge, so one reading works for every display.
 enum MenuBar {
-    static func rightEdge(below limit: CGFloat) -> CGFloat? {
+    private static var cache: (pid: pid_t, reach: CGFloat?, at: Date)?
+    static func rightEdge(on screen: NSScreen) -> CGFloat? {
+        let pid = (NSWorkspace.shared.menuBarOwningApplication ?? NSWorkspace.shared.frontmostApplication)?.processIdentifier ?? 0
+        let reach: CGFloat?
+        if let c = cache, c.pid == pid, Date().timeIntervalSince(c.at) < 2 { reach = c.reach }
+        else { reach = read(); cache = (pid, reach, Date()) }
+        return reach.map { screen.frame.minX + $0 }
+    }
+    /// The right end of the last menu, measured from the left edge of the screen it is on.
+    private static func read() -> CGFloat? {
         guard AXIsProcessTrusted(), let app = NSWorkspace.shared.menuBarOwningApplication ?? NSWorkspace.shared.frontmostApplication else { return nil }
         let ax = AXUIElementCreateApplication(app.processIdentifier)
         AXUIElementSetMessagingTimeout(ax, 0.15)
@@ -505,16 +548,18 @@ enum MenuBar {
         var kids: CFTypeRef?
         guard AXUIElementCopyAttributeValue(bar as! AXUIElement, kAXChildrenAttribute as CFString, &kids) == .success,
               let items = kids as? [AXUIElement] else { return nil }
-        var end: CGFloat?
+        var lo: CGFloat?, hi: CGFloat?
         for i in items {
             var pv: CFTypeRef?, sv: CFTypeRef?
             guard AXUIElementCopyAttributeValue(i, kAXPositionAttribute as CFString, &pv) == .success,
                   AXUIElementCopyAttributeValue(i, kAXSizeAttribute as CFString, &sv) == .success else { continue }
             var p = CGPoint.zero, sz = CGSize.zero
             AXValueGetValue(pv as! AXValue, .cgPoint, &p); AXValueGetValue(sv as! AXValue, .cgSize, &sz)
-            guard p.y < 40, p.x < limit, sz.width > 0 else { continue }
-            end = max(end ?? 0, p.x + sz.width)
+            guard sz.width > 0, sz.height > 0 else { continue }
+            lo = min(lo ?? p.x, p.x); hi = max(hi ?? 0, p.x + sz.width)
         }
-        return end
+        guard let lo, let hi else { return nil }
+        let host = NSScreen.screens.first { lo >= $0.frame.minX && lo < $0.frame.maxX } ?? NSScreen.screens[0]
+        return hi - host.frame.minX
     }
 }

@@ -21,7 +21,7 @@ enum BarColor: String, CaseIterable {
         switch self {
         case .outline: .white.opacity(0.28)
         case .notch, .statusBox, .status, .number: accent
-        case .displayBox: .white.opacity(0.32)
+        case .displayBox: .white.opacity(0.55)
         case .space: Color(red: 0.25, green: 0.88, blue: 1.0)
         }
     }
@@ -78,5 +78,32 @@ struct ColorsPage: View {
     func set(_ c: BarColor, _ hex: String) {
         if hex.isEmpty { Prefs.d.removeObject(forKey: c.rawValue) } else { Prefs.d.set(hex, forKey: c.rawValue) }
         rev += 1
+    }
+}
+
+// MARK: - Neon look shared by every box on the bar
+
+extension View {
+    /// A clean neon glow: a tight bright edge plus a soft halo.
+    func neon(_ c: Color, _ strength: CGFloat = 1) -> some View {
+        self.shadow(color: c.opacity(min(1, 0.95 * strength)), radius: 1.2 * strength)
+            .shadow(color: c.opacity(min(1, 0.6 * strength)), radius: 6 * strength)
+    }
+}
+
+/// One rounded box with a neon outline: dark glass inside, bright edge, soft glow.
+struct NeonBox: View {
+    let color: Color
+    var radius: CGFloat = 9
+    var strength: CGFloat = 1
+    var body: some View {
+        let r = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        ZStack {
+            r.fill(LinearGradient(colors: [Color(white: 0.15), Color(white: 0.06)], startPoint: .top, endPoint: .bottom))
+            r.fill(color.opacity(0.06))
+            r.strokeBorder(LinearGradient(colors: [color, color.opacity(0.7)], startPoint: .top, endPoint: .bottom), lineWidth: 1.3)
+                .neon(color, strength)
+            r.inset(by: 1.5).strokeBorder(.white.opacity(0.07), lineWidth: 0.5)
+        }
     }
 }

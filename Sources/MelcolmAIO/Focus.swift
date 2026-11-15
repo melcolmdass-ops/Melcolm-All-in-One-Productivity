@@ -79,6 +79,7 @@ final class FocusModel: ObservableObject {
                 let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/bin/open"); p.arguments = ["-a", item]; try? p.run()
             }
         }
+        if !names(m.openApps).isEmpty { openedOutside() }
         if m.arrange { DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { _ = Tiler.autoArrange() } }
         if m.keepAwake && !app.system.awake { app.system.toggleAwake() }
         if (m.dark == 1 && !app.system.dark) || (m.dark == 2 && app.system.dark) { app.system.toggleDark() }

@@ -35,6 +35,8 @@ struct SettingsVisual: View {
         case .panel: "Which pages are on Home, their order, and which open right there."
         case .colors: "Pick the colours of the closed bar: outlines, boxes and highlights."
         case .utility: "Quick buttons at the bottom of Home; each opens its page as a pop-up."
+        case .rules: "Things the app always does, everywhere. You can't switch these off."
+        case .updates: "Every update, in plain words."
         }
     }
 
@@ -117,6 +119,13 @@ struct SettingsVisual: View {
                         Image(systemName: "arrow.up.arrow.down").font(.system(size: 14, weight: .bold)).foregroundStyle(accent)
                     }.padding(.top, 22)
                 }
+        case .rules, .updates:
+            HStack(spacing: 10) {
+                ForEach(["1", "2", "3"], id: \.self) { n in
+                    Text(n).font(.system(size: 13, weight: .heavy, design: .rounded)).foregroundStyle(accent)
+                        .frame(width: 30, height: 30).background(NeonBox(color: accent, radius: 8, strength: 0.6))
+                }
+            }
         case .colors:
             HStack(spacing: 8) {
                 ForEach(["66A0FF", "40E0FF", "5CE08A", "FFD84D", "FF7ACB"], id: \.self) { h in Circle().fill(Color(hex: h) ?? .white).frame(width: 22, height: 22) }

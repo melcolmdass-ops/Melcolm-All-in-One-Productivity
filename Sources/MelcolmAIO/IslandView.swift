@@ -27,7 +27,7 @@ struct IslandView: View {
             if state.expanded {
                 PanelView()
                     .transition(.asymmetric(insertion: .opacity.combined(with: .scale(scale: 0.35, anchor: .top)),
-                                            removal: .opacity))
+                                            removal: .opacity.combined(with: .scale(scale: 0.5, anchor: .top))))
             } else if let p = state.peek {
                 PeekRow(peek: p).frame(height: p.height)
                     .transition(.opacity.combined(with: .move(edge: .top)))
@@ -55,6 +55,7 @@ struct IslandView: View {
 
 struct TopBar: View {
     @EnvironmentObject var state: IslandState
+    @EnvironmentObject var spaces: SpacesModel
     @EnvironmentObject var timer: TimerModel
     @EnvironmentObject var playing: NowPlayingModel
     @EnvironmentObject var sound: SoundModel
@@ -66,20 +67,24 @@ struct TopBar: View {
     var openPage: (PanelPage) -> Void = { _ in }
 
     var body: some View {
+        let left = state.notchWidth > 0 ? state.leftDisplays : Int.max
         HStack(spacing: 0) {
-            if !state.stripRight {
-                // With a notch, both sides hug the notch so the island reads as centred on it.
-                SpacesStrip()
-                    .padding(state.notchWidth > 0 ? .trailing : .leading, state.notchWidth > 0 ? 18 : 14)
-                    .frame(width: state.expanded && state.notchWidth > 0 ? (state.expandedWidth - state.notchWidth) / 2 : state.leftWing,
-                           alignment: state.notchWidth > 0 ? .trailing : .leading)
-            } else if state.expanded {
-                Color.clear.frame(width: max(state.leftWing, state.rightWing))
+            // Display 1 sits left of the notch, the others right of it. If the front app's menus would
+            // run under the left side, every display moves right so no menu is ever covered.
+            Group {
+                if left > 0 {
+                    SpacesStrip(first: 0, count: left)
+                        .padding(state.notchWidth > 0 ? .trailing : .leading, state.notchWidth > 0 ? 18 : 14)
+                } else { Color.clear }
             }
+            .frame(width: state.expanded && state.notchWidth > 0 ? (state.expandedWidth - state.notchWidth) / 2 : state.leftWing,
+                   alignment: state.notchWidth > 0 ? .trailing : .leading)
             if state.notchWidth > 0 { NotchButton(toggle: toggle).frame(width: state.notchWidth) }
-            if state.stripRight { SpacesStrip().padding(.leading, 10) }
             if state.notchWidth == 0 { Spacer(minLength: 0) }
             HStack(spacing: 8) {
+                if state.notchWidth > 0 && left < spaces.displays.count {
+                    SpacesStrip(first: left, count: nil)
+                }
                 if sound.micInUse {
                     Image(systemName: "mic.fill").font(.system(size: 11, weight: .bold)).foregroundStyle(.white)
                         .frame(width: 22, height: 22).background(Circle().fill(Color.orange))
@@ -104,7 +109,7 @@ struct TopBar: View {
                             }
                         }.padding(.horizontal, 9).frame(maxHeight: .infinity).contentShape(Rectangle())
                     }.buttonStyle(PressStyle()).help(a == .music ? "\(playing.title) · click to open Now Playing" : "Click to open Clock")
-                    Rectangle().fill(.white.opacity(0.28)).frame(width: 1, height: 14)
+                    Capsule().fill(BarColor.statusBox.color.opacity(0.45)).frame(width: 1, height: 14)
                 }
                 Button(action: toggle) {
                     Image(systemName: "chevron.down")
@@ -118,11 +123,7 @@ struct TopBar: View {
                 .help("Open Melcolm (⌃⌥Space)")
                 }
                 .frame(height: max(20, state.barHeight - 10))
-                .background {
-                    let r = RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    r.fill(Color(white: 0.11))
-                    r.strokeBorder(BarColor.statusBox.color.opacity(0.85), lineWidth: 1.4).shadow(color: BarColor.statusBox.color.opacity(0.6), radius: 5)
-                }
+                .background { NeonBox(color: BarColor.statusBox.color) }
             }
             .padding(state.notchWidth > 0 ? .leading : .trailing, state.notchWidth > 0 ? 18 : 10)
             .frame(maxWidth: .infinity, alignment: state.notchWidth > 0 ? .leading : .trailing)
@@ -142,12 +143,16 @@ struct SpacesStrip: View {
     @AppStorage("dimOthers") var dimOthers = false
     @AppStorage("colRev") var colRev = 0
     @Namespace var ns
-    
+    var first = 0
+    var count: Int? = nil
+
     var body: some View {
         let icon = state.iconSize
         let h = min(icon + 2 * Layout.cellPad, state.barHeight - 8)
+        let all = spaces.displays
+        let shown = Array(all.dropFirst(min(first, all.count)).prefix(count ?? all.count))
         HStack(spacing: Layout.chipGap) {
-            ForEach(spaces.displays) { g in
+            ForEach(shown) { g in
                 let desktops = Layout.desktops(g)
                 let home = desktops.first { $0.id == g.currentID } ?? desktops.first
                 HStack(spacing: 2) {
@@ -155,19 +160,14 @@ struct SpacesStrip: View {
                     else { Color.clear.frame(width: Layout.numberCell(icon), height: h - 4) }
                     let fulls = Layout.fullscreens(g)
                     if !fulls.isEmpty {
-                        Capsule().fill(.white.opacity(0.18)).frame(width: 1.5, height: icon * 0.7)
+                        Capsule().fill(BarColor.displayBox.color.opacity(0.35)).frame(width: 1, height: icon * 0.65)
                             .padding(.horizontal, 4)
                     }
                     ForEach(fulls) { s in appCell(g, s, on: s.id == g.currentID, icon: icon, h: h - 4) }
                 }
                 .padding(.horizontal, 8)
                 .frame(width: Layout.groupWidth(g, icon: icon, m: spaces), height: h, alignment: .leading)
-                .background {
-                    let r = RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    r.fill(Color(white: 0.13))
-                    r.strokeBorder(BarColor.displayBox.color, lineWidth: 1.2)
-                        .shadow(color: BarColor.displayBox.color.opacity(0.6), radius: 4)
-                }
+                .background { NeonBox(color: BarColor.displayBox.color, strength: 0.7) }
                 .help("Display \(g.number)")
             }
         }
@@ -176,15 +176,15 @@ struct SpacesStrip: View {
 
     /// One outline per display; it slides from cell to cell instead of vanishing and reappearing.
     func glow(_ on: Bool, _ display: String) -> some View {
-        let r = RoundedRectangle(cornerRadius: 8, style: .continuous)
+        let r = RoundedRectangle(cornerRadius: 6, style: .continuous)
         return ZStack {
             if on {
                 let cyan = BarColor.space.color
                 ZStack {
-                    r.fill(cyan.opacity(style == "box" ? 0.30 : 0.14))
-                    r.strokeBorder(cyan, lineWidth: 1.6)
-                        .shadow(color: cyan.opacity(0.85), radius: style == "glow" ? 6 : 0)
+                    r.fill(LinearGradient(colors: [cyan.opacity(style == "box" ? 0.38 : 0.22), cyan.opacity(0.06)], startPoint: .top, endPoint: .bottom))
+                    r.strokeBorder(cyan, lineWidth: 1.3).neon(cyan, style == "glow" ? 0.9 : 0.3)
                 }
+                .padding(.vertical, 1.5).padding(.horizontal, 1)
                 .matchedGeometryEffect(id: "glow-\(display)", in: ns)
             }
         }
@@ -219,7 +219,9 @@ struct SpacesStrip: View {
                 if showIcons, !list.isEmpty {
                     // Split view: both apps sit in the same highlighted box.
                     HStack(spacing: 3) {
-                        ForEach(list) { a in Image(nsImage: a.icon).resizable().interpolation(.high).frame(width: icon, height: icon) }
+                        // The icon always fits inside its highlight, so the outline is never covered.
+                        let ic = max(12, min(icon, h - 5))
+                        ForEach(list) { a in Image(nsImage: a.icon).resizable().interpolation(.high).frame(width: ic, height: ic) }
                     }
                 } else {
                     Image(systemName: "rectangle.inset.filled").font(.system(size: icon * 0.6))
@@ -249,10 +251,11 @@ struct Card<Content: View>: View {
 }
 
 struct SettingsTab: View {
-    enum Page: String, CaseIterable { case general = "General", commands = "Commands", bar = "Bar", display = "Display on bar", spaces = "Spaces", mouse = "Mouse", hover = "Hover bar", panel = "Pages", utility = "Utility Bar", colors = "Colors" }
+    enum Page: String, CaseIterable { case general = "General", commands = "Commands", bar = "Bar", display = "Display on bar", spaces = "Spaces", mouse = "Mouse", hover = "Hover bar", panel = "Pages", utility = "Utility Bar", colors = "Colors", rules = "Master Rules", updates = "Update Log" }
     /// Top tabs, each with its own sub-tabs.
     static let groups: [(name: String, tabs: [Page])] = [
         ("General", [.general, .commands]), ("Main Bar", [.bar, .panel, .display, .spaces, .mouse, .hover]), ("Utility Bar", [.utility]), ("Colors", [.colors]),
+        ("Master Rules", [.rules]), ("Update Log", [.updates]),
     ]
     @AppStorage("settingsPage") var page = Page.general.rawValue
     @AppStorage("islandSize") var size = "large"
@@ -283,13 +286,13 @@ struct SettingsTab: View {
         VStack(spacing: 10) {
             let cur = Page(rawValue: page) ?? .general
             let group = Self.groups.first { $0.tabs.contains(cur) } ?? Self.groups[0]
-            HStack(spacing: 4) {
+            HStack(spacing: 3) {
                 ForEach(Self.groups, id: \.name) { g in
                     let on = g.name == group.name
                     Button { page = g.tabs[0].rawValue } label: {
-                        Text(g.name).font(.system(size: 11.5, weight: .semibold)).lineLimit(1).fixedSize()
+                        Text(g.name).font(.system(size: 10.5, weight: .semibold)).lineLimit(1).fixedSize()
                             .foregroundStyle(on ? .white : .white.opacity(0.7))
-                            .padding(.horizontal, 11).padding(.vertical, 5)
+                            .padding(.horizontal, 8).padding(.vertical, 5)
                             .background(Capsule().fill(on ? AnyShapeStyle(accent) : AnyShapeStyle(.white.opacity(0.06))))
                     }.buttonStyle(.plain)
                 }
@@ -307,7 +310,7 @@ struct SettingsTab: View {
                     }
                 }
             }
-            SettingsVisual(page: cur)
+            if cur != .updates { SettingsVisual(page: cur) }
             Card {
                 VStack(alignment: .leading, spacing: 6) {
                     switch Page(rawValue: page) ?? .general {
@@ -321,10 +324,12 @@ struct SettingsTab: View {
                     case .commands: commandsPage
                     case .utility: utilityPage
                     case .colors: ColorsPage()
+                    case .rules: MasterRulesPage()
+                    case .updates: UpdateLogPage()
                     }
                 }
             }
-            Text("Melcolm All-in-One Productivity · v2.3").font(.system(size: 10)).foregroundStyle(.tertiary)
+            Text("Melcolm All-in-One Productivity · v2.4").font(.system(size: 10)).foregroundStyle(.tertiary)
         }
         .font(.system(size: 12))
         .toggleStyle(.switch).controlSize(.small)
@@ -739,7 +744,7 @@ struct Shortcut: Identifiable {
         if !isLink, let u = url { Image(nsImage: NSWorkspace.shared.icon(forFile: u.path)).resizable() }
         else { Image(systemName: isLink ? "globe" : "app.dashed").font(.system(size: 11, weight: .semibold)).foregroundStyle(accent) }
     }
-    func open() { if let u = url { NSWorkspace.shared.open(u) } }
+    func open() { if let u = url { NSWorkspace.shared.open(u); openedOutside() } }
 
     static func parse(_ raw: String) -> [Shortcut] {
         raw.split(separator: "\n").compactMap { line in
@@ -788,8 +793,9 @@ struct NotchButton: View {
         let shape = UnevenRoundedRectangle(bottomLeadingRadius: 10, bottomTrailingRadius: 10, style: .continuous)
         Button(action: toggle) {
             shape.fill(Color.black)
-                .overlay(shape.strokeBorder(accent.opacity(state.expanded ? 0.9 : hot ? 0.95 : 0.55), lineWidth: hot || state.expanded ? 2 : 1.5))
-                .shadow(color: accent.opacity(hot || state.expanded ? 0.8 : 0.35), radius: hot ? 7 : 4)
+                .overlay(shape.strokeBorder(LinearGradient(colors: [accent.opacity(0.5), accent], startPoint: .top, endPoint: .bottom),
+                                            lineWidth: hot || state.expanded ? 1.8 : 1.4))
+                .neon(accent, hot || state.expanded ? 1.2 : 0.75)
                 .padding(.horizontal, -3).padding(.bottom, -3)
                 .contentShape(Rectangle())
         }

@@ -157,3 +157,9 @@ enum Hotkeys {
         if Prefs.bool("hotkeyNumbers") { for (i, c) in digitCodes.enumerated() { add(UInt32(i + 1), c) { jump(i + 1) } } }
     }
 }
+
+extension Notification.Name {
+    /// Posted whenever the app opens something outside itself, so the panel can close (a master rule).
+    static let melcolmOpenedOutside = Notification.Name("melcolmOpenedOutside")
+}
+func openedOutside() { NotificationCenter.default.post(name: .melcolmOpenedOutside, object: nil) }

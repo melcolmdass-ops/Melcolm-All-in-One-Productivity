@@ -696,6 +696,7 @@ struct BatteriesPage: View {
     var body: some View {
         CompactStack {
             BatteriesBar()
+            LowPowerRow()
             SettingsLink(title: "Battery Settings", pane: "com.apple.Battery-Settings.extension")
         }
     }
@@ -789,4 +790,31 @@ struct CompactStack<C: View>: View {
     @Environment(\.compactPage) var compact
     @ViewBuilder var content: C
     var body: some View { VStack(spacing: compact ? 7 : 14) { content } }
+}
+
+/// Low Power Mode switch: a slim row that fits the page and the small pop-up alike.
+struct LowPowerRow: View {
+    @EnvironmentObject var system: SystemModel
+    var body: some View {
+        let on = system.lowPower
+        let yellow = Color(red: 1, green: 0.84, blue: 0.2)
+        HStack(spacing: 10) {
+            Image(systemName: on ? "bolt.badge.automatic.fill" : "bolt.badge.automatic")
+                .font(.system(size: 14, weight: .semibold)).foregroundStyle(on ? .black : yellow)
+                .frame(width: 30, height: 30)
+                .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(on ? AnyShapeStyle(yellow) : AnyShapeStyle(yellow.opacity(0.14))))
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Low Power Mode").font(.system(size: 13, weight: .bold))
+                Text(system.lowPowerBusy ? "Waiting for your password…" : on ? "On · the battery lasts longer" : "Off")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+            Toggle("", isOn: Binding(get: { on }, set: { system.setLowPower($0) })).toggleStyle(.switch).labelsHidden()
+                .tint(yellow).disabled(system.lowPowerBusy)
+        }
+        .padding(.horizontal, 10).padding(.vertical, 8)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color(white: 0.105))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(on ? yellow.opacity(0.5) : .white.opacity(0.08), lineWidth: 1)))
+        .help("Turns Low Power Mode on or off for the whole Mac. macOS asks for your password each time.")
+    }
 }

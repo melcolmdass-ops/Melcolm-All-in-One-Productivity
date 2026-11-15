@@ -349,7 +349,7 @@ final class NowPlayingModel: ObservableObject {
         CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: true)?.post(tap: .cghidEventTap)
         CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: false)?.post(tap: .cghidEventTap)
     }
-    func show(_ r: BrowserMedia.Result) { BrowserMedia.show(r) }
+    func show(_ r: BrowserMedia.Result) { BrowserMedia.show(r); openedOutside() }
 
     /// Jumps to a point in the track (seconds).
     func seek(_ t: Double) {
@@ -461,6 +461,7 @@ final class NowPlayingModel: ObservableObject {
     func next() { if app == "Browser", let r = mainResult { skip(r, forward: true) } else { Self.mediaKey(17); later() } }
     func previous() { if app == "Browser", let r = mainResult { skip(r, forward: false) } else { Self.mediaKey(18); later() } }
     func openApp() {
+        openedOutside()
         if app == "Browser" { if let r = mainResult { BrowserMedia.show(r) } else { BrowserMedia.focusPlayingBrowser() }; return }
         if app == "Spotify" || app == "Music", let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: app == "Spotify" ? "com.spotify.client" : "com.apple.Music") {
             NSWorkspace.shared.open(url)
@@ -530,7 +531,7 @@ final class TimerModel: ObservableObject {
     }
 
     func openClock() {
-        if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.clock") { NSWorkspace.shared.open(url) }
+        if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.clock") { NSWorkspace.shared.open(url); openedOutside() }
     }
 }
 
@@ -545,6 +546,28 @@ final class SystemModel: ObservableObject {
     @Published var awake = false
     @Published var dark = false
     @Published var brightness: Double?
+    @Published var lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
+    @Published var lowPowerBusy = false
+    private var powerObserver: NSObjectProtocol?
+
+    /// Low Power Mode on or off for the Mac. macOS asks for your password (or Touch ID) each time.
+    func setLowPower(_ on: Bool) {
+        if powerObserver == nil {
+            powerObserver = NotificationCenter.default.addObserver(forName: .NSProcessInfoPowerStateDidChange, object: nil, queue: .main) { [weak self] _ in
+                self?.lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
+            }
+        }
+        lowPowerBusy = true
+        DispatchQueue.global(qos: .userInitiated).async {
+            let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+            p.arguments = ["-e", "do shell script \"/usr/bin/pmset -a lowpowermode \(on ? 1 : 0)\" with administrator privileges with prompt \"Melcolm wants to turn Low Power Mode \(on ? "on" : "off").\""]
+            try? p.run(); p.waitUntilExit()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+                self?.lowPowerBusy = false
+                self?.lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
+            }
+        }
+    }
     private var assertion: IOPMAssertionID = 0
 
     func refresh() {
@@ -555,6 +578,7 @@ final class SystemModel: ObservableObject {
         bluetoothOn = IOBluetoothHostController.default()?.powerState == kBluetoothHCIPowerStateON
         dark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         brightness = Brightness.get().map(Double.init)
+        lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
     }
 
     func refreshPower() {
@@ -596,7 +620,7 @@ final class SystemModel: ObservableObject {
     func setBrightness(_ v: Double) { brightness = v; Brightness.set(Float(v)) }
 
     static func screenshot() {
-        NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Utilities/Screenshot.app"))
+        NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Utilities/Screenshot.app")); openedOutside()
     }
 
     func toggleWifi() {
@@ -605,7 +629,7 @@ final class SystemModel: ObservableObject {
     }
 
     static func open(_ pane: String) {
-        if let url = URL(string: "x-apple.systempreferences:\(pane)") { NSWorkspace.shared.open(url) }
+        if let url = URL(string: "x-apple.systempreferences:\(pane)") { NSWorkspace.shared.open(url); openedOutside() }
     }
 }
 
