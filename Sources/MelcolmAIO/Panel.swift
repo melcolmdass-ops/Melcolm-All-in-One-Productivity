@@ -487,10 +487,17 @@ struct Scrubber: View {
             GeometryReader { g in
                 let f = dragging ? drag.f : known ? min(1, max(0, position / duration)) : 0
                 ZStack(alignment: .leading) {
-                    Capsule().fill(.white.opacity(0.14)).frame(height: 4)
-                    Capsule().fill(.white).frame(width: g.size.width * f, height: 4)
+                    // Thick red bar (like YouTube), used on Quick View and the Now Playing page alike.
+                    let red = Color(red: 1.0, green: 0.16, blue: 0.2)
+                    Capsule().fill(.white.opacity(0.16)).frame(height: 7)
+                    Capsule().fill(LinearGradient(colors: [Color(red: 1.0, green: 0.3, blue: 0.3), red], startPoint: .leading, endPoint: .trailing))
+                        .frame(width: max(7, g.size.width * f), height: 7)
+                        .shadow(color: red.opacity(0.55), radius: 4)
                     if known && seek != nil {
-                        Circle().fill(.white).frame(width: 10, height: 10).offset(x: g.size.width * f - 5)
+                        Circle().fill(red).frame(width: 15, height: 15)
+                            .overlay(Circle().strokeBorder(.white.opacity(0.9), lineWidth: 1.5))
+                            .shadow(color: red.opacity(0.7), radius: 4)
+                            .offset(x: g.size.width * f - 7.5)
                     }
                 }
                 .frame(maxHeight: .infinity)
@@ -506,7 +513,7 @@ struct Scrubber: View {
                         seek(to)
                         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { if drag.key == duration { drag.key = nil } }
                     })
-            }.frame(height: 14)
+            }.frame(height: 18)
             Text(known ? TimerModel.format(duration) : "--:--")
         }
         .font(.system(size: 9.5, weight: .semibold).monospacedDigit()).foregroundStyle(.secondary)
