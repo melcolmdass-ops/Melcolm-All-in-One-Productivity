@@ -29,7 +29,10 @@ enum Prefs {
         "scrollSwitches": true,
         "closeOnClickOutside": true,
         // Keyboard
-        "hotkeyToggle": true,          // ⌃⌥Space opens/closes the island
+        "cmdMods": "ctrlOpt",          // modifier keys used by every command
+        "cmd.play.on": false, "cmd.next.on": false, "cmd.prev.on": false,
+        "cmd.volUp.on": false, "cmd.volDown.on": false, "cmd.mute.on": false,
+        "hotkeyToggle": true,          // opens/closes the island
         "hotkeyNumbers": true,         // ⌃⌥1…9 jumps to that Space
     ]
 
@@ -76,7 +79,31 @@ enum Hotkeys {
     // Key codes for 1…9 on the top row.
     private static let digitCodes: [UInt32] = [18, 19, 20, 21, 23, 22, 26, 28, 25]
 
-    static func reload(toggle: @escaping () -> Void, jump: @escaping (Int) -> Void) {
+    /// Keys you can assign to a command.
+    static let keys: [(label: String, code: UInt32)] = [
+        ("Space", 49), ("←", 123), ("→", 124), ("↑", 126), ("↓", 125),
+        ("A", 0), ("B", 11), ("C", 8), ("D", 2), ("E", 14), ("F", 3), ("G", 5), ("H", 4), ("I", 34), ("J", 38), ("K", 40),
+        ("L", 37), ("M", 46), ("N", 45), ("O", 31), ("P", 35), ("Q", 12), ("R", 15), ("S", 1), ("T", 17), ("U", 32),
+        ("V", 9), ("W", 13), ("X", 7), ("Y", 16), ("Z", 6),
+    ]
+    struct Command: Identifiable { let id: String; let title: String; let key: String; let on: Bool }
+    /// Every command: its name, the key it starts with, and whether it starts switched on.
+    static let commands: [Command] = [
+        .init(id: "toggle", title: "Open or close the island", key: "Space", on: true),
+        .init(id: "play", title: "Play / Pause", key: "P", on: false),
+        .init(id: "next", title: "Next track", key: "N", on: false),
+        .init(id: "prev", title: "Previous track", key: "B", on: false),
+        .init(id: "volUp", title: "Volume up", key: "↑", on: false),
+        .init(id: "volDown", title: "Volume down", key: "↓", on: false),
+        .init(id: "mute", title: "Mute", key: "M", on: false),
+    ]
+    static let modifierChoices: [(id: String, label: String, flags: Int)] = [
+        ("ctrlOpt", "⌃⌥", controlKey | optionKey), ("ctrlCmd", "⌃⌘", controlKey | cmdKey),
+        ("optCmd", "⌥⌘", optionKey | cmdKey), ("ctrlShift", "⌃⇧", controlKey | shiftKey),
+    ]
+    static func onKey(_ id: String) -> String { id == "toggle" ? "hotkeyToggle" : "cmd.\(id).on" }
+
+    static func reload(actions: [String: () -> Void], jump: @escaping (Int) -> Void) {
         if !installed {
             var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
             InstallEventHandler(GetApplicationEventTarget(), { _, event, _ in
@@ -90,14 +117,18 @@ enum Hotkeys {
         }
         refs.forEach { UnregisterEventHotKey($0) }
         refs = []; hotkeyActions = [:]
-        let mods = UInt32(controlKey | optionKey)
+        let choice = Prefs.d.string(forKey: "cmdMods") ?? "ctrlOpt"
+        let mods = UInt32(modifierChoices.first { $0.id == choice }?.flags ?? (controlKey | optionKey))
         func add(_ id: UInt32, _ code: UInt32, _ action: @escaping () -> Void) {
             var ref: EventHotKeyRef?
             if RegisterEventHotKey(code, mods, EventHotKeyID(signature: OSType(0x4D4C434D), id: id), GetApplicationEventTarget(), 0, &ref) == noErr, let ref {
                 refs.append(ref); hotkeyActions[id] = action
             }
         }
-        if Prefs.bool("hotkeyToggle") { add(100, 49, toggle) }
+        for (i, c) in commands.enumerated() where Prefs.bool(onKey(c.id)) {
+            let label = Prefs.d.string(forKey: "cmd.\(c.id).key") ?? c.key
+            if let code = keys.first(where: { $0.label == label })?.code, let act = actions[c.id] { add(UInt32(100 + i), code, act) }
+        }
         if Prefs.bool("hotkeyNumbers") { for (i, c) in digitCodes.enumerated() { add(UInt32(i + 1), c) { jump(i + 1) } } }
     }
 }

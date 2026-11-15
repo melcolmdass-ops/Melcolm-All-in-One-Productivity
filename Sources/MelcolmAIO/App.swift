@@ -90,6 +90,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.islands.first { $0.panel.frame.contains(NSEvent.mouseLocation) }?.scrolled(e); return e
         }
         // Light polling for the bits macOS doesn't notify about.
+        Timer.scheduledTimer(withTimeInterval: 0.8, repeats: true) { [weak self] _ in self?.sound.refreshMic() }
         Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
             guard let self else { return }
             playing.refresh()
@@ -124,8 +125,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func reloadHotkeys() {
-        Hotkeys.reload(toggle: { [weak self] in self?.activeIsland?.toggle() },
-                       jump: { [weak self] n in self?.activeIsland?.spaces.jump(toNumber: n) })
+        Hotkeys.reload(actions: [
+            "toggle": { [weak self] in self?.activeIsland?.toggle() },
+            "play": { [weak self] in self?.playing.playPause() },
+            "next": { [weak self] in self?.playing.next() },
+            "prev": { [weak self] in self?.playing.previous() },
+            "volUp": { [weak self] in self?.sound.nudge(0.06) },
+            "volDown": { [weak self] in self?.sound.nudge(-0.06) },
+            "mute": { [weak self] in self?.sound.toggleMute() },
+        ], jump: { [weak self] n in self?.activeIsland?.spaces.jump(toNumber: n) })
     }
 }
 
@@ -152,6 +160,7 @@ final class Island: NSObject {
     static var expandedSize: CGSize { AppDelegate.expandedSize }
     var peekToken = 0
     var hoverPeek = false
+    var hoverWatch: Timer?
     var previousApp: NSRunningApplication?
 
     var screen: NSScreen? { NSScreen.screens.first { Island.id(of: $0) == screenID } }
@@ -182,6 +191,7 @@ final class Island: NSObject {
             spaces.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
             app.timer.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
             app.playing.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
+            app.sound.$micInUse.removeDuplicates().map { _ in () }.eraseToAnyPublisher(),
             NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification).map { _ in () }.eraseToAnyPublisher()
         )
         .receive(on: RunLoop.main)
@@ -212,17 +222,18 @@ final class Island: NSObject {
         let left = 14 + Layout.stripWidth(spaces, icon: Layout.icon(forBar: barH)) + 12
         var right: CGFloat = 10 + 36 + 12                     // chevron
         if timer.isActive && Prefs.bool("barShowTimer") { right += 74 }
-        else if playing.playing && Prefs.bool("barShowMusic") { right += 30 }
-        if !playing.title.isEmpty { right += 28 }            // mini play button
+        else if playing.playing && Prefs.bool("barShowMusic") { right += 52 }   // music note + wave
+        if app.sound.micInUse { right += 30 }                                   // microphone icon
         let h = Prefs.d.string(forKey: "heightMode") == "custom" ? CGFloat(Prefs.d.double(forKey: "customHeight")) : screenBar
         icon = Layout.icon(forBar: h)
         // Each island is only as wide as its own content, so it fits whatever screen it is on.
         set(&state.leftWing, left); set(&state.rightWing, right)
         set(&state.barHeight, h)
         let minPeek: CGFloat = state.peek?.kind == .text || state.peek == nil ? 300 : 360
-        if state.peek != nil, state.notchWidth == 0, state.collapsedWidth < minPeek {
-            // Give the pop-up room on screens without a notch.
-            let extra = (minPeek - state.collapsedWidth) / 2
+        let baseW = state.collapsedWidth + state.notchWidth
+        if state.peek != nil, baseW < minPeek {
+            // Give the hover bar room to breathe.
+            let extra = (minPeek - baseW) / 2
             state.leftWing += extra; state.rightWing += extra
         }
         let f = frame(expanded: state.expanded)
@@ -311,15 +322,20 @@ final class Island: NSObject {
     func hover(_ inside: Bool) {
         hovering = inside
         if !Prefs.bool("hoverToOpen") {
-            // Hover to peek: rest on the island for a moment to see a one-line summary.
-            DispatchQueue.main.asyncAfter(deadline: .now() + (inside ? 0.6 : 0.15)) { [weak self] in
-                guard let self, hovering == inside, Prefs.bool("hoverPeek"), !state.expanded else { return }
-                if inside { hoverPeek = true; peek(hoverBar, for: 0) }
-                else if hoverPeek { hoverPeek = false; endPeek() }
+            // Hover bar: appears right away. It then stays for as long as the mouse is anywhere on it
+            // (the timer checks the real mouse position, so gaps between things never close it).
+            guard inside, Prefs.bool("hoverPeek"), !state.expanded, !hoverPeek else { return }
+            hoverPeek = true; peek(hoverBar, for: 0)
+            hoverWatch?.invalidate()
+            hoverWatch = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: true) { [weak self] t in
+                guard let self else { t.invalidate(); return }
+                let m = NSEvent.mouseLocation
+                if state.expanded || !hoverPeek { t.invalidate(); return }
+                if !panel.frame.insetBy(dx: -2, dy: -2).contains(m) { t.invalidate(); hoverPeek = false; endPeek() }
             }
             return
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + (inside ? 0.25 : 0.5)) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + (inside ? 0.18 : 0.4)) { [weak self] in
             guard let self, hovering == inside else { return }
             if inside, !state.expanded { openedByHover = true; setExpanded(true) }
             else if !inside, state.expanded, openedByHover { openedByHover = false; setExpanded(false) }
@@ -359,10 +375,14 @@ final class Island: NSObject {
 
     func setExpanded(_ open: Bool) {
         if open {
-            state.peek = nil; hoverPeek = false
-            sound.refresh(); system.refresh(); playing.refresh()
+            state.peek = nil; hoverPeek = false; hoverWatch?.invalidate()
             panel.setFrame(frame(expanded: true), display: true)
-            withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) { state.expanded = true }
+            // Animate first; the slow refreshes (browser scan etc.) wait until the panel is already moving.
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.86)) { state.expanded = true }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.32) { [weak self] in
+                guard let self, state.expanded else { return }
+                sound.refresh(); system.refresh(); playing.refresh()
+            }
             clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
                 guard let self, Prefs.bool("closeOnClickOutside"), !panel.frame.contains(NSEvent.mouseLocation) else { return }
                 setExpanded(false)
@@ -370,8 +390,8 @@ final class Island: NSObject {
         } else {
             if let m = clickMonitor { NSEvent.removeMonitor(m); clickMonitor = nil }
             if panel.isKeyWindow { panel.resignKey(); previousApp?.activate(); previousApp = nil }
-            withAnimation(.spring(response: 0.32, dampingFraction: 0.9)) { state.expanded = false; state.page = .home }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.33) { [weak self] in
+            withAnimation(.spring(response: 0.26, dampingFraction: 0.94)) { state.expanded = false; state.page = .home }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) { [weak self] in
                 guard let self, !state.expanded else { return }
                 panel.setFrame(frame(expanded: false), display: true)
             }

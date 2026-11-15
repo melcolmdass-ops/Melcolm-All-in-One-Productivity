@@ -54,6 +54,7 @@ struct TopBar: View {
     @EnvironmentObject var state: IslandState
     @EnvironmentObject var timer: TimerModel
     @EnvironmentObject var playing: NowPlayingModel
+    @EnvironmentObject var sound: SoundModel
     @AppStorage("barShowTimer") var showTimer = true
     @AppStorage("barShowMusic") var showMusic = true
     let toggle: () -> Void
@@ -66,20 +67,21 @@ struct TopBar: View {
             if state.notchWidth > 0 { Color.clear.frame(width: state.notchWidth) }
             Spacer(minLength: 0)
             HStack(spacing: 8) {
+                if sound.micInUse {
+                    Image(systemName: "mic.fill").font(.system(size: 11, weight: .bold)).foregroundStyle(.white)
+                        .frame(width: 22, height: 22).background(Circle().fill(Color.orange))
+                        .help("Microphone is on")
+                }
                 if timer.isActive && showTimer {
                     Label(timer.display, systemImage: timer.mode == .timer ? "timer" : "stopwatch")
                         .font(.system(size: 11, weight: .semibold, design: .rounded).monospacedDigit())
                         .foregroundStyle(timer.finished ? .orange : accent)
                         .lineLimit(1)
                 } else if playing.playing && showMusic {
-                    BeatWave()
-                }
-                if !playing.title.isEmpty && !state.expanded {
-                    Button { playing.playPause() } label: {
-                        Image(systemName: playing.playing ? "pause.fill" : "play.fill")
-                            .font(.system(size: 9, weight: .bold)).frame(width: 20, height: 20)
-                            .background(Circle().fill(.white.opacity(0.08)))
-                    }.buttonStyle(PressStyle()).help(playing.title)
+                    HStack(spacing: 6) {
+                        Image(systemName: "music.note").font(.system(size: 11, weight: .bold)).foregroundStyle(accent)
+                        BeatWave()
+                    }.help(playing.title)
                 }
                 Button(action: toggle) {
                     Image(systemName: "chevron.down")
@@ -204,7 +206,7 @@ struct Card<Content: View>: View {
 }
 
 struct SettingsTab: View {
-    enum Page: String, CaseIterable { case general = "General", bar = "Bar", panel = "Pages", spaces = "Spaces", mouse = "Mouse", hover = "Hover bar", keyboard = "Keyboard" }
+    enum Page: String, CaseIterable { case general = "General", bar = "Bar", panel = "Pages", spaces = "Spaces", mouse = "Mouse", hover = "Hover bar", commands = "Commands" }
     @AppStorage("settingsPage") var page = Page.general.rawValue
     @AppStorage("islandSize") var size = "large"
     @AppStorage("heightMode") var heightMode = "menu"
@@ -232,12 +234,12 @@ struct SettingsTab: View {
 
     var body: some View {
         VStack(spacing: 10) {
-            HStack(spacing: 4) {
+            HStack(spacing: 3) {
                 ForEach(Page.allCases, id: \.self) { p in
                     Button { page = p.rawValue } label: {
-                        Text(p.rawValue).font(.system(size: 11, weight: .semibold))
+                        Text(p.rawValue).font(.system(size: 10.5, weight: .semibold)).lineLimit(1).fixedSize()
                             .foregroundStyle(page == p.rawValue ? .white : .white.opacity(0.7))
-                            .padding(.horizontal, 10).padding(.vertical, 5)
+                            .padding(.horizontal, 8).padding(.vertical, 5)
                             .background(Capsule().fill(page == p.rawValue ? AnyShapeStyle(accent) : AnyShapeStyle(.white.opacity(0.06))))
                     }.buttonStyle(.plain)
                 }
@@ -251,7 +253,7 @@ struct SettingsTab: View {
                     case .spaces: spacesPage
                     case .mouse: mouse
                     case .hover: hoverPage
-                    case .keyboard: keyboard
+                    case .commands: commandsPage
                     }
                 }
             }
@@ -405,11 +407,25 @@ struct SettingsTab: View {
         newName = ""; newTarget = ""
     }
 
-    @ViewBuilder var keyboard: some View {
-        row("⌃⌥Space opens and closes the island") { Toggle("", isOn: $hkToggle).labelsHidden() }
-        row("⌃⌥1…9 jumps to that Space") { Toggle("", isOn: $hkNumbers).labelsHidden() }
-        Text("While the panel is open: Esc closes · Space plays/pauses · ↑↓ volume · ←→ or 1–9 Spaces · , Settings")
-            .font(.system(size: 10.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+    @AppStorage("cmdMods") var cmdMods = "ctrlOpt"
+    @AppStorage("hotkeyNumbers") var hkNumbersOn = true
+
+    @ViewBuilder var commandsPage: some View {
+        row("Shortcuts use") {
+            Picker("", selection: $cmdMods) {
+                ForEach(Hotkeys.modifierChoices, id: \.id) { Text($0.label).tag($0.id) }
+            }.pickerStyle(.segmented).labelsHidden().frame(width: 200)
+        }
+        sectionLabel("Commands")
+        ForEach(Hotkeys.commands) { c in CommandRow(c: c, mods: Hotkeys.modifierChoices.first { $0.id == cmdMods }?.label ?? "⌃⌥") }
+        row("Go to desktop 1…9") {
+            Text((Hotkeys.modifierChoices.first { $0.id == cmdMods }?.label ?? "⌃⌥") + "1…9").font(.system(size: 11, weight: .bold, design: .rounded))
+                .foregroundStyle(.secondary).padding(.horizontal, 8).frame(height: 22)
+                .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(.white.opacity(0.08)))
+            Toggle("", isOn: $hkNumbersOn).labelsHidden()
+        }
+        Text("While the panel is open: Esc goes back · Space plays/pauses · ↑↓ volume · ←→ or 1–9 desktops · , Settings")
+            .font(.system(size: 10.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true).padding(.top, 4)
         row("Mission Control shortcuts") { LinkButton("Keyboard Shortcuts…") { SystemModel.open("com.apple.Keyboard-Settings.extension") } }
     }
 
@@ -582,6 +598,31 @@ struct Shortcut: Identifiable {
             let p = line.split(separator: "|", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
             guard p.count == 2, !p[0].isEmpty, !p[1].isEmpty else { return nil }
             return Shortcut(name: p[0], target: p[1])
+        }
+    }
+}
+
+/// One command: its name, the key you can change, and an on/off switch.
+struct CommandRow: View {
+    let c: Hotkeys.Command; let mods: String
+    @AppStorage var key: String
+    @AppStorage var on: Bool
+    init(c: Hotkeys.Command, mods: String) {
+        self.c = c; self.mods = mods
+        _key = AppStorage(wrappedValue: c.key, "cmd.\(c.id).key")
+        _on = AppStorage(wrappedValue: c.on, Hotkeys.onKey(c.id))
+    }
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                Text(c.title).font(.system(size: 12.5, weight: .medium))
+                Spacer()
+                Text(mods).font(.system(size: 11, weight: .bold, design: .rounded)).foregroundStyle(.secondary)
+                Picker("", selection: $key) { ForEach(Hotkeys.keys, id: \.label) { Text($0.label).tag($0.label) } }
+                    .labelsHidden().frame(width: 74)
+                Toggle("", isOn: $on).labelsHidden()
+            }.frame(minHeight: 30)
+            Hairline().padding(.top, 6)
         }
     }
 }

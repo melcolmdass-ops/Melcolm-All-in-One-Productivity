@@ -50,6 +50,16 @@ final class SoundModel: ObservableObject {
     private static let out = kAudioDevicePropertyScopeOutput
     private static let inp = kAudioDevicePropertyScopeInput
 
+    /// True while any app (dictation, a call…) is recording from the default microphone.
+    @Published var micInUse = false
+    func refreshMic() {
+        let dev = Self.defaultDevice(input: true)
+        var running: UInt32 = 0; var size = UInt32(MemoryLayout<UInt32>.size)
+        var a = Self.addr(kAudioDevicePropertyDeviceIsRunningSomewhere)
+        let on = dev != 0 && AudioObjectGetPropertyData(dev, &a, 0, nil, &size, &running) == noErr && running != 0
+        if on != micInUse { micInUse = on }
+    }
+
     func refresh() {
         devices = Self.devices(Self.out)
         currentDevice = Self.defaultDevice(input: false)
