@@ -81,13 +81,13 @@ struct TopBar: View {
                         Group {
                             if a == .timer {
                                 Label(timer.display, systemImage: timer.mode == .timer ? "timer" : "stopwatch")
-                                    .font(.system(size: 11, weight: .semibold, design: .rounded).monospacedDigit())
+                                    .font(.system(size: 14, weight: .bold, design: .rounded).monospacedDigit())
                                     .foregroundStyle(timer.finished ? .orange : accent)
                                     .lineLimit(1)
                             } else {
                                 HStack(spacing: 6) {
-                                    Image(systemName: "music.note").font(.system(size: 11, weight: .bold)).foregroundStyle(accent)
-                                    BeatWave()
+                                    Image(systemName: "music.note").font(.system(size: 14, weight: .bold)).foregroundStyle(accent)
+                                    BeatWave().scaleEffect(1.25)
                                 }
                             }
                         }.contentShape(Rectangle())
@@ -217,10 +217,10 @@ struct Card<Content: View>: View {
 }
 
 struct SettingsTab: View {
-    enum Page: String, CaseIterable { case general = "General", commands = "Commands", bar = "Bar", spaces = "Spaces", mouse = "Mouse", hover = "Hover bar", panel = "Pages", utility = "Utility Bar" }
+    enum Page: String, CaseIterable { case general = "General", commands = "Commands", bar = "Bar", display = "Display on bar", spaces = "Spaces", mouse = "Mouse", hover = "Hover bar", panel = "Pages", utility = "Utility Bar" }
     /// Top tabs, each with its own sub-tabs.
     static let groups: [(name: String, tabs: [Page])] = [
-        ("General", [.general, .commands]), ("Bar", [.bar, .spaces, .mouse, .hover]), ("Pages", [.panel]), ("Utility Bar", [.utility]),
+        ("General", [.general, .commands]), ("Bar", [.bar, .display, .spaces, .mouse, .hover]), ("Pages", [.panel]), ("Utility Bar", [.utility]),
     ]
     @AppStorage("settingsPage") var page = Page.general.rawValue
     @AppStorage("islandSize") var size = "large"
@@ -280,6 +280,7 @@ struct SettingsTab: View {
                     switch Page(rawValue: page) ?? .general {
                     case .general: general
                     case .bar: bar
+                    case .display: displayPage
                     case .panel: panelPage
                     case .spaces: spacesPage
                     case .mouse: mouse
@@ -318,6 +319,10 @@ struct SettingsTab: View {
             Picker("", selection: $size) { Text("Small").tag("small"); Text("Medium").tag("medium"); Text("Large").tag("large") }
                 .pickerStyle(.segmented).labelsHidden().frame(width: 200)
         }
+    }
+
+    /// Everything that shows up in the bar while something is going on.
+    @ViewBuilder var displayPage: some View {
         sectionLabel("Beside the arrow (only one fits)")
         Text("When more than one is going, the one highest up shows. Click it in the bar to open its page.")
             .font(.system(size: 10.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)

@@ -234,8 +234,8 @@ final class Island: NSObject {
         let left = 14 + Layout.stripWidth(spaces, icon: Layout.icon(forBar: barH)) + 12
         var right: CGFloat = 10 + 36 + 12                     // chevron
         switch BarActivity.current(timerOn: timer.isActive, musicOn: playing.playing) {
-        case .timer: right += 74
-        case .music: right += 52                                            // music note + wave
+        case .timer: right += 92
+        case .music: right += 66                                            // music note + wave
         case nil: break
         }
         if app.sound.micInUse { right += 30 }                                   // microphone icon
