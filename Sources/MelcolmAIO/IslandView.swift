@@ -151,7 +151,8 @@ struct SpacesStrip: View {
                 .background {
                     let r = RoundedRectangle(cornerRadius: 9, style: .continuous)
                     r.fill(Color(white: 0.13))
-                    r.strokeBorder(.white.opacity(0.14), lineWidth: 1)
+                    r.strokeBorder(.white.opacity(0.32), lineWidth: 1.2)
+                        .shadow(color: .white.opacity(0.22), radius: 4)
                 }
                 .help("Display \(g.number)")
             }
@@ -163,9 +164,10 @@ struct SpacesStrip: View {
         let r = RoundedRectangle(cornerRadius: 8, style: .continuous)
         return ZStack {
             if on {
-                r.fill(accent.opacity(style == "box" ? 0.35 : 0.2))
-                r.strokeBorder(accent, lineWidth: 1.5)
-                    .shadow(color: accent.opacity(0.7), radius: style == "glow" ? 5 : 0)
+                let cyan = Color(red: 0.25, green: 0.88, blue: 1.0)
+                r.fill(cyan.opacity(style == "box" ? 0.30 : 0.14))
+                r.strokeBorder(cyan, lineWidth: 1.6)
+                    .shadow(color: cyan.opacity(0.85), radius: style == "glow" ? 6 : 0)
             }
         }
     }
