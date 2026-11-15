@@ -128,6 +128,13 @@ enum WebAX {
         return out
     }
 
+    /// A button's name right now ("play" or "pause"), or nil if it's gone.
+    static func label(_ e: AXUIElement) -> String? {
+        let d = str(e, kAXDescriptionAttribute).trimmingCharacters(in: .whitespaces)
+        let l = (d.isEmpty ? str(e, kAXTitleAttribute) : d).trimmingCharacters(in: .whitespaces).lowercased()
+        return l.isEmpty ? nil : l
+    }
+
     @discardableResult static func press(_ e: AXUIElement?) -> Bool {
         guard let e else { return false }
         return AXUIElementPerformAction(e, kAXPressAction as CFString) == .success

@@ -61,7 +61,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ note: Notification) {
         let ds = UserDefaults.standard.double(forKey: "debugSeek")
         if ds > 0 { DispatchQueue.main.asyncAfter(deadline: .now() + 10) { self.playing.seek(ds) } }
-        if UserDefaults.standard.bool(forKey: "debugToggle") {
+        if UserDefaults.standard.bool(forKey: "debugPressTest") {
             for (i, t) in [8.0, 14.0, 20.0].enumerated() { DispatchQueue.main.asyncAfter(deadline: .now() + t) {
                 BrowserMedia.log("debugToggle \(i) app=\(self.playing.app) playing=\(self.playing.playing) main=\(String(describing: self.playing.mainResult))")
                 self.playing.playPause()
@@ -139,6 +139,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if islands.contains(where: { $0.state.expanded }) { system.refresh(); sound.refresh() }
         }
         playing.refresh()
+        // For testing: `--args -debugPressTest YES -debugLog YES` presses Play/Pause once, then again to put it back.
+        if UserDefaults.standard.bool(forKey: "debugToggle") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
+                guard let self, let r = playing.others.first(where: { $0.url.contains("music.youtube") }) ?? playing.mainResult else { return }
+                BrowserMedia.log("TEST press 1 shown=\(playing.isPlaying(r))")
+                playing.toggle(r)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 6) {
+                    let now = self.playing.others.first { $0.id == r.id }
+                    BrowserMedia.log("TEST after 6s shown=\(now.map { self.playing.isPlaying($0) } ?? false)")
+                    if let now { BrowserMedia.log("TEST press 2"); self.playing.toggle(now) }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 6) {
+                        BrowserMedia.log("TEST end shown=\(self.playing.others.first { $0.id == r.id }.map { self.playing.isPlaying($0) } ?? false)")
+                    }
+                }
+            }
+        }
         // For testing: `open … --args -debugOpen Settings` opens the panel on launch (not saved).
         if let t = UserDefaults.standard.string(forKey: "debugOpen"), let i = islands.first {
             i.state.page = PanelPage.allCases.first { $0.rawValue.lowercased() == t.lowercased() } ?? .home; i.setExpanded(true)

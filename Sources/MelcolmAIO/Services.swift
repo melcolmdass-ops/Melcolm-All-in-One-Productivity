@@ -320,7 +320,8 @@ final class NowPlayingModel: ObservableObject {
         let was = isPlaying(r)
         // Never bring the tab forward: only the artwork does that. Page JavaScript first, then the
         // page's own Play/Pause button (accessibility), then the keyboard's play/pause key.
-        let viaAX = WebAX.press(ax[r.id]?.found.play)
+        let button = ax[r.id]?.found.play
+        let viaAX = WebAX.press(button)
         let viaJS = !viaAX && BrowserMedia.togglePlay(r)
         if !viaAX && !viaJS { Self.mediaKey(16) }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { self.refresh() }
@@ -330,16 +331,17 @@ final class NowPlayingModel: ObservableObject {
         pressedAt[r.id] = Date()
         if let i = others.firstIndex(where: { $0.id == r.id }) { others[i].playing = !was }
         if mainID == r.id { playing = !was }
-        // Check the press really took; if the page is still in the old state, press once more another way.
-        if let pid = BrowserMedia.pid(r), AXIsProcessTrusted() {
-            let title = r.pwa != 0 ? "" : r.title; let want = !was; let stamp = pressedAt[r.id]
+        // Check the press took by looking at the very button that was pressed: if it still has the same
+        // name ("play" stayed "play"), the page ignored it, so press it once more. Reading the whole page
+        // again could land on another window and press a second time, which undid your press.
+        if viaAX, let btn = button, let before = WebAX.label(btn) {
+            let stamp = pressedAt[r.id]
             browserQueue.asyncAfter(deadline: .now() + 1.5) { [weak self] in
-                guard let f = WebAX.find(pid: pid, title: title), let now = f.playing, now != want else { return }
+                guard let after = WebAX.label(btn), after == before else { return }
                 DispatchQueue.main.async {
                     guard let self, self.pressedAt[r.id] == stamp else { return }   // pressed again since: leave it
-                    BrowserMedia.log("toggle retry \(r.id) page still \(now)")
-                    // Retry only on this tab's own button: the keyboard play key could flip a different tab.
-                    if !WebAX.press(f.play) { _ = BrowserMedia.togglePlay(r) }
+                    BrowserMedia.log("toggle retry \(r.id) button still '\(after)'")
+                    WebAX.press(btn)
                 }
             }
         }
