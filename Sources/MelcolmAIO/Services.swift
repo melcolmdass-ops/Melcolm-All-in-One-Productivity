@@ -265,6 +265,9 @@ final class NowPlayingModel: ObservableObject {
                     if let p = f.playing, !self.held(m.id) { self.playing = p }
                     if f.hasTime { self.position = f.pos; self.duration = f.dur }
                 }
+                if let m = self.mainResult, self.app == "Browser", self.duration == 0 {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self.refresh() }   // not there yet: look again soon
+                }
                 BrowserMedia.log("ax \(out.map { "\($0.key) pos=\($0.value.pos)/\($0.value.dur) play=\(String(describing: $0.value.playing))" })")
             }
         }
@@ -320,6 +323,7 @@ final class NowPlayingModel: ObservableObject {
         let viaAX = WebAX.press(ax[r.id]?.found.play)
         let viaJS = !viaAX && BrowserMedia.togglePlay(r)
         if !viaAX && !viaJS { Self.mediaKey(16) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { self.refresh() }
         BrowserMedia.log("toggle \(r.id) was=\(was) ax=\(viaAX) js=\(viaJS) axAge=\(ax[r.id].map { Date().timeIntervalSince($0.at) } ?? -1)")
         if let f = ax[r.id] { ax[r.id] = (f.found, .distantPast) }   // keep the button, drop its old play state
         forced[r.id] = !was
@@ -370,14 +374,18 @@ final class NowPlayingModel: ObservableObject {
         later()
     }
 
-    private func applyBrowser(_ m: BrowserMedia.Result?) {
-        guard let m else {
+    private func applyBrowser(_ found: BrowserMedia.Result?) {
+        guard let found else {
             // One empty read (the browser busy right after a click) shouldn't make the card blink away.
             if app == "Browser", Date().timeIntervalSince(lastSeen) < 4 { return }
             if app == "Browser" { title = ""; artist = ""; app = ""; duration = 0; artwork = nil; artURL = ""; playing = false }
             return
         }
         lastSeen = Date()
+        var m = found
+        let key = m.id + "|" + m.title
+        if m.duration > 0 { lengths[key] = m.duration }
+        else if let d = lengths[key] { m.duration = d }   // same track as before: the bar shows at once
         let changed = m.title != title
         title = m.title; artist = m.artist; app = "Browser"; playing = m.playing
         position = m.position; duration = m.duration
@@ -387,6 +395,7 @@ final class NowPlayingModel: ObservableObject {
     }
 
     private var lastSeen = Date.distantPast
+    private var lengths: [String: Double] = [:]
     private var artistCache: [String: String] = [:]
 
     /// YouTube's public "oEmbed" info gives the channel (the artist for music) for a video id.
