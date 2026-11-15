@@ -11,7 +11,10 @@ enum Prefs {
         "allDisplays": false,          // one island on every display
         "barShowTimer": true,
         "barShowMusic": true,
-        "liveActivities": true,        // song / output / timer pop-ups under the bar
+        "liveActivities": true,
+        "barOrder": "timer,music",     // which live thing the bar shows first (only one fits)
+        "batteriesBar": true,          // the batteries row at the bottom of Home
+        "batteryHidden": "",        // song / output / timer pop-ups under the bar
         // Spaces
         "indicatorStyle": "glow",      // glow / box
         "showNumbers": true,
@@ -41,6 +44,23 @@ enum Prefs {
 
     static var d: UserDefaults { .standard }
     static func bool(_ k: String) -> Bool { d.bool(forKey: k) }
+}
+
+/// The one live thing shown in the bar beside the chevron, picked by your priority order.
+enum BarActivity: String, CaseIterable {
+    case timer, music
+    var title: String { self == .timer ? "Clock (timer / stopwatch)" : "Music" }
+    var icon: String { self == .timer ? "timer" : "music.note" }
+    var page: PanelPage { self == .timer ? .timer : .nowPlaying }
+    var showKey: String { self == .timer ? "barShowTimer" : "barShowMusic" }
+    static var order: [BarActivity] {
+        var l = (Prefs.d.string(forKey: "barOrder") ?? "").split(separator: ",").compactMap { BarActivity(rawValue: String($0)) }
+        for a in allCases where !l.contains(a) { l.append(a) }
+        return l
+    }
+    static func current(timerOn: Bool, musicOn: Bool) -> BarActivity? {
+        order.first { Prefs.bool($0.showKey) && ($0 == .timer ? timerOn : musicOn) }
+    }
 }
 
 /// Sizes shared by the view and the window, so the window always fits the strip exactly.

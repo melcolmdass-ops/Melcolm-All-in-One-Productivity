@@ -9,6 +9,7 @@ struct IslandView: View {
     @EnvironmentObject var state: IslandState
     let toggle: () -> Void
     let hover: (Bool) -> Void
+    var openPage: (PanelPage) -> Void = { _ in }
 
     var body: some View {
         // On a notched screen the collapsed island reaches into the notch so the two read as one shape.
@@ -20,7 +21,7 @@ struct IslandView: View {
         let shape = UnevenRoundedRectangle(bottomLeadingRadius: radius, bottomTrailingRadius: radius, style: .continuous)
 
         VStack(spacing: 0) {
-            TopBar(toggle: toggle)
+            TopBar(toggle: toggle, openPage: openPage)
                 .frame(height: state.barHeight)
             if state.expanded {
                 PanelView()
@@ -57,7 +58,9 @@ struct TopBar: View {
     @EnvironmentObject var sound: SoundModel
     @AppStorage("barShowTimer") var showTimer = true
     @AppStorage("barShowMusic") var showMusic = true
+    @AppStorage("barOrder") var barOrder = "timer,music"
     let toggle: () -> Void
+    var openPage: (PanelPage) -> Void = { _ in }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -72,16 +75,23 @@ struct TopBar: View {
                         .frame(width: 22, height: 22).background(Circle().fill(Color.orange))
                         .help("Microphone is on")
                 }
-                if timer.isActive && showTimer {
-                    Label(timer.display, systemImage: timer.mode == .timer ? "timer" : "stopwatch")
-                        .font(.system(size: 11, weight: .semibold, design: .rounded).monospacedDigit())
-                        .foregroundStyle(timer.finished ? .orange : accent)
-                        .lineLimit(1)
-                } else if playing.playing && showMusic {
-                    HStack(spacing: 6) {
-                        Image(systemName: "music.note").font(.system(size: 11, weight: .bold)).foregroundStyle(accent)
-                        BeatWave()
-                    }.help(playing.title)
+                let _ = (barOrder, showTimer, showMusic)
+                if let a = BarActivity.current(timerOn: timer.isActive, musicOn: playing.playing) {
+                    Button { openPage(a.page) } label: {
+                        Group {
+                            if a == .timer {
+                                Label(timer.display, systemImage: timer.mode == .timer ? "timer" : "stopwatch")
+                                    .font(.system(size: 11, weight: .semibold, design: .rounded).monospacedDigit())
+                                    .foregroundStyle(timer.finished ? .orange : accent)
+                                    .lineLimit(1)
+                            } else {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "music.note").font(.system(size: 11, weight: .bold)).foregroundStyle(accent)
+                                    BeatWave()
+                                }
+                            }
+                        }.contentShape(Rectangle())
+                    }.buttonStyle(PressStyle()).help(a == .music ? "\(playing.title) · click to open Now Playing" : "Click to open Clock")
                 }
                 Button(action: toggle) {
                     Image(systemName: "chevron.down")
@@ -257,7 +267,7 @@ struct SettingsTab: View {
                     }
                 }
             }
-            Text("Melcolm All-in-One Productivity · v1.8").font(.system(size: 10)).foregroundStyle(.tertiary)
+            Text("Melcolm All-in-One Productivity · v1.9").font(.system(size: 10)).foregroundStyle(.tertiary)
         }
         .font(.system(size: 12))
         .toggleStyle(.switch).controlSize(.small)
@@ -286,12 +296,49 @@ struct SettingsTab: View {
             Picker("", selection: $size) { Text("Small").tag("small"); Text("Medium").tag("medium"); Text("Large").tag("large") }
                 .pickerStyle(.segmented).labelsHidden().frame(width: 200)
         }
-        row("Show running timer in the bar") { Toggle("", isOn: $barTimer).labelsHidden() }
-        row("Show music wave while playing") { Toggle("", isOn: $barMusic).labelsHidden() }
+        sectionLabel("Beside the arrow (only one fits)")
+        Text("When more than one is going, the one highest up shows. Click it in the bar to open its page.")
+            .font(.system(size: 10.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        let order = BarActivity.order
+        ForEach(Array(order.enumerated()), id: \.element) { i, a in
+            HStack(spacing: 8) {
+                Text("\(i + 1)").font(.system(size: 11, weight: .heavy, design: .rounded)).foregroundStyle(accent).frame(width: 14)
+                Image(systemName: a.icon).frame(width: 18)
+                Text(a.title).font(.system(size: 12.5, weight: .medium))
+                Spacer()
+                Button { move(a, -1) } label: { Image(systemName: "chevron.up") }.buttonStyle(.plain).disabled(i == 0).help("Show first")
+                Button { move(a, 1) } label: { Image(systemName: "chevron.down") }.buttonStyle(.plain).disabled(i == order.count - 1)
+                Toggle("", isOn: a == .timer ? $barTimer : $barMusic).labelsHidden()
+            }
+            .padding(.horizontal, 8).frame(height: 32)
+            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(.white.opacity(0.05)))
+            .onDrag { NSItemProvider(object: a.rawValue as NSString) }
+            .onDrop(of: [.text], isTargeted: nil) { items in
+                items.first?.loadObject(ofClass: NSString.self) { s, _ in
+                    guard let s = s as? String, let from = BarActivity(rawValue: s) else { return }
+                    DispatchQueue.main.async { place(from, at: i) }
+                }
+                return true
+            }
+        }
+        Hairline().padding(.vertical, 2)
         row("Pop-ups for song, output and timer") { Toggle("", isOn: $live).labelsHidden() }
     }
 
+    @AppStorage("barOrder") var barOrder = "timer,music"
+    @AppStorage("batteriesBar") var batteriesBar = true
+    func move(_ a: BarActivity, _ d: Int) {
+        var l = BarActivity.order
+        guard let i = l.firstIndex(of: a), l.indices.contains(i + d) else { return }
+        l.swapAt(i, i + d); barOrder = l.map(\.rawValue).joined(separator: ",")
+    }
+    func place(_ a: BarActivity, at j: Int) {
+        var l = BarActivity.order.filter { $0 != a }
+        l.insert(a, at: min(j, l.count)); barOrder = l.map(\.rawValue).joined(separator: ",")
+    }
+
     @ViewBuilder var panelPage: some View {
+        row("Batteries bar (bottom of Home)") { Toggle("", isOn: $batteriesBar).labelsHidden() }
         HStack {
             Text("PAGE").font(.system(size: 10, weight: .heavy)).foregroundStyle(.secondary)
             Spacer()

@@ -213,10 +213,14 @@ final class NowPlayingModel: ObservableObject {
     /// What's playing: Spotify / Music first (they report everything), then any browser tab or
     /// web app (Chrome, Safari, Brave, Edge, Arc) such as YouTube Music.
     func refresh() {
-        if refreshScripts() { others = BrowserMedia.scan(); for i in others.indices { fillFromVideo(&others[i]) }; return }
+        if refreshScripts() {
+            var l = BrowserMedia.scan(); for i in l.indices { fillFromVideo(&l[i]); applyAX(&l[i]) }
+            others = l.sorted { $0.id < $1.id }; probeAX(l); return
+        }
         // AppleScript has to run on the main thread; the scan is a few milliseconds.
         var list = BrowserMedia.scan()
-        for i in list.indices { fillFromVideo(&list[i]) }
+        for i in list.indices { fillFromVideo(&list[i]); applyAX(&list[i]) }
+        probeAX(list)
         for i in list.indices where !list[i].knownState { if let f = forced[list[i].id] { list[i].playing = f } }
         let main = list.first(where: { forced[$0.id] ?? $0.playing }) ?? list.first
         mainID = main?.id ?? ""
@@ -224,6 +228,44 @@ final class NowPlayingModel: ObservableObject {
         jsHint = list.contains { $0.needsJS }
         applyBrowser(main)
         jsHint = list.contains { $0.needsJS }
+    }
+
+    /// The play bar and buttons read from the page's accessibility tree (works with Chrome's
+    /// JavaScript setting off, and without bringing the tab forward).
+    private var ax: [String: (found: WebAX.Found, at: Date)] = [:]
+    private var probing = false
+    private func applyAX(_ r: inout BrowserMedia.Result) {
+        guard !r.knownState, let (f, at) = ax[r.id], Date().timeIntervalSince(at) < 10 else { return }
+        if let p = f.playing { r.playing = p; r.knownState = true; forced[r.id] = nil }
+        if f.hasTime {
+            r.duration = f.dur
+            r.position = min(f.dur, f.pos + (r.playing ? Date().timeIntervalSince(at) : 0))
+            r.needsJS = false
+        }
+    }
+    private func probeAX(_ list: [BrowserMedia.Result]) {
+        guard !probing, !list.isEmpty, AXIsProcessTrusted() else { return }
+        probing = true
+        let jobs = list.compactMap { r -> (String, pid_t, String)? in
+            guard !r.knownState || r.duration == 0, let pid = BrowserMedia.pid(r) else { return nil }
+            return (r.id, pid, r.pwa != 0 ? "" : r.title)
+        }
+        browserQueue.async { [weak self] in
+            var out: [String: WebAX.Found] = [:]
+            for (id, pid, title) in jobs { if let f = WebAX.find(pid: pid, title: title) { out[id] = f } }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.probing = false
+                let now = Date()
+                for (id, f) in out { self.ax[id] = (f, now) }
+                for i in self.others.indices { self.applyAX(&self.others[i]) }
+                if let m = self.mainResult, self.app == "Browser", let f = out[m.id] {
+                    if let p = f.playing { self.playing = p }
+                    if f.hasTime { self.position = f.pos; self.duration = f.dur }
+                }
+                BrowserMedia.log("ax \(out.map { "\($0.key) pos=\($0.value.pos)/\($0.value.dur) play=\(String(describing: $0.value.playing))" })")
+            }
+        }
     }
 
     /// Every other playing or paused tab / web app, shown under the main card.
@@ -268,22 +310,10 @@ final class NowPlayingModel: ObservableObject {
     /// Plays or pauses exactly that tab. Others keep doing what they were doing.
     func toggle(_ r: BrowserMedia.Result) {
         let was = isPlaying(r)
-        if !BrowserMedia.togglePlay(r) {
-            // No page access: bring that tab forward, press its own Space shortcut, then go back.
-            let back = NSWorkspace.shared.frontmostApplication
-            BrowserMedia.show(r)
-            let want = r.pwa != 0 ? r.pwa : (NSWorkspace.shared.runningApplications.first { $0.bundleIdentifier == "com.google.Chrome" }?.processIdentifier ?? 0)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in
-                // Never press Space into some other window: that would pause something else.
-                guard NSWorkspace.shared.frontmostApplication?.processIdentifier == want else {
-                    self?.forced[r.id] = was
-                    if let i = self?.others.firstIndex(where: { $0.id == r.id }) { self?.others[i].playing = was }
-                    return
-                }
-                Self.key(49)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { back?.activate() }
-            }
-        }
+        // Never bring the tab forward: only the artwork does that. Page JavaScript first, then the
+        // page's own Play/Pause button (accessibility), then the keyboard's play/pause key.
+        if !BrowserMedia.togglePlay(r) && !WebAX.press(ax[r.id]?.found.play) { Self.mediaKey(16) }
+        ax[r.id] = nil
         forced[r.id] = !was
         if let i = others.firstIndex(where: { $0.id == r.id }) { others[i].playing = !was }
         if mainID == r.id { playing = !was }
@@ -306,13 +336,14 @@ final class NowPlayingModel: ObservableObject {
         if let r = mainResult { seek(r, to: t) }
     }
     func seek(_ r: BrowserMedia.Result, to t: Double) {
-        if BrowserMedia.seek(r, to: t) {
+        if BrowserMedia.seek(r, to: t) || WebAX.seek(ax[r.id]?.found.slider, to: t) {
             if let i = others.firstIndex(where: { $0.id == r.id }) { others[i].position = t }
             if mainID == r.id { position = t }
         }
     }
     func skip(_ r: BrowserMedia.Result, forward: Bool) {
-        if !BrowserMedia.skip(r, forward: forward) { BrowserMedia.show(r); Self.mediaKey(forward ? 17 : 18) }
+        let b = forward ? ax[r.id]?.found.next : ax[r.id]?.found.prev
+        if !BrowserMedia.skip(r, forward: forward) && !WebAX.press(b) { Self.mediaKey(forward ? 17 : 18) }
         later()
     }
 
@@ -391,8 +422,8 @@ final class NowPlayingModel: ObservableObject {
         if app == "Browser", let r = mainResult { toggle(r); return }
         Self.mediaKey(16); playing.toggle(); later()
     }
-    func next() { Self.mediaKey(17); later() }
-    func previous() { Self.mediaKey(18); later() }
+    func next() { if app == "Browser", let r = mainResult { skip(r, forward: true) } else { Self.mediaKey(17); later() } }
+    func previous() { if app == "Browser", let r = mainResult { skip(r, forward: false) } else { Self.mediaKey(18); later() } }
     func openApp() {
         if app == "Browser" { if let r = mainResult { BrowserMedia.show(r) } else { BrowserMedia.focusPlayingBrowser() }; return }
         if app == "Spotify" || app == "Music", let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: app == "Spotify" ? "com.spotify.client" : "com.apple.Music") {
@@ -739,6 +770,13 @@ enum BrowserMedia {
             : "tell application \"\(r.browser)\" to tell tab \(r.tab) of window \(r.window) to execute javascript \"\(js)\""
         var err: NSDictionary?
         return NSAppleScript(source: src)?.executeAndReturnError(&err).stringValue == "ok"
+    }
+
+    /// The process that owns that tab: the installed web app, or the browser itself.
+    static func pid(_ r: Result) -> pid_t? {
+        if r.pwa != 0 { return r.pwa }
+        guard let b = browsers.first(where: { $0.name == r.browser }), !b.safari else { return nil }
+        return NSWorkspace.shared.runningApplications.first { $0.bundleIdentifier == b.bundle }?.processIdentifier
     }
 
     /// Brings that tab (or web-app window) to the front.

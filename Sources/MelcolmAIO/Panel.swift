@@ -15,7 +15,7 @@ enum PanelPage: String, CaseIterable {
         switch self {
         case .home: "Melcolm"; case .nowPlaying: "Now Playing"; case .sound: "Sound"; case .mic: "Microphone"; case .brightness: "Brightness"
         case .wifi: "Wi-Fi"; case .bluetooth: "Bluetooth"; case .awake: "Keep Awake"; case .dark: "Dark Mode"
-        case .timer: "Timer"; case .layouts: "Layouts"; case .settings: "Settings"
+        case .timer: "Clock"; case .layouts: "Layouts"; case .settings: "Settings"
         }
     }
     var icon: String {
@@ -109,6 +109,7 @@ struct HomePage: View {
     @EnvironmentObject var playing: NowPlayingModel
     @AppStorage("hiddenTiles") var hidden = ""
     @AppStorage("homePinned") var pinnedRaw = ""
+    @AppStorage("batteriesBar") var batteriesBar = true
 
     var body: some View {
         let pages = PanelPage.listed.filter { !hidden.split(separator: ",").contains(Substring($0.rawValue)) }
@@ -165,11 +166,10 @@ struct HomePage: View {
           .scrollIndicators(.visible)
             Hairline()
             HStack(spacing: 10) {
-                Button { SystemModel.open("com.apple.Battery-Settings.extension") } label: {
-                    Label(system.battery.map { "\($0)%" } ?? "AC", systemImage: system.charging ? "battery.100percent.bolt" : "battery.75percent")
-                }.buttonStyle(.plain)
-                Spacer()
-                Text("⌃⌥Space").foregroundStyle(.tertiary)
+                if batteriesBar { BatteriesBar() } else {
+                    Spacer()
+                    Text("⌃⌥Space").foregroundStyle(.tertiary)
+                }
                 Button { state.page = .settings } label: {
                     Image(systemName: "gearshape.fill").font(.system(size: 12))
                         .frame(width: 28, height: 28).background(Circle().fill(.white.opacity(0.08)))
@@ -539,5 +539,97 @@ struct PressStyle: ButtonStyle {
         configuration.label
             .scaleEffect(configuration.isPressed ? 0.92 : 1)
             .animation(.spring(response: 0.2, dampingFraction: 0.6), value: configuration.isPressed)
+    }
+}
+
+// MARK: - Batteries bar (bottom of Home)
+
+struct BatteriesBar: View {
+    @EnvironmentObject var system: SystemModel
+    @EnvironmentObject var batteries: BatteryModel
+    @AppStorage("batteryHidden") var hiddenRaw = ""
+    @AppStorage("batteryPicking") var picking = false
+
+    static func color(_ p: Int) -> Color {
+        p <= 10 ? Color(red: 1, green: 0.27, blue: 0.27) : p <= 20 ? Color(red: 1, green: 0.62, blue: 0.2)
+            : p <= 35 ? Color(red: 1, green: 0.85, blue: 0.25) : Color(red: 0.25, green: 0.95, blue: 0.45)
+    }
+    var all: [BatteryItem] {
+        let mac = system.battery.map { [BatteryItem(id: "mac", name: "This Mac", icon: "laptopcomputer", percent: $0, charging: system.charging)] } ?? []
+        return mac + batteries.devices
+    }
+    var hidden: Set<String> { Set(hiddenRaw.split(separator: "\n").map(String.init)) }
+
+    var body: some View {
+        let shown = all.filter { !hidden.contains($0.id) }
+        HStack(alignment: .top, spacing: 6) {
+            // Four per row; the fifth starts a new row, so nothing is ever cut off.
+            LazyVGrid(columns: Array(repeating: GridItem(.fixed(86), spacing: 5), count: 4), alignment: .leading, spacing: 5) {
+                ForEach(shown) { chip($0) }
+            }
+            if shown.isEmpty { Text("No batteries shown").foregroundStyle(.tertiary).frame(maxWidth: .infinity, alignment: .leading) }
+            Button { picking.toggle() } label: {
+                Image(systemName: picking ? "eye.fill" : "eye").font(.system(size: 11, weight: .semibold))
+                    .frame(width: 28, height: 26).background(Circle().fill(.white.opacity(picking ? 0.16 : 0.08)))
+            }.buttonStyle(PressStyle()).foregroundStyle(.white.opacity(0.85)).help("Hide or show batteries")
+            .popover(isPresented: Binding(get: { picking }, set: { picking = $0 }), arrowEdge: .top) { pickerList }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// "L", "R" or "Case" for AirPods pieces, so left and right read apart.
+    static func side(_ b: BatteryItem) -> String? {
+        switch b.id.split(separator: "|").last.map(String.init) ?? "" {
+        case "Left": "L"; case "Right": "R"; case "Case": "Case"; default: nil
+        }
+    }
+
+    func chip(_ b: BatteryItem) -> some View {
+        let c = Self.color(b.percent)
+        return HStack(spacing: 4) {
+            ZStack(alignment: .bottomTrailing) {
+                Image(systemName: b.icon).font(.system(size: 12.5, weight: .semibold)).frame(width: 18, height: 16)
+                    .foregroundStyle(.white.opacity(0.95))
+                if let s = Self.side(b), s != "Case" {
+                    Text(s).font(.system(size: 7.5, weight: .black)).foregroundStyle(.black)
+                        .frame(width: 10, height: 10).background(Circle().fill(.white)).offset(x: 4, y: 3)
+                }
+            }
+            ZStack(alignment: .leading) {
+                RoundedRectangle(cornerRadius: 2.5, style: .continuous).strokeBorder(c.opacity(0.7), lineWidth: 1).frame(width: 18, height: 10)
+                RoundedRectangle(cornerRadius: 1.5, style: .continuous).fill(c.gradient)
+                    .frame(width: max(2, 14 * CGFloat(b.percent) / 100), height: 6).padding(.leading, 2)
+                    .shadow(color: c.opacity(0.7), radius: 2)
+                if b.charging { Image(systemName: "bolt.fill").font(.system(size: 6, weight: .black)).foregroundStyle(.black).frame(width: 18) }
+            }
+            Text("\(b.percent)%").font(.system(size: 10.5, weight: .bold, design: .rounded).monospacedDigit()).foregroundStyle(c)
+                .lineLimit(1).fixedSize()
+        }
+        .padding(.horizontal, 6).frame(maxWidth: .infinity, minHeight: 26)
+        .background(Capsule().fill(c.opacity(0.10)).overlay(Capsule().strokeBorder(c.opacity(0.22), lineWidth: 1)))
+        .help(b.name)
+    }
+
+    var pickerList: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("SHOW IN THE BATTERIES BAR").font(.system(size: 10, weight: .heavy)).foregroundStyle(.secondary)
+            ForEach(all) { b in
+                Toggle(isOn: Binding(get: { !hidden.contains(b.id) }, set: { on in
+                    var h = hidden; if on { h.remove(b.id) } else { h.insert(b.id) }
+                    hiddenRaw = h.sorted().joined(separator: "\n")
+                })) {
+                    HStack(spacing: 8) {
+                        Image(systemName: b.icon).frame(width: 20)
+                        Text(b.name).lineLimit(1)
+                        Spacer()
+                        Text("\(b.percent)%").foregroundStyle(Self.color(b.percent)).monospacedDigit()
+                    }.frame(width: 230)
+                }.toggleStyle(.checkbox)
+            }
+            if all.isEmpty { Text("Nothing with a battery is connected.").foregroundStyle(.secondary) }
+            Hairline()
+            Button("Battery Settings…") { SystemModel.open("com.apple.Battery-Settings.extension") }.buttonStyle(.link)
+        }
+        .font(.system(size: 12)).padding(14)
     }
 }

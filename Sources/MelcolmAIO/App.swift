@@ -45,6 +45,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let timer = TimerModel()
     let system = SystemModel()
     let levels = AudioLevels()
+    let batteries = BatteryModel()
     var islands: [Island] = []
     var bag = Set<AnyCancellable>()
     static let expandedSize = CGSize(width: 480, height: 480)
@@ -180,9 +181,14 @@ final class Island: NSObject {
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
         panel.isMovable = false
         let root = IslandView(toggle: { [weak self] in self?.toggle() },
-                              hover: { [weak self] in self?.hover($0) })
+                              hover: { [weak self] in self?.hover($0) },
+                              openPage: { [weak self] p in
+                                  guard let self else { return }
+                                  state.page = p
+                                  if !state.expanded { setExpanded(true) }
+                              })
             .environmentObject(state).environmentObject(spaces).environmentObject(app.sound)
-            .environmentObject(app.playing).environmentObject(app.timer).environmentObject(app.system).environmentObject(app.levels)
+            .environmentObject(app.playing).environmentObject(app.timer).environmentObject(app.system).environmentObject(app.levels).environmentObject(app.batteries)
         panel.contentView = FirstClickHostingView(rootView: root)
         measureScreen()
         relayout()
@@ -221,8 +227,11 @@ final class Island: NSObject {
         state.iconSize = Layout.icon(forBar: barH)
         let left = 14 + Layout.stripWidth(spaces, icon: Layout.icon(forBar: barH)) + 12
         var right: CGFloat = 10 + 36 + 12                     // chevron
-        if timer.isActive && Prefs.bool("barShowTimer") { right += 74 }
-        else if playing.playing && Prefs.bool("barShowMusic") { right += 52 }   // music note + wave
+        switch BarActivity.current(timerOn: timer.isActive, musicOn: playing.playing) {
+        case .timer: right += 74
+        case .music: right += 52                                            // music note + wave
+        case nil: break
+        }
         if app.sound.micInUse { right += 30 }                                   // microphone icon
         let h = Prefs.d.string(forKey: "heightMode") == "custom" ? CGFloat(Prefs.d.double(forKey: "customHeight")) : screenBar
         icon = Layout.icon(forBar: h)
