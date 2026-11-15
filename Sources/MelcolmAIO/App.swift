@@ -57,6 +57,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     static let peekHeight: CGFloat = 28
 
     func applicationDidFinishLaunching(_ note: Notification) {
+        if UserDefaults.standard.bool(forKey: "debugSpacesDry") { DispatchQueue.main.asyncAfter(deadline: .now() + 2) { Tiler.minimizeSpaces(dry: true) } }
         Prefs.register()
         Tiler.watch()
         NSApp.setActivationPolicy(.accessory)

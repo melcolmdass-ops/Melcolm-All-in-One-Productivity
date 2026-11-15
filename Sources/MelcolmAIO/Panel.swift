@@ -464,14 +464,23 @@ struct PlayerRow: View {
 }
 
 /// The play bar: drag or click anywhere on it to jump. Times on each side.
+/// The one play bar being dragged right now, so the knob follows your finger before the jump.
+final class ScrubDrag: ObservableObject {
+    static let shared = ScrubDrag()
+    @Published var key: Double?      // the duration of the bar being dragged (identifies it)
+    @Published var f: Double = 0
+}
+
 struct Scrubber: View {
     let position: Double; let duration: Double; let seek: ((Double) -> Void)?
+    @ObservedObject var drag = ScrubDrag.shared
     var body: some View {
         let known = duration > 0
+        let dragging = drag.key == duration && known
         HStack(spacing: 8) {
-            Text(known ? TimerModel.format(position) : "--:--")
+            Text(known ? TimerModel.format(dragging ? drag.f * duration : position) : "--:--")
             GeometryReader { g in
-                let f = known ? min(1, max(0, position / duration)) : 0
+                let f = dragging ? drag.f : known ? min(1, max(0, position / duration)) : 0
                 ZStack(alignment: .leading) {
                     Capsule().fill(.white.opacity(0.14)).frame(height: 4)
                     Capsule().fill(.white).frame(width: g.size.width * f, height: 4)
@@ -481,10 +490,17 @@ struct Scrubber: View {
                 }
                 .frame(maxHeight: .infinity)
                 .contentShape(Rectangle())
-                .gesture(DragGesture(minimumDistance: 0).onEnded { v in
-                    guard known, let seek else { return }
-                    seek(min(1, max(0, v.location.x / g.size.width)) * duration)
-                })
+                .highPriorityGesture(DragGesture(minimumDistance: 0)
+                    .onChanged { v in
+                        guard known, seek != nil else { return }
+                        drag.key = duration; drag.f = min(1, max(0, v.location.x / g.size.width))
+                    }
+                    .onEnded { v in
+                        guard known, let seek else { return }
+                        let to = min(1, max(0, v.location.x / g.size.width)) * duration
+                        seek(to)
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { if drag.key == duration { drag.key = nil } }
+                    })
             }.frame(height: 14)
             Text(known ? TimerModel.format(duration) : "--:--")
         }

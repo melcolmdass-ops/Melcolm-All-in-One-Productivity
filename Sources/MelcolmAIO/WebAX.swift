@@ -120,9 +120,27 @@ enum WebAX {
         return AXUIElementPerformAction(e, kAXPressAction as CFString) == .success
     }
 
+    /// Jumps a web player's slider. Sets the value when the page allows it; otherwise
+    /// steps it with the slider's own increment/decrement (what the arrow keys do).
     static func seek(_ e: AXUIElement?, to t: Double) -> Bool {
         guard let e else { return false }
-        return AXUIElementSetAttributeValue(e, kAXValueAttribute as CFString, NSNumber(value: t)) == .success
+        AXUIElementSetMessagingTimeout(e, 0.3)
+        let before = num(e, kAXValueAttribute)
+        _ = AXUIElementSetAttributeValue(e, kAXValueAttribute as CFString, NSNumber(value: t))
+        guard var now = num(e, kAXValueAttribute) else { return false }
+        if abs(now - t) < 3 || (before != nil && abs(now - (before ?? now)) > 0.5 && abs(now - t) < 6) { return true }
+        // Measure one step, then take the rest.
+        let up = t > now
+        let action = (up ? kAXIncrementAction : kAXDecrementAction) as CFString
+        guard AXUIElementPerformAction(e, action) == .success else { return false }
+        let after = num(e, kAXValueAttribute) ?? now
+        let step = abs(after - now)
+        now = after
+        guard step > 0.01 else { return false }
+        var n = Int((abs(t - now) / step).rounded())
+        n = min(n, 400)
+        for _ in 0 ..< n { AXUIElementPerformAction(e, action) }
+        return true
     }
 }
 

@@ -22,6 +22,8 @@ final class NetworkModel: NSObject, ObservableObject, CLLocationManagerDelegate 
     @Published var password = ""
     @Published var error: String?
     @Published var showOther = false
+    @Published var openWifi = false      // the lists, in the small pop-up
+    @Published var openBT = false
     @Published var devices: [Device] = []
     @Published var busy: Set<String> = []
 
@@ -169,6 +171,21 @@ final class NetworkModel: NSObject, ObservableObject, CLLocationManagerDelegate 
 
 // MARK: - Views
 
+/// "Choose a network ›" in the small pop-up: opens the full list right there.
+func more(_ title: String, open: Binding<Bool>) -> some View {
+    Button { withAnimation(.easeOut(duration: 0.2)) { open.wrappedValue.toggle() } } label: {
+        HStack {
+            Image(systemName: "list.bullet").font(.system(size: 11, weight: .semibold))
+            Text(title).font(.system(size: 12, weight: .semibold))
+            Spacer()
+            Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).rotationEffect(.degrees(open.wrappedValue ? 90 : 0))
+        }
+        .foregroundStyle(.white.opacity(0.85)).padding(.horizontal, 12).frame(height: 32)
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(.white.opacity(0.07)))
+        .contentShape(Rectangle())
+    }.buttonStyle(PressStyle())
+}
+
 /// A round icon that fills with the accent colour when that thing is on or connected.
 struct NetIcon: View {
     let name: String; let on: Bool
@@ -210,7 +227,8 @@ struct WifiPage: View {
             ToggleRow(icon: system.wifiOn ? "wifi" : "wifi.slash", title: "Wi-Fi",
                       subtitle: system.wifiOn ? (system.wifiName ?? "On") : "Off", on: system.wifiOn,
                       action: { system.toggleWifi(); DispatchQueue.main.asyncAfter(deadline: .now() + 2) { net.scan() } })
-            if system.wifiOn && !light {
+            if system.wifiOn && light { more("Choose a network", open: $net.openWifi) }
+            if system.wifiOn && (!light || net.openWifi) {
                 let current = system.wifiName
                 let hotspots = net.nets.filter { $0.hotspot && $0.ssid != current }
                 let knownNets = net.nets.filter { $0.known && !$0.hotspot && $0.ssid != current }
@@ -286,7 +304,8 @@ struct BluetoothPage: View {
             ToggleRow(icon: "dot.radiowaves.left.and.right", title: "Bluetooth",
                       subtitle: system.bluetoothOn ? "On" : "Off", on: system.bluetoothOn,
                       action: { system.toggleBluetooth(); DispatchQueue.main.asyncAfter(deadline: .now() + 2) { net.refreshDevices() } })
-            if system.bluetoothOn && !light && !net.devices.isEmpty {
+            if system.bluetoothOn && light { more("Choose a device", open: $net.openBT) }
+            if system.bluetoothOn && (!light || net.openBT) && !net.devices.isEmpty {
                 sectionLabel("DEVICES")
                 Card {
                     VStack(spacing: 0) {

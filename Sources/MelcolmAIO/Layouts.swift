@@ -32,6 +32,22 @@ struct WindowLayout: Identifiable {
         WindowLayout(id: "center", title: "Centre", x: 0.15, y: 0.1, w: 0.7, h: 0.8),
     ]
     static let all = halves + thirds + corners + other
+
+    /// A small picture of the layout for menus: the screen, with the window's spot filled in.
+    var picture: NSImage {
+        let size = NSSize(width: 30, height: 20)
+        let img = NSImage(size: size, flipped: true) { r in
+            let screen = r.insetBy(dx: 1, dy: 1)
+            NSColor.white.withAlphaComponent(0.55).setStroke()
+            let frame = NSBezierPath(roundedRect: screen, xRadius: 3, yRadius: 3); frame.lineWidth = 1.2; frame.stroke()
+            let win = NSRect(x: screen.minX + screen.width * x + 1.5, y: screen.minY + screen.height * y + 1.5,
+                             width: screen.width * w - 3, height: screen.height * h - 3)
+            NSColor(red: 0.45, green: 0.6, blue: 1, alpha: 1).setFill()
+            NSBezierPath(roundedRect: win, xRadius: 2, yRadius: 2).fill()
+            return true
+        }
+        return img
+    }
 }
 
 /// Moves and resizes other apps' windows through Accessibility (the same way Rectangle does).
@@ -126,7 +142,7 @@ enum Tiler {
 
     /// Closes every full-screen Space at once, on every display: each full-screen window (found on
     /// any Space, not just this one) leaves full screen, then gets minimized.
-    static func minimizeSpaces() {
+    static func minimizeSpaces(dry: Bool = false) {
         guard trusted else { return }
         let me = ProcessInfo.processInfo.processIdentifier
         let apps = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular && $0.processIdentifier != me }
@@ -139,10 +155,24 @@ enum Tiler {
                 list += WebAX.windowsEverywhere(a.processIdentifier)
                 for w in list where flag(w, "AXFullScreen") && !fulls.contains(where: { CFEqual($0, w) }) { fulls.append(w) }
             }
-            for w in fulls { AXUIElementSetAttributeValue(w, "AXFullScreen" as CFString, kCFBooleanFalse) }
-            // Leaving full screen animates; ask again for any that didn't go, then minimize.
+            BrowserMedia.log("minimizeSpaces found \(fulls.count): \(fulls.map { w -> String in var t: CFTypeRef?; AXUIElementCopyAttributeValue(w, kAXTitleAttribute as CFString, &t); return (t as? String ?? "?").prefix(30).description })")
+            if dry { return }
+            let fs = "AXFullScreen" as CFString
+            for w in fulls { AXUIElementSetAttributeValue(w, fs, kCFBooleanFalse) }
             Thread.sleep(forTimeInterval: 1.5)
-            for w in fulls where flag(w, "AXFullScreen") { AXUIElementSetAttributeValue(w, "AXFullScreen" as CFString, kCFBooleanFalse); Thread.sleep(forTimeInterval: 0.9) }
+            // Some apps (Chrome) only leave full screen while their Space is showing: go there, then ask again.
+            for w in fulls where flag(w, "AXFullScreen") {
+                var pid: pid_t = 0; AXUIElementGetPid(w, &pid)
+                AXUIElementPerformAction(w, kAXRaiseAction as CFString)
+                DispatchQueue.main.sync { NSRunningApplication(processIdentifier: pid)?.activate() }
+                Thread.sleep(forTimeInterval: 1.0)
+                AXUIElementSetAttributeValue(w, fs, kCFBooleanFalse)
+                for _ in 0 ..< 3 where flag(w, "AXFullScreen") {
+                    Thread.sleep(forTimeInterval: 1.0)
+                    AXUIElementSetAttributeValue(w, fs, kCFBooleanFalse)
+                }
+                Thread.sleep(forTimeInterval: 1.2)
+            }
             Thread.sleep(forTimeInterval: 0.6)
             for w in fulls { AXUIElementSetAttributeValue(w, kAXMinimizedAttribute as CFString, kCFBooleanTrue) }
         }
@@ -217,7 +247,11 @@ struct LayoutsPage: View {
                 action("Minimize all\n(Spaces)", "arrow.down.right.and.arrow.up.left") { Tiler.minimizeSpaces() }
                 if light {
                     Menu {
-                        ForEach(shownList) { l in Button(l.title) { _ = Tiler.apply(l) } }
+                        ForEach(shownList) { l in
+                            Button { _ = Tiler.apply(l) } label: {
+                                Label { Text(l.title) } icon: { Image(nsImage: l.picture) }
+                            }
+                        }
                     } label: {
                         Label("Layouts", systemImage: "rectangle.split.2x2").font(.system(size: 11, weight: .semibold))
                     }
