@@ -15,14 +15,14 @@ struct IslandView: View {
         // On a notched screen the collapsed island reaches into the notch so the two read as one shape.
         let attached = state.notchWidth > 0 && !state.expanded
         let collapsedW = attached ? state.collapsedWidth + state.notchWidth : state.collapsedWidth
-        let w = state.expanded ? state.expandedWidth : collapsedW
+        let w = state.expanded ? state.expandedWidth : collapsedW + 2 * state.peekExtra
         let h = state.expanded ? AppDelegate.expandedSize.height : state.barHeight + (state.peek?.height ?? 0)
         let radius: CGFloat = state.expanded ? 26 : state.peek != nil ? 16 : min(14, state.barHeight / 2.2)
         let shape = UnevenRoundedRectangle(bottomLeadingRadius: radius, bottomTrailingRadius: radius, style: .continuous)
 
         VStack(spacing: 0) {
             TopBar(toggle: toggle, openPage: openPage)
-                .frame(height: state.barHeight)
+                .frame(width: state.expanded ? nil : collapsedW, height: state.barHeight)
             if state.expanded {
                 PanelView()
                     .transition(.asymmetric(insertion: .opacity.combined(with: .scale(scale: 0.96, anchor: .top)),
@@ -346,7 +346,7 @@ struct SettingsTab: View {
             Text("SHOW").font(.system(size: 10, weight: .heavy)).foregroundStyle(.secondary).frame(width: 44)
         }
         ForEach(PanelPage.listed, id: \.self) { t in
-            row(t.title) {
+            row(t.title, drag: t) {
                 let pins = PanelPage.pinned(homePinned)
                 Toggle("", isOn: Binding(
                     get: { pins.contains(t) },
@@ -476,12 +476,20 @@ struct SettingsTab: View {
         row("Mission Control shortcuts") { LinkButton("Keyboard Shortcuts…") { SystemModel.open("com.apple.Keyboard-Settings.extension") } }
     }
 
-    func row<C: View>(_ title: String, @ViewBuilder _ control: () -> C) -> some View {
+    func row<C: View>(_ title: String, drag: PanelPage? = nil, @ViewBuilder _ control: () -> C) -> some View {
         VStack(spacing: 0) {
-            HStack { Text(title).font(.system(size: 12.5, weight: .medium)); Spacer(); control() }.frame(minHeight: 30)
+            HStack {
+                if drag != nil {
+                    Image(systemName: "line.3.horizontal").font(.system(size: 11, weight: .bold)).foregroundStyle(.secondary)
+                        .frame(width: 16).help("Drag to reorder")
+                }
+                Text(title).font(.system(size: 12.5, weight: .medium)); Spacer(); control()
+            }.frame(minHeight: 30).contentShape(Rectangle())
             Hairline().padding(.top, 6)
         }
+        .modifier(PageDrag(page: drag, order: $pageOrder))
     }
+    @AppStorage("pageOrder") var pageOrder = ""
 }
 
 struct Pill: View {

@@ -5,10 +5,17 @@ import SwiftUI
 enum PanelPage: String, CaseIterable {
     case home, nowPlaying, sound, mic, brightness, wifi, bluetooth, awake, dark, timer, layouts, settings
 
-    static var listed: [PanelPage] { allCases.filter { $0 != .home && $0 != .settings } }
+    /// Every page in your chosen order (Settings ▸ Pages, drag to reorder).
+    static var listed: [PanelPage] {
+        let all = allCases.filter { $0 != .home && $0 != .settings }
+        var l = (Prefs.d.string(forKey: "pageOrder") ?? "").split(separator: ",").compactMap { PanelPage(rawValue: String($0)) }.filter(all.contains)
+        for p in all where !l.contains(p) { l.append(p) }
+        return l
+    }
     static let maxPinned = 3
     static func pinned(_ raw: String) -> [PanelPage] {
-        Array(raw.split(separator: ",").compactMap { PanelPage(rawValue: String($0)) }.prefix(maxPinned))
+        let set = Set(raw.split(separator: ",").compactMap { PanelPage(rawValue: String($0)) })
+        return Array(listed.filter(set.contains).prefix(maxPinned))   // shown in your page order
     }
 
     var title: String {
@@ -110,10 +117,12 @@ struct HomePage: View {
     @AppStorage("hiddenTiles") var hidden = ""
     @AppStorage("homePinned") var pinnedRaw = ""
     @AppStorage("batteriesBar") var batteriesBar = true
+    @AppStorage("pageOrder") var order = ""
 
     var body: some View {
         let pages = PanelPage.listed.filter { !hidden.split(separator: ",").contains(Substring($0.rawValue)) }
         let pinned = PanelPage.pinned(pinnedRaw)
+        let _ = order
         VStack(spacing: 14) {
           ScrollView(showsIndicators: true) {
            VStack(spacing: 14) {
@@ -129,7 +138,7 @@ struct HomePage: View {
                             Image(systemName: "chevron.right").font(.system(size: 8, weight: .bold))
                         }.foregroundStyle(.white.opacity(0.45)).padding(.horizontal, 2).contentShape(Rectangle())
                     }.buttonStyle(.plain)
-                    PanelView.pageContent(p)
+                    PanelView.pageContent(p).environment(\.lightPage, true)
                     Hairline().padding(.top, 4)
                 }
             }
@@ -398,6 +407,7 @@ struct Hairline: View {
 
 struct NowPlayingPage: View {
     @EnvironmentObject var playing: NowPlayingModel
+    @Environment(\.lightPage) var light
     var body: some View {
         let browserMain = playing.app == "Browser"
         let list = playing.others
@@ -416,6 +426,7 @@ struct NowPlayingPage: View {
                           play: { playing.toggle(r) }, next: { playing.skip(r, forward: true) },
                           seek: { playing.seek(r, to: $0) })
             }
+            if !light {
             Label("Click the artwork to open it where it's playing", systemImage: "hand.point.up.left.fill")
                 .font(.system(size: 10.5, weight: .medium)).foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 4).padding(.top, 2)
@@ -423,6 +434,7 @@ struct NowPlayingPage: View {
                 Text("To scrub the play bar on browser tabs (and play/pause without the tab coming forward), turn on Chrome ▸ View ▸ Developer ▸ Allow JavaScript from Apple Events. Chrome doesn't share the time otherwise.")
                     .font(.system(size: 10.5)).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 4)
+            }
             }
             SettingsLink(title: "Sound Settings", pane: "com.apple.Sound-Settings.extension")
         }
@@ -503,7 +515,11 @@ struct Scrubber: View {
 /// A clean "go to the real settings" row at the bottom of a page.
 struct SettingsLink: View {
     let title: String; var pane: String? = nil; var action: (() -> Void)? = nil
+    @Environment(\.lightPage) var light
     var body: some View {
+        if !light { full }
+    }
+    var full: some View {
         Button { if let action { action() } else if let pane { SystemModel.open(pane) } } label: {
             HStack {
                 Image(systemName: "gearshape").font(.system(size: 11, weight: .semibold))
@@ -631,5 +647,33 @@ struct BatteriesBar: View {
             Button("Battery Settings…") { SystemModel.open("com.apple.Battery-Settings.extension") }.buttonStyle(.link)
         }
         .font(.system(size: 12)).padding(14)
+    }
+}
+
+/// Pages shown on Home are the light version: just the controls, no tips or settings links.
+private struct LightPageKey: EnvironmentKey { static let defaultValue = false }
+extension EnvironmentValues {
+    var lightPage: Bool { get { self[LightPageKey.self] } set { self[LightPageKey.self] = newValue } }
+}
+
+/// Drag a page row onto another to put it there.
+struct PageDrag: ViewModifier {
+    let page: PanelPage?; @Binding var order: String
+    func body(content: Content) -> some View {
+        if let page {
+            content
+                .onDrag { NSItemProvider(object: page.rawValue as NSString) }
+                .onDrop(of: [.text], isTargeted: nil) { items in
+                    items.first?.loadObject(ofClass: NSString.self) { s, _ in
+                        guard let s = s as? String, let from = PanelPage(rawValue: s), from != page else { return }
+                        DispatchQueue.main.async {
+                            var l = PanelPage.listed.filter { $0 != from }
+                            l.insert(from, at: l.firstIndex(of: page) ?? l.count)
+                            order = l.map(\.rawValue).joined(separator: ",")
+                        }
+                    }
+                    return true
+                }
+        } else { content }
     }
 }

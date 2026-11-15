@@ -148,6 +148,7 @@ enum Tiler {
 
 struct LayoutsPage: View {
     @EnvironmentObject var state: IslandState
+    @Environment(\.lightPage) var light
     var body: some View {
         VStack(spacing: 14) {
             if !Tiler.trusted {
@@ -165,6 +166,7 @@ struct LayoutsPage: View {
                     .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(accent))
                     .foregroundStyle(.white)
             }.buttonStyle(PressStyle())
+            if !light {
             group("HALVES", WindowLayout.halves)
             group("THIRDS", WindowLayout.thirds)
             group("CORNERS", WindowLayout.corners)
@@ -172,6 +174,7 @@ struct LayoutsPage: View {
             Text("Snaps the window you were just using. Auto-arrange tidies every window on this screen into a grid.")
                 .font(.system(size: 10.5)).foregroundStyle(.tertiary).multilineTextAlignment(.center)
             SettingsLink(title: "Desktop & Dock Settings", pane: "com.apple.Desktop-Settings.extension")
+            }
         }
     }
 

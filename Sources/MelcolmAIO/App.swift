@@ -11,6 +11,7 @@ final class IslandState: ObservableObject {
     @Published var leftWing: CGFloat = 130
     @Published var rightWing: CGFloat = 130
     @Published var peek: Peek?
+    @Published var peekExtra: CGFloat = 0     // room added on each side for the hover bar; the top bar never moves
     @Published var iconSize: CGFloat = 20
     /// Collapsed, the island sits beside the notch instead of wrapping around it, so it is as short as on any other screen.
     var collapsedWidth: CGFloat { leftWing + rightWing }
@@ -240,11 +241,8 @@ final class Island: NSObject {
         set(&state.barHeight, h)
         let minPeek: CGFloat = state.peek?.kind == .text || state.peek == nil ? 300 : 360
         let baseW = state.collapsedWidth + state.notchWidth
-        if state.peek != nil, baseW < minPeek {
-            // Give the hover bar room to breathe.
-            let extra = (minPeek - baseW) / 2
-            state.leftWing += extra; state.rightWing += extra
-        }
+        // Give the hover bar room to breathe, without moving the top bar.
+        set(&state.peekExtra, state.peek != nil && baseW < minPeek ? (minPeek - baseW) / 2 : 0)
         let f = frame(expanded: state.expanded)
         if !state.expanded, f != panel.frame { panel.setFrame(f, display: true) }
     }
@@ -255,12 +253,12 @@ final class Island: NSObject {
         guard let screen else { return .zero }
         let size = expanded
             ? CGSize(width: state.expandedWidth, height: AppDelegate.expandedSize.height)
-            : CGSize(width: state.notchWidth > 0 ? state.collapsedWidth + state.notchWidth : max(state.collapsedWidth, state.peek == nil ? 0 : state.peek!.kind == .text ? 300 : 360),
+            : CGSize(width: state.collapsedWidth + state.notchWidth + 2 * state.peekExtra,
                      height: state.barHeight + (state.peek?.height ?? 0))
         // Centred on every screen; on a notched screen it straddles the notch.
         // Collapsed on a notched screen, each side is only as wide as its content.
         let x = !expanded && state.notchWidth > 0
-            ? screen.frame.midX - state.notchWidth / 2 - state.leftWing
+            ? screen.frame.midX - state.notchWidth / 2 - state.leftWing - state.peekExtra
             : screen.frame.midX - size.width / 2
         return NSRect(x: x.rounded(), y: screen.frame.maxY - size.height, width: size.width.rounded(), height: size.height)
     }
