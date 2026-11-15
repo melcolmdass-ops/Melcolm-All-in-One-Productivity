@@ -162,8 +162,9 @@ struct LayoutsPage: View {
             Button { _ = Tiler.autoArrange() } label: {
                 Label("Auto-arrange all windows", systemImage: "sparkles.rectangle.stack")
                     .font(.system(size: 13, weight: .semibold)).frame(maxWidth: .infinity, minHeight: 42)
-                    .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(accent))
-                    .foregroundStyle(.black)
+                    .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(accentGradient))
+                    .shadow(color: accent.opacity(0.5), radius: 10, y: 3)
+                    .foregroundStyle(.white)
             }.buttonStyle(PressStyle())
             group("HALVES", WindowLayout.halves)
             group("THIRDS", WindowLayout.thirds)
@@ -184,7 +185,7 @@ struct LayoutsPage: View {
                             ZStack(alignment: .topLeading) {
                                 RoundedRectangle(cornerRadius: 4).fill(.white.opacity(0.1))
                                 GeometryReader { g in
-                                    RoundedRectangle(cornerRadius: 3).fill(accent)
+                                    RoundedRectangle(cornerRadius: 3).fill(accentGradient)
                                         .frame(width: g.size.width * l.w - 3, height: g.size.height * l.h - 3)
                                         .offset(x: g.size.width * l.x + 1.5, y: g.size.height * l.y + 1.5)
                                 }

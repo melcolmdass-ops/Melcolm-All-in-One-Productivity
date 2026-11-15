@@ -23,6 +23,25 @@ enum PanelPage: String, CaseIterable {
     }
 }
 
+extension PanelPage {
+    /// Each page has its own colour, so the home grid reads at a glance.
+    var tint: [Color] {
+        func c(_ r: Double, _ g: Double, _ b: Double) -> Color { Color(red: r, green: g, blue: b) }
+        switch self {
+        case .sound: return [c(0.36, 0.60, 1.0), c(0.58, 0.42, 1.0)]
+        case .mic: return [c(1.0, 0.40, 0.55), c(1.0, 0.26, 0.34)]
+        case .brightness: return [c(1.0, 0.82, 0.28), c(1.0, 0.55, 0.20)]
+        case .wifi: return [c(0.25, 0.85, 1.0), c(0.30, 0.55, 1.0)]
+        case .bluetooth: return [c(0.32, 0.62, 1.0), c(0.26, 0.40, 1.0)]
+        case .awake: return [c(1.0, 0.62, 0.22), c(1.0, 0.40, 0.28)]
+        case .dark: return [c(0.52, 0.46, 1.0), c(0.72, 0.36, 0.95)]
+        case .timer: return [c(0.32, 0.92, 0.58), c(0.20, 0.74, 0.82)]
+        case .layouts: return [c(0.26, 0.82, 0.82), c(0.30, 0.55, 1.0)]
+        default: return [accent, accent2]
+        }
+    }
+}
+
 /// The panel that slides out of the island: a home grid, and one clean page per button.
 struct PanelView: View {
     @EnvironmentObject var state: IslandState
@@ -86,18 +105,30 @@ struct HomePage: View {
                     let (sub, on) = status(p)
                     Button { state.page = p } label: {
                         HStack(spacing: 12) {
-                            Image(systemName: p.icon).font(.system(size: 15, weight: .semibold))
-                                .frame(width: 38, height: 38)
-                                .background(Circle().fill(on ? accent : .white.opacity(0.1)))
-                                .foregroundStyle(on ? .black : .white)
+                            Image(systemName: p.icon).font(.system(size: 16, weight: .semibold))
+                                .symbolRenderingMode(.hierarchical)
+                                .frame(width: 40, height: 40)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 13, style: .continuous)
+                                        .fill(on ? AnyShapeStyle(LinearGradient(colors: p.tint, startPoint: .topLeading, endPoint: .bottomTrailing))
+                                                 : AnyShapeStyle(.white.opacity(0.08)))
+                                        .shadow(color: on ? p.tint[0].opacity(0.55) : .clear, radius: 9, y: 3)
+                                )
+                                .foregroundStyle(on ? .white : .white.opacity(0.6))
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(p.title).font(.system(size: 13, weight: .semibold)).lineLimit(1)
                                 Text(sub).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
                             }
                             Spacer(minLength: 0)
                         }
-                        .padding(.horizontal, 12).frame(maxWidth: .infinity, minHeight: 62, alignment: .leading)
-                        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(.white.opacity(0.07)))
+                        .padding(.horizontal, 12).frame(maxWidth: .infinity, minHeight: 66, alignment: .leading)
+                        .background(
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .fill(LinearGradient(colors: [.white.opacity(on ? 0.12 : 0.09), .white.opacity(0.04)], startPoint: .top, endPoint: .bottom))
+                                .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                    .strokeBorder(LinearGradient(colors: [on ? p.tint[0].opacity(0.45) : .white.opacity(0.16), .white.opacity(0.03)],
+                                                                 startPoint: .top, endPoint: .bottom), lineWidth: 0.9))
+                        )
                         .contentShape(Rectangle())
                     }.buttonStyle(PressStyle())
                 }
@@ -129,7 +160,7 @@ struct HomePage: View {
         case .awake: return (system.awake ? "On" : "Off", system.awake)
         case .dark: return (system.dark ? "Dark" : "Light", system.dark)
         case .timer: return (timer.isActive ? timer.display : "Ready", timer.isActive)
-        case .layouts: return ("Snap windows", false)
+        case .layouts: return ("Snap windows", true)
         default: return ("", false)
         }
     }
@@ -142,13 +173,16 @@ struct ToggleRow: View {
     var body: some View {
         Card {
             HStack(spacing: 14) {
-                Image(systemName: icon).font(.system(size: 18, weight: .semibold)).foregroundStyle(accent).frame(width: 30)
+                Image(systemName: icon).font(.system(size: 17, weight: .semibold)).symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(.white).frame(width: 38, height: 38)
+                    .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(accentGradient))
+                    .shadow(color: accent.opacity(0.45), radius: 8, y: 2)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(title).font(.system(size: 14, weight: .semibold))
                     Text(subtitle).font(.system(size: 11.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer()
-                Toggle("", isOn: Binding(get: { on }, set: { _ in action() })).toggleStyle(.switch).labelsHidden()
+                Toggle("", isOn: Binding(get: { on }, set: { _ in action() })).toggleStyle(.switch).labelsHidden().tint(accent)
             }
             .padding(.vertical, 6)
         }
@@ -305,7 +339,8 @@ struct TimerPage: View {
                     ForEach([1, 5, 10, 15, 25, 45], id: \.self) { m in
                         Button { timer.start(minutes: Double(m)) } label: {
                             Text("\(m) min").font(.system(size: 13, weight: .semibold)).frame(maxWidth: .infinity, minHeight: 40)
-                                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(.white.opacity(0.09)))
+                                .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(.white.opacity(0.09))
+                                    .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(.white.opacity(0.12), lineWidth: 0.7)))
                         }.buttonStyle(PressStyle())
                     }
                 }
@@ -379,7 +414,9 @@ struct MediaButton: View {
         Button(action: action) {
             Image(systemName: icon).font(.system(size: big ? 15 : 11, weight: .semibold))
                 .frame(width: big ? 36 : 28, height: big ? 36 : 28)
-                .background(Circle().fill(.white.opacity(big ? 0.16 : 0.06)))
+                .background(Circle().fill(big ? AnyShapeStyle(.white) : AnyShapeStyle(.white.opacity(0.08))))
+                .foregroundStyle(big ? .black : .white)
+                .shadow(color: big ? .white.opacity(0.25) : .clear, radius: 8)
                 .contentShape(Circle())
         }.buttonStyle(PressStyle())
     }

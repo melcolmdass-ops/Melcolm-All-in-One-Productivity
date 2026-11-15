@@ -1,7 +1,9 @@
 import CoreAudio
 import SwiftUI
 
-let accent = Color(red: 0.45, green: 0.62, blue: 1.0)
+let accent = Color(red: 0.40, green: 0.62, blue: 1.0)
+let accent2 = Color(red: 0.62, green: 0.45, blue: 1.0)
+let accentGradient = LinearGradient(colors: [Color(red: 0.36, green: 0.66, blue: 1.0), Color(red: 0.58, green: 0.42, blue: 1.0)], startPoint: .topLeading, endPoint: .bottomTrailing)
 
 struct IslandView: View {
     @EnvironmentObject var state: IslandState
@@ -9,11 +11,13 @@ struct IslandView: View {
     let hover: (Bool) -> Void
 
     var body: some View {
-        let collapsedW = state.collapsedWidth
+        // On a notched screen the collapsed island reaches into the notch so the two read as one shape.
+        let attached = state.notchWidth > 0 && !state.expanded
+        let collapsedW = state.collapsedWidth + (attached ? state.notchWidth / 2 : 0)
         let w = state.expanded ? state.expandedWidth : collapsedW
         let h = state.expanded ? AppDelegate.expandedSize.height : state.barHeight + (state.peek != nil ? AppDelegate.peekHeight : 0)
         let radius: CGFloat = state.expanded ? 26 : state.peek != nil ? 16 : min(14, state.barHeight / 2.2)
-        let shape = UnevenRoundedRectangle(bottomLeadingRadius: radius, bottomTrailingRadius: radius, style: .continuous)
+        let shape = UnevenRoundedRectangle(bottomLeadingRadius: radius, bottomTrailingRadius: attached ? 0 : radius, style: .continuous)
 
         VStack(spacing: 0) {
             TopBar(toggle: toggle)
@@ -24,14 +28,23 @@ struct IslandView: View {
                                             removal: .opacity))
             } else if let p = state.peek {
                 PeekRow(peek: p).frame(height: AppDelegate.peekHeight)
+                    .padding(.trailing, attached ? state.notchWidth / 2 : 0)
                     .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
         .frame(width: w, height: h, alignment: .top)
         .background(
-            shape.fill(.black)
-                .overlay(shape.stroke(LinearGradient(colors: [.clear, .white.opacity(0.12)], startPoint: .top, endPoint: .bottom), lineWidth: 1))
-                .shadow(color: .black.opacity(state.expanded ? 0.5 : 0), radius: 18, y: 8)
+            ZStack {
+                shape.fill(LinearGradient(colors: [Color(white: 0.0), Color(white: 0.055)], startPoint: .top, endPoint: .bottom))
+                if state.expanded {
+                    // A soft glow rising from the top of the panel.
+                    shape.fill(RadialGradient(colors: [accent.opacity(0.20), accent2.opacity(0.08), .clear],
+                                              center: .init(x: 0.5, y: 0), startRadius: 4, endRadius: 330))
+                }
+                shape.strokeBorder(LinearGradient(colors: [.white.opacity(0.0), .white.opacity(state.expanded ? 0.22 : 0.14), accent.opacity(0.35)],
+                                                  startPoint: .top, endPoint: .bottom), lineWidth: 1)
+            }
+            .shadow(color: .black.opacity(state.expanded ? 0.6 : 0), radius: 22, y: 10)
         )
         .clipShape(shape)
         .onHover(perform: hover)
@@ -78,15 +91,16 @@ struct TopBar: View {
                     Image(systemName: "chevron.down")
                         .font(.system(size: 13, weight: .bold))
                         .rotationEffect(.degrees(state.expanded ? 180 : 0))
-                        .foregroundStyle(.white.opacity(0.9))
+                        .foregroundStyle(.white.opacity(0.92))
                         .frame(width: 36, height: 26)
-                        .background(Capsule().fill(.white.opacity(0.12)))
+                        .background(Capsule().fill(.white.opacity(0.1)).overlay(Capsule().strokeBorder(.white.opacity(0.16), lineWidth: 0.7)))
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .help("Open Melcolm (⌃⌥Space)")
             }
             .padding(.trailing, 10)
+            if state.notchWidth > 0 && !state.expanded { Color.clear.frame(width: state.notchWidth / 2) }
         }
     }
 }
@@ -123,8 +137,8 @@ struct SpacesStrip: View {
                 .frame(width: Layout.groupWidth(g, icon: icon), height: h, alignment: .leading)
                 .background {
                     let r = RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    r.fill(.white.opacity(0.11))
-                    r.strokeBorder(.white.opacity(0.22), lineWidth: 0.8)
+                    r.fill(LinearGradient(colors: [.white.opacity(0.16), .white.opacity(0.07)], startPoint: .top, endPoint: .bottom))
+                    r.strokeBorder(LinearGradient(colors: [.white.opacity(0.32), .white.opacity(0.12)], startPoint: .top, endPoint: .bottom), lineWidth: 0.8)
                 }
                 .help("Display \(g.number)")
             }
@@ -136,9 +150,9 @@ struct SpacesStrip: View {
         let r = RoundedRectangle(cornerRadius: 8, style: .continuous)
         return ZStack {
             if on {
-                r.fill(accent.opacity(style == "box" ? 0.28 : 0.16))
-                r.strokeBorder(accent, lineWidth: 1.4)
-                    .shadow(color: accent.opacity(0.9), radius: style == "glow" ? 6 : 0)
+                r.fill(accentGradient.opacity(style == "box" ? 0.40 : 0.24))
+                r.strokeBorder(accentGradient, lineWidth: 1.5)
+                    .shadow(color: accent.opacity(0.95), radius: style == "glow" ? 7 : 0)
             }
         }
     }
@@ -189,7 +203,12 @@ struct Card<Content: View>: View {
     @ViewBuilder var content: Content
     var body: some View {
         content.padding(12).frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(.white.opacity(0.07)))
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(LinearGradient(colors: [.white.opacity(0.11), .white.opacity(0.045)], startPoint: .top, endPoint: .bottom))
+                    .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .strokeBorder(LinearGradient(colors: [.white.opacity(0.18), .white.opacity(0.04)], startPoint: .top, endPoint: .bottom), lineWidth: 0.8))
+            )
     }
 }
 
@@ -225,9 +244,9 @@ struct SettingsTab: View {
                 ForEach(Page.allCases, id: \.self) { p in
                     Button { page = p.rawValue } label: {
                         Text(p.rawValue).font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(page == p.rawValue ? .black : .white.opacity(0.7))
+                            .foregroundStyle(page == p.rawValue ? .white : .white.opacity(0.7))
                             .padding(.horizontal, 10).padding(.vertical, 5)
-                            .background(Capsule().fill(page == p.rawValue ? accent : .white.opacity(0.07)))
+                            .background(Capsule().fill(page == p.rawValue ? AnyShapeStyle(accentGradient) : AnyShapeStyle(.white.opacity(0.07))))
                     }.buttonStyle(.plain)
                 }
             }
@@ -344,8 +363,10 @@ struct Pill: View {
     var body: some View {
         Button(action: action) {
             Text(title).font(.system(size: 12, weight: .semibold)).padding(.horizontal, 14).padding(.vertical, 7)
-                .background(Capsule().fill(filled ? accent : .white.opacity(0.1)))
-                .foregroundStyle(filled ? .black : .white)
+                .background(Capsule().fill(filled ? AnyShapeStyle(accentGradient) : AnyShapeStyle(.white.opacity(0.1))))
+                .overlay(Capsule().strokeBorder(.white.opacity(filled ? 0.0 : 0.12), lineWidth: 0.7))
+                .shadow(color: filled ? accent.opacity(0.45) : .clear, radius: 8, y: 2)
+                .foregroundStyle(filled ? .white : .white)
         }.buttonStyle(.plain)
     }
 }

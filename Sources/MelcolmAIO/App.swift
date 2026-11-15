@@ -231,12 +231,12 @@ final class Island: NSObject {
         guard let screen else { return .zero }
         let size = expanded
             ? CGSize(width: state.expandedWidth, height: AppDelegate.expandedSize.height)
-            : CGSize(width: max(state.collapsedWidth, state.peek != nil ? 300 : 0),
+            : CGSize(width: max(state.collapsedWidth, state.peek != nil ? 300 : 0) + (state.notchWidth > 0 ? state.notchWidth / 2 : 0),
                      height: state.barHeight + (state.peek != nil ? AppDelegate.peekHeight : 0))
         // Collapsed on a notched screen: end flush against the left edge of the notch.
         // Otherwise the island is simply centred.
         let x = !expanded && state.notchWidth > 0
-            ? screen.frame.midX - state.notchWidth / 2 - size.width
+            ? screen.frame.midX - size.width
             : screen.frame.midX - size.width / 2
         return NSRect(x: x.rounded(), y: screen.frame.maxY - size.height, width: size.width.rounded(), height: size.height)
     }
