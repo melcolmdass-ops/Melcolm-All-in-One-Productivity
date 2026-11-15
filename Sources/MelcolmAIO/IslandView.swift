@@ -206,8 +206,9 @@ struct SpacesStrip: View {
 
 struct Card<Content: View>: View {
     @ViewBuilder var content: Content
+    @Environment(\.compactPage) var compact
     var body: some View {
-        content.padding(14).frame(maxWidth: .infinity, alignment: .leading)
+        content.padding(.horizontal, compact ? 10 : 14).padding(.vertical, compact ? 6 : 14).frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color(white: 0.105))
                     .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(.white.opacity(0.08), lineWidth: 1))

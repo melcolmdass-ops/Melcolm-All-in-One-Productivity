@@ -95,8 +95,8 @@ struct PanelView: View {
     @ViewBuilder static func pageContent(_ page: PanelPage) -> some View {
         switch page {
         case .nowPlaying: NowPlayingPage()
-        case .sound: VStack(spacing: 14) { SoundPage(); sectionLabel("Microphone"); MicPage() }
-        case .network: VStack(spacing: 14) { WifiPage(); BluetoothPage() }
+        case .sound: CompactStack { SoundPage(); sectionLabel("Microphone"); MicPage() }
+        case .network: CompactStack { WifiPage(); BluetoothPage() }
         case .batteries: BatteriesPage()
         case .brightness: BrightnessPage()
         case .awake: AwakePage()
@@ -233,6 +233,7 @@ struct ToggleRow: View {
 
 struct DeviceList: View {
     let devices: [OutputDevice]; let current: AudioDeviceID; let pick: (OutputDevice) -> Void
+    @Environment(\.compactPage) var compact
     var body: some View {
         Card {
             VStack(spacing: 0) {
@@ -245,7 +246,7 @@ struct DeviceList: View {
                             Text(d.name).lineLimit(1)
                             Spacer()
                         }
-                        .font(.system(size: 13, weight: d.id == current ? .semibold : .regular)).padding(.vertical, 9).contentShape(Rectangle())
+                        .font(.system(size: 13, weight: d.id == current ? .semibold : .regular)).padding(.vertical, compact ? 5 : 9).contentShape(Rectangle())
                     }.buttonStyle(.plain)
                 }
             }
@@ -255,6 +256,7 @@ struct DeviceList: View {
 
 struct BigSlider: View {
     let icon: String; let value: Binding<Double>; var tap: (() -> Void)?
+    @Environment(\.compactPage) var compact
     var body: some View {
         Card {
             HStack(spacing: 12) {
@@ -264,7 +266,7 @@ struct BigSlider: View {
                 Text("\(Int(value.wrappedValue * 100))%").font(.system(size: 12, weight: .semibold).monospacedDigit())
                     .foregroundStyle(.secondary).frame(width: 40, alignment: .trailing)
             }
-            .padding(.vertical, 6)
+            .padding(.vertical, compact ? 0 : 6)
         }
     }
 }
@@ -273,7 +275,7 @@ struct SoundPage: View {
     @EnvironmentObject var sound: SoundModel
     @EnvironmentObject var playing: NowPlayingModel
     var body: some View {
-        VStack(spacing: 14) {
+        CompactStack {
             BigSlider(icon: sound.muted ? "speaker.slash.fill" : "speaker.wave.2.fill",
                       value: Binding(get: { sound.volume }, set: { sound.setVolume($0) }), tap: sound.toggleMute)
             sectionLabel("OUTPUT")
@@ -286,7 +288,7 @@ struct SoundPage: View {
 struct MicPage: View {
     @EnvironmentObject var sound: SoundModel
     var body: some View {
-        VStack(spacing: 14) {
+        CompactStack {
             if sound.inputAdjustable {
                 BigSlider(icon: sound.inputMuted ? "mic.slash.fill" : "mic.fill",
                           value: Binding(get: { sound.inputVolume }, set: { sound.setInputVolume($0) }), tap: sound.toggleInputMute)
@@ -304,7 +306,7 @@ struct MicPage: View {
 struct BrightnessPage: View {
     @EnvironmentObject var system: SystemModel
     var body: some View {
-        VStack(spacing: 14) {
+        CompactStack {
             if let b = system.brightness {
                 BigSlider(icon: "sun.max.fill", value: Binding(get: { b }, set: { system.setBrightness($0) }))
             } else {
@@ -319,7 +321,7 @@ struct BrightnessPage: View {
 struct WifiPage: View {
     @EnvironmentObject var system: SystemModel
     var body: some View {
-        VStack(spacing: 14) {
+        CompactStack {
             ToggleRow(icon: system.wifiOn ? "wifi" : "wifi.slash", title: "Wi-Fi",
                       subtitle: system.wifiOn ? (system.wifiName ?? "On") : "Off", on: system.wifiOn, action: system.toggleWifi)
             SettingsLink(title: "Wi-Fi Settings", pane: "com.apple.wifi-settings-extension")
@@ -330,7 +332,7 @@ struct WifiPage: View {
 struct BluetoothPage: View {
     @EnvironmentObject var system: SystemModel
     var body: some View {
-        VStack(spacing: 14) {
+        CompactStack {
             ToggleRow(icon: "dot.radiowaves.left.and.right", title: "Bluetooth",
                       subtitle: system.bluetoothOn ? "On" : "Off", on: system.bluetoothOn, action: system.toggleBluetooth)
             SettingsLink(title: "Bluetooth Settings", pane: "com.apple.BluetoothSettings")
@@ -341,7 +343,7 @@ struct BluetoothPage: View {
 struct AwakePage: View {
     @EnvironmentObject var system: SystemModel
     var body: some View {
-        VStack(spacing: 14) {
+        CompactStack {
             ToggleRow(icon: "cup.and.saucer.fill", title: "Keep Awake",
                       subtitle: "Stops the screen from sleeping until you turn this off.", on: system.awake, action: system.toggleAwake)
             SettingsLink(title: "Lock Screen Settings", pane: "com.apple.Lock-Screen-Settings.extension")
@@ -352,7 +354,7 @@ struct AwakePage: View {
 struct DarkPage: View {
     @EnvironmentObject var system: SystemModel
     var body: some View {
-        VStack(spacing: 14) {
+        CompactStack {
             ToggleRow(icon: "circle.lefthalf.filled", title: "Dark Mode",
                       subtitle: system.dark ? "The Mac is using the dark look." : "The Mac is using the light look.", on: system.dark, action: system.toggleDark)
             SettingsLink(title: "Appearance Settings", pane: "com.apple.Appearance-Settings.extension")
@@ -563,6 +565,7 @@ struct BatteriesBar: View {
     @EnvironmentObject var batteries: BatteryModel
     @AppStorage("batteryHidden") var hiddenRaw = ""
     @AppStorage("batteryPicking") var picking = false
+    @Environment(\.compactPage) var compact
 
     static func color(_ p: Int) -> Color {
         p <= 10 ? Color(red: 1, green: 0.27, blue: 0.27) : p <= 20 ? Color(red: 1, green: 0.62, blue: 0.2)
@@ -578,7 +581,7 @@ struct BatteriesBar: View {
         let shown = all.filter { !hidden.contains($0.id) }
         HStack(alignment: .top, spacing: 6) {
             // Four per row; the fifth starts a new row, so nothing is ever cut off.
-            LazyVGrid(columns: Array(repeating: GridItem(.fixed(86), spacing: 5), count: 4), alignment: .leading, spacing: 5) {
+            LazyVGrid(columns: Array(repeating: GridItem(.fixed(compact ? 84 : 86), spacing: 5), count: compact ? 3 : 4), alignment: .leading, spacing: 5) {
                 ForEach(shown) { chip($0) }
             }
             if shown.isEmpty { Text("No batteries shown").foregroundStyle(.tertiary).frame(maxWidth: .infinity, alignment: .leading) }
@@ -650,6 +653,11 @@ struct BatteriesBar: View {
 
 /// Pages shown on Home are the light version: just the controls, no tips or settings links.
 private struct LightPageKey: EnvironmentKey { static let defaultValue = false }
+/// Pop-ups from the utility bar: same controls, tighter spacing, so text stays big in a small box.
+private struct CompactPageKey: EnvironmentKey { static let defaultValue = false }
+extension EnvironmentValues {
+    var compactPage: Bool { get { self[CompactPageKey.self] } set { self[CompactPageKey.self] = newValue } }
+}
 extension EnvironmentValues {
     var lightPage: Bool { get { self[LightPageKey.self] } set { self[LightPageKey.self] = newValue } }
 }
@@ -683,7 +691,7 @@ struct BatteriesPage: View {
     @EnvironmentObject var system: SystemModel
     @EnvironmentObject var batteries: BatteryModel
     var body: some View {
-        VStack(spacing: 14) {
+        CompactStack {
             BatteriesBar()
             SettingsLink(title: "Battery Settings", pane: "com.apple.Battery-Settings.extension")
         }
@@ -715,10 +723,10 @@ struct UtilityBar: View {
                 .buttonStyle(PressStyle()).foregroundStyle(.white.opacity(0.9)).help(p.title)
                 .popover(isPresented: Binding(get: { open == p.rawValue }, set: { if !$0, open == p.rawValue { open = "" } }), arrowEdge: .top) {
                     // The same page, laid out at full panel width and shrunk, so nothing is cut off.
-                    ScaledDown(scale: 0.62, width: 444) {
+                    ScaledDown(scale: 0.9, width: 316) {
                         VStack(spacing: 12) {
                             Text(p.title).font(.system(size: 15, weight: .heavy)).frame(maxWidth: .infinity, alignment: .leading)
-                            PanelView.pageContent(p).environment(\.lightPage, true)
+                            PanelView.pageContent(p).environment(\.lightPage, true).environment(\.compactPage, true)
                         }
                     }
                     .padding(10).preferredColorScheme(.dark)
@@ -768,4 +776,11 @@ struct ScaledLayout: SwiftUI.Layout {
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         subviews.first?.place(at: bounds.origin, anchor: .topLeading, proposal: ProposedViewSize(width: width, height: nil))
     }
+}
+
+/// A page's column: normal spacing, tighter inside utility pop-ups.
+struct CompactStack<C: View>: View {
+    @Environment(\.compactPage) var compact
+    @ViewBuilder var content: C
+    var body: some View { VStack(spacing: compact ? 7 : 14) { content } }
 }
