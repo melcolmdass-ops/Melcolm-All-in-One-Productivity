@@ -264,7 +264,7 @@ struct BigSlider: View {
                     .buttonStyle(.plain).disabled(tap == nil)
                 Slider(value: value, in: 0 ... 1).tint(accent)
                 Text("\(Int(value.wrappedValue * 100))%").font(.system(size: 12, weight: .semibold).monospacedDigit())
-                    .foregroundStyle(.secondary).frame(width: 40, alignment: .trailing)
+                    .foregroundStyle(compact ? AnyShapeStyle(.white) : AnyShapeStyle(.secondary)).frame(width: 40, alignment: .trailing)
             }
             .padding(.vertical, compact ? 0 : 6)
         }
@@ -725,11 +725,14 @@ struct UtilityBar: View {
                     // The same page, laid out at full panel width and shrunk, so nothing is cut off.
                     ScaledDown(scale: 0.9, width: 316) {
                         VStack(spacing: 12) {
-                            Text(p.title).font(.system(size: 15, weight: .heavy)).frame(maxWidth: .infinity, alignment: .leading)
+                            Text(p.title).font(.system(size: 15, weight: .heavy)).foregroundStyle(.white).frame(maxWidth: .infinity, alignment: .leading)
                             PanelView.pageContent(p).environment(\.lightPage, true).environment(\.compactPage, true)
                         }
                     }
                     .padding(10).preferredColorScheme(.dark)
+                    // Pop-ups never become the active window, so macOS greys them out; keep them bright.
+                    .environment(\.controlActiveState, .key)
+                    .foregroundStyle(.white)
                 }
             }
             if items.isEmpty { Text("Pick items in Settings ▸ Utility Bar").foregroundStyle(.tertiary) }
