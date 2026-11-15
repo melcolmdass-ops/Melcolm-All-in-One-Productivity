@@ -13,7 +13,7 @@ struct IslandView: View {
     var body: some View {
         // On a notched screen the collapsed island reaches into the notch so the two read as one shape.
         let attached = state.notchWidth > 0 && !state.expanded
-        let collapsedW = attached ? 2 * max(state.leftWing, state.rightWing) + state.notchWidth : state.collapsedWidth
+        let collapsedW = attached ? state.collapsedWidth + state.notchWidth : state.collapsedWidth
         let w = state.expanded ? state.expandedWidth : collapsedW
         let h = state.expanded ? AppDelegate.expandedSize.height : state.barHeight + (state.peek != nil ? AppDelegate.peekHeight : 0)
         let radius: CGFloat = state.expanded ? 26 : state.peek != nil ? 16 : min(14, state.barHeight / 2.2)
@@ -67,7 +67,7 @@ struct TopBar: View {
         HStack(spacing: 0) {
             SpacesStrip()
                 .padding(.leading, 14)
-                .frame(width: state.notchWidth > 0 ? max(state.leftWing, state.rightWing) : state.leftWing, alignment: .leading)
+                .frame(width: state.expanded && state.notchWidth > 0 ? max(state.leftWing, state.rightWing) : state.leftWing, alignment: .leading)
             if state.notchWidth > 0 { Color.clear.frame(width: state.notchWidth) }
             Spacer(minLength: 0)
             HStack(spacing: 8) {

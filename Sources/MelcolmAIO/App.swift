@@ -231,10 +231,13 @@ final class Island: NSObject {
         guard let screen else { return .zero }
         let size = expanded
             ? CGSize(width: state.expandedWidth, height: AppDelegate.expandedSize.height)
-            : CGSize(width: state.notchWidth > 0 ? 2 * max(state.leftWing, state.rightWing) + state.notchWidth : max(state.collapsedWidth, state.peek != nil ? 300 : 0),
+            : CGSize(width: state.notchWidth > 0 ? state.collapsedWidth + state.notchWidth : max(state.collapsedWidth, state.peek != nil ? 300 : 0),
                      height: state.barHeight + (state.peek != nil ? AppDelegate.peekHeight : 0))
         // Centred on every screen; on a notched screen it straddles the notch.
-        let x = screen.frame.midX - size.width / 2
+        // Collapsed on a notched screen, each side is only as wide as its content.
+        let x = !expanded && state.notchWidth > 0
+            ? screen.frame.midX - state.notchWidth / 2 - state.leftWing
+            : screen.frame.midX - size.width / 2
         return NSRect(x: x.rounded(), y: screen.frame.maxY - size.height, width: size.width.rounded(), height: size.height)
     }
 
@@ -312,7 +315,7 @@ final class Island: NSObject {
     func scrolled(_ e: NSEvent) {
         guard !state.expanded, panel.frame.contains(NSEvent.mouseLocation) else { return }
         // Right half of the island = volume, left half = Spaces.
-        if NSEvent.mouseLocation.x > panel.frame.midX {
+        if NSEvent.mouseLocation.x > (state.notchWidth > 0 ? (screen?.frame.midX ?? panel.frame.midX) : panel.frame.midX) {
             guard Prefs.bool("scrollVolume") else { return }
             let d = abs(e.scrollingDeltaY) >= abs(e.scrollingDeltaX) ? e.scrollingDeltaY : -e.scrollingDeltaX
             sound.nudge((e.hasPreciseScrollingDeltas ? d / 300 : d / 30) * (e.isDirectionInvertedFromDevice ? 1 : -1) * -1)
