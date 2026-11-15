@@ -70,7 +70,7 @@ struct TopBar: View {
             if !state.stripRight {
                 // With a notch, both sides hug the notch so the island reads as centred on it.
                 SpacesStrip()
-                    .padding(state.notchWidth > 0 ? .trailing : .leading, state.notchWidth > 0 ? 12 : 14)
+                    .padding(state.notchWidth > 0 ? .trailing : .leading, state.notchWidth > 0 ? 18 : 14)
                     .frame(width: state.expanded && state.notchWidth > 0 ? (state.expandedWidth - state.notchWidth) / 2 : state.leftWing,
                            alignment: state.notchWidth > 0 ? .trailing : .leading)
             } else if state.expanded {
@@ -124,7 +124,7 @@ struct TopBar: View {
                     r.strokeBorder(BarColor.statusBox.color.opacity(0.85), lineWidth: 1.4).shadow(color: BarColor.statusBox.color.opacity(0.6), radius: 5)
                 }
             }
-            .padding(state.notchWidth > 0 ? .leading : .trailing, state.notchWidth > 0 ? 12 : 10)
+            .padding(state.notchWidth > 0 ? .leading : .trailing, state.notchWidth > 0 ? 18 : 10)
             .frame(maxWidth: .infinity, alignment: state.notchWidth > 0 ? .leading : .trailing)
         }
     }
