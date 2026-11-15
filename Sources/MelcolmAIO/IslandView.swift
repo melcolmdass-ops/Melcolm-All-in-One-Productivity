@@ -275,6 +275,7 @@ struct SettingsTab: View {
                     }
                 }
             }
+            SettingsVisual(page: cur)
             Card {
                 VStack(alignment: .leading, spacing: 6) {
                     switch Page(rawValue: page) ?? .general {
