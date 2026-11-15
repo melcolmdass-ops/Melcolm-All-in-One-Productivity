@@ -61,7 +61,16 @@ enum FastSwitch {
     private static func parkWindow() {
         guard needsPayload, NSApp.isActive, let w = NSApp.keyWindow, w.isVisible else { return }
         w.orderOut(nil)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { w.orderFrontRegardless() }
+        // Come back the moment the new Space is on screen, not after a fixed wait.
+        var token: NSObjectProtocol?
+        let back = {
+            if let t = token { NSWorkspace.shared.notificationCenter.removeObserver(t); token = nil }
+            if !w.isVisible { w.orderFrontRegardless() }
+        }
+        token = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main) { _ in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.03, execute: back)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: back)   // fallback
     }
 
     private static func plain(_ phase: Int64, _ right: Bool, _ v: Double) -> Bool {
