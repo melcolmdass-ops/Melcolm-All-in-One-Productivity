@@ -88,6 +88,12 @@ enum WebAX {
         guard let f = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "_AXUIElementCreateWithRemoteToken") else { BrowserMedia.log("ax no remote token fn"); return nil }
         return unsafeBitCast(f, to: MakeElement.self)
     }()
+    /// Every window of an app on any Space (the normal list only has the current Space's).
+    static func windowsEverywhere(_ pid: pid_t) -> [AXUIElement] {
+        windowCache[pid] = nil
+        return allWindows(pid).filter { str($0, kAXRoleAttribute) == kAXWindowRole }
+    }
+
     private static var windowCache: [pid_t: (wins: [AXUIElement], at: Date)] = [:]
     static func allWindows(_ pid: pid_t) -> [AXUIElement] {
         if let c = windowCache[pid], Date().timeIntervalSince(c.at) < 15 { return c.wins }

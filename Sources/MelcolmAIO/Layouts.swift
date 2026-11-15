@@ -124,12 +124,26 @@ enum Tiler {
         }
     }
 
-    /// Closes every full-screen Space: takes each window out of full screen, then minimizes it.
+    /// Closes every full-screen Space at once, on every display: each full-screen window (found on
+    /// any Space, not just this one) leaves full screen, then gets minimized.
     static func minimizeSpaces() {
         guard trusted else { return }
-        let fulls = allWindows().filter { flag($0, "AXFullScreen") }
-        for w in fulls { AXUIElementSetAttributeValue(w, "AXFullScreen" as CFString, kCFBooleanFalse) }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+        let me = ProcessInfo.processInfo.processIdentifier
+        let apps = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular && $0.processIdentifier != me }
+        DispatchQueue.global(qos: .userInitiated).async {
+            var fulls: [AXUIElement] = []
+            for a in apps {
+                var v: CFTypeRef?
+                var list = (AXUIElementCopyAttributeValue(AXUIElementCreateApplication(a.processIdentifier), kAXWindowsAttribute as CFString, &v) == .success
+                            ? v as? [AXUIElement] : nil) ?? []
+                list += WebAX.windowsEverywhere(a.processIdentifier)
+                for w in list where flag(w, "AXFullScreen") && !fulls.contains(where: { CFEqual($0, w) }) { fulls.append(w) }
+            }
+            for w in fulls { AXUIElementSetAttributeValue(w, "AXFullScreen" as CFString, kCFBooleanFalse) }
+            // Leaving full screen animates; ask again for any that didn't go, then minimize.
+            Thread.sleep(forTimeInterval: 1.5)
+            for w in fulls where flag(w, "AXFullScreen") { AXUIElementSetAttributeValue(w, "AXFullScreen" as CFString, kCFBooleanFalse); Thread.sleep(forTimeInterval: 0.9) }
+            Thread.sleep(forTimeInterval: 0.6)
             for w in fulls { AXUIElementSetAttributeValue(w, kAXMinimizedAttribute as CFString, kCFBooleanTrue) }
         }
     }
