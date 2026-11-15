@@ -102,6 +102,38 @@ enum Tiler {
         return true
     }
 
+    private static func allWindows() -> [AXUIElement] {
+        let me = ProcessInfo.processInfo.processIdentifier
+        var out: [AXUIElement] = []
+        for a in NSWorkspace.shared.runningApplications where a.activationPolicy == .regular && a.processIdentifier != me {
+            var v: CFTypeRef?
+            if AXUIElementCopyAttributeValue(AXUIElementCreateApplication(a.processIdentifier), kAXWindowsAttribute as CFString, &v) == .success,
+               let l = v as? [AXUIElement] { out += l }
+        }
+        return out
+    }
+    private static func flag(_ w: AXUIElement, _ k: String) -> Bool {
+        var v: CFTypeRef?; AXUIElementCopyAttributeValue(w, k as CFString, &v); return (v as? Bool) == true
+    }
+
+    /// Minimizes every normal window on the desktop (full-screen Spaces are left alone).
+    static func minimizeDesktop() {
+        guard trusted else { return }
+        for w in allWindows() where !flag(w, "AXFullScreen") {
+            AXUIElementSetAttributeValue(w, kAXMinimizedAttribute as CFString, kCFBooleanTrue)
+        }
+    }
+
+    /// Closes every full-screen Space: takes each window out of full screen, then minimizes it.
+    static func minimizeSpaces() {
+        guard trusted else { return }
+        let fulls = allWindows().filter { flag($0, "AXFullScreen") }
+        for w in fulls { AXUIElementSetAttributeValue(w, "AXFullScreen" as CFString, kCFBooleanFalse) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+            for w in fulls { AXUIElementSetAttributeValue(w, kAXMinimizedAttribute as CFString, kCFBooleanTrue) }
+        }
+    }
+
     /// Tidy every open window on the screen the mouse is on into an even grid.
     @discardableResult
     static func autoArrange() -> Int {
@@ -163,12 +195,24 @@ struct LayoutsPage: View {
                     }
                 }
             }
-            Button { _ = Tiler.autoArrange() } label: {
-                Label("Auto-arrange all windows", systemImage: "sparkles.rectangle.stack")
-                    .font(.system(size: 13, weight: .semibold)).frame(maxWidth: .infinity, minHeight: 42)
-                    .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(accent))
-                    .foregroundStyle(.white)
-            }.buttonStyle(PressStyle())
+            let hiddenSet = Set(hiddenRaw.split(separator: ",").map(String.init))
+            let shownList = WindowLayout.all.filter { !hiddenSet.contains($0.id) }
+            HStack(spacing: 6) {
+                action("Auto-arrange", "sparkles.rectangle.stack", filled: true) { _ = Tiler.autoArrange() }
+                action("Minimize all\n(desktop)", "rectangle.compress.vertical") { Tiler.minimizeDesktop() }
+                action("Minimize all\n(Spaces)", "arrow.down.right.and.arrow.up.left") { Tiler.minimizeSpaces() }
+                if light {
+                    Menu {
+                        ForEach(shownList) { l in Button(l.title) { _ = Tiler.apply(l) } }
+                    } label: {
+                        Label("Layouts", systemImage: "rectangle.split.2x2").font(.system(size: 11, weight: .semibold))
+                    }
+                    .menuStyle(.borderlessButton).fixedSize()
+                    .padding(.horizontal, 8).frame(height: 36)
+                    .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(.white.opacity(0.08)))
+                    .help("Snap the window you were just using")
+                }
+            }
             if !light {
                 let hidden = Set(hiddenRaw.split(separator: ",").map(String.init))
                 let shown = WindowLayout.all.filter { !hidden.contains($0.id) }
@@ -189,6 +233,16 @@ struct LayoutsPage: View {
                 SettingsLink(title: "Desktop & Dock Settings", pane: "com.apple.Desktop-Settings.extension")
             }
         }
+    }
+
+    func action(_ title: String, _ icon: String, filled: Bool = false, _ run: @escaping () -> Void) -> some View {
+        Button(action: run) {
+            HStack(spacing: 5) { Image(systemName: icon); Text(title).multilineTextAlignment(.leading).lineLimit(2).fixedSize(horizontal: false, vertical: true) }
+                .font(.system(size: 10.5, weight: .semibold))
+                .frame(maxWidth: .infinity, minHeight: 36).padding(.horizontal, 4)
+                .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(filled ? AnyShapeStyle(accent) : AnyShapeStyle(.white.opacity(0.08))))
+                .foregroundStyle(.white).contentShape(Rectangle())
+        }.buttonStyle(PressStyle()).help(title)
     }
 
     func flip(_ id: String) {
