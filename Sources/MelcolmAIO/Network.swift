@@ -172,6 +172,20 @@ final class NetworkModel: NSObject, ObservableObject, CLLocationManagerDelegate 
 // MARK: - Views
 
 /// "Choose a network ›" in the small pop-up: opens the full list right there.
+/// "Show all 14" / "Show less" under a list. No animation, so the pop-up resizes in one go.
+func expand(_ open: Bool, count: Int, _ toggle: @escaping () -> Void) -> some View {
+    Button(action: toggle) {
+        HStack {
+            Text(open ? "Show less" : "Show all \(count)").font(.system(size: 12, weight: .semibold))
+            Spacer()
+            Image(systemName: open ? "chevron.up" : "chevron.down").font(.system(size: 10, weight: .bold))
+        }
+        .foregroundStyle(.white.opacity(0.85)).padding(.horizontal, 12).frame(height: 30)
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(.white.opacity(0.07)))
+        .contentShape(Rectangle())
+    }.buttonStyle(PressStyle())
+}
+
 func more(_ title: String, open: Binding<Bool>) -> some View {
     Button { withAnimation(.easeOut(duration: 0.2)) { open.wrappedValue.toggle() } } label: {
         HStack {
@@ -227,12 +241,11 @@ struct WifiPage: View {
             ToggleRow(icon: system.wifiOn ? "wifi" : "wifi.slash", title: "Wi-Fi",
                       subtitle: system.wifiOn ? (system.wifiName ?? "On") : "Off", on: system.wifiOn,
                       action: { system.toggleWifi(); DispatchQueue.main.asyncAfter(deadline: .now() + 2) { net.scan() } })
-            if system.wifiOn && light { more("Choose a network", open: $net.openWifi) }
-            if system.wifiOn && (!light || net.openWifi) {
+            if system.wifiOn {
                 let current = system.wifiName
-                let hotspots = net.nets.filter { $0.hotspot && $0.ssid != current }
-                let knownNets = net.nets.filter { $0.known && !$0.hotspot && $0.ssid != current }
-                let others = net.nets.filter { !$0.known && !$0.hotspot && $0.ssid != current }
+                // One list: known and hotspots first, then by signal. Top 5, then "Show all".
+                let rest = net.nets.filter { $0.ssid != current }
+                    .sorted { ($0.known || $0.hotspot ? 0 : 1, -$0.bars, $0.ssid) < ($1.known || $1.hotspot ? 0 : 1, -$1.bars, $1.ssid) }
                 if let current {
                     Card {
                         NetRow(icon: "wifi", on: true, title: current, subtitle: "Connected", action: {}) {
@@ -241,21 +254,17 @@ struct WifiPage: View {
                         }
                     }
                 }
-                if !hotspots.isEmpty { section("PERSONAL HOTSPOT", hotspots, hotspot: true) }
-                if !knownNets.isEmpty { section("KNOWN NETWORKS", knownNets) }
-                Button { withAnimation(.easeOut(duration: 0.2)) { net.showOther.toggle() } } label: {
-                    HStack {
-                        sectionLabel("OTHER NETWORKS")
-                        if net.scanning { ProgressView().controlSize(.mini) }
-                        Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundStyle(.secondary)
-                            .rotationEffect(.degrees(net.showOther ? 90 : 0))
-                    }.contentShape(Rectangle())
-                }.buttonStyle(.plain)
-                if net.showOther {
-                    if others.isEmpty {
-                        Text(net.scanning ? "Looking for networks…" : "No other networks found. If none show at all, allow Location for Melcolm in Privacy settings.")
-                            .font(.system(size: 11)).foregroundStyle(.secondary)
-                    } else { netList(others) }
+                HStack {
+                    sectionLabel("NETWORKS")
+                    Spacer()
+                    if net.scanning { ProgressView().controlSize(.mini) }
+                }
+                if rest.isEmpty {
+                    Text(net.scanning ? "Looking for networks…" : "No networks found. If none ever show, allow Location for Melcolm in Privacy settings.")
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                } else {
+                    netList(net.showOther ? rest : Array(rest.prefix(5)))
+                    if rest.count > 5 { expand(net.showOther, count: rest.count) { net.showOther.toggle() } }
                 }
                 if let e = net.error { Text(e).font(.system(size: 11)).foregroundStyle(.orange) }
             }
@@ -304,13 +313,13 @@ struct BluetoothPage: View {
             ToggleRow(icon: "dot.radiowaves.left.and.right", title: "Bluetooth",
                       subtitle: system.bluetoothOn ? "On" : "Off", on: system.bluetoothOn,
                       action: { system.toggleBluetooth(); DispatchQueue.main.asyncAfter(deadline: .now() + 2) { net.refreshDevices() } })
-            if system.bluetoothOn && light { more("Choose a device", open: $net.openBT) }
-            if system.bluetoothOn && (!light || net.openBT) && !net.devices.isEmpty {
+            if system.bluetoothOn && !net.devices.isEmpty {
+                let shown = net.openBT ? net.devices : Array(net.devices.prefix(5))
                 sectionLabel("DEVICES")
                 Card {
                     VStack(spacing: 0) {
-                        ForEach(net.devices) { d in
-                            if d.id != net.devices.first?.id { Hairline() }
+                        ForEach(shown) { d in
+                            if d.id != shown.first?.id { Hairline() }
                             NetRow(icon: d.icon, on: d.connected, title: d.name, subtitle: d.connected ? "Connected" : nil,
                                    action: { net.toggle(d) }) {
                                 if net.busy.contains(d.address) { ProgressView().controlSize(.mini) }
@@ -322,6 +331,7 @@ struct BluetoothPage: View {
                         }
                     }
                 }
+                if net.devices.count > 5 { expand(net.openBT, count: net.devices.count) { net.openBT.toggle() } }
             }
             SettingsLink(title: "Bluetooth Settings", pane: "com.apple.BluetoothSettings")
         }

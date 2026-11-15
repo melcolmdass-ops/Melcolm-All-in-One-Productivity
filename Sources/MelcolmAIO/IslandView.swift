@@ -232,7 +232,7 @@ struct SettingsTab: View {
     enum Page: String, CaseIterable { case general = "General", commands = "Commands", bar = "Bar", display = "Display on bar", spaces = "Spaces", mouse = "Mouse", hover = "Hover bar", panel = "Pages", utility = "Utility Bar" }
     /// Top tabs, each with its own sub-tabs.
     static let groups: [(name: String, tabs: [Page])] = [
-        ("General", [.general, .commands]), ("Bar", [.bar, .display, .spaces, .mouse, .hover]), ("Pages", [.panel]), ("Utility Bar", [.utility]),
+        ("General", [.general, .commands]), ("Main Bar", [.bar, .panel, .display, .spaces, .mouse, .hover]), ("Utility Bar", [.utility]),
     ]
     @AppStorage("settingsPage") var page = Page.general.rawValue
     @AppStorage("islandSize") var size = "large"
