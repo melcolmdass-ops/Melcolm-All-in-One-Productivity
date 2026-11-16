@@ -24,6 +24,15 @@ enum UpdateLog {
 
     /// Newest first.
     static let all: [AppUpdate] = [
+        AppUpdate(version: "2.13", date: "November 15th, 2026", title: "Even faster dragging",
+                  improvements: [
+                      "Option-drag now runs on its own, so the rest of the app can never slow your mouse or the window down.",
+                  ],
+                  fixes: [
+                      "The ⌥ badge now shows the moment you hold the key while resting on something, and sticks to your pointer the whole time you drag.",
+                  ],
+                  features: [],
+                  icons: ["hare.fill", "option", "cursorarrow.motionlines"], tint: Color(red: 0.25, green: 0.88, blue: 1.0)),
         AppUpdate(version: "2.12", date: "November 15th, 2026", title: "Fast, smooth window dragging",
                   improvements: [
                       "Holding Option and dragging a window is now fast and smooth: the window keeps up with your pointer instead of lagging behind.",
