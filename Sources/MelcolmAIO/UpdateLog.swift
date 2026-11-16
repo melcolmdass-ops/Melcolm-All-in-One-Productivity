@@ -24,6 +24,15 @@ enum UpdateLog {
 
     /// Newest first.
     static let all: [AppUpdate] = [
+        AppUpdate(version: "2.14", date: "November 15th, 2026", title: "Instant dragging",
+                  improvements: [
+                      "Option-drag is now instant: a see-through copy of the window sticks to your pointer, and the window jumps there the moment you let go.",
+                  ],
+                  fixes: [
+                      "No more lag while dragging, whatever app the window belongs to.",
+                  ],
+                  features: [],
+                  icons: ["bolt.fill", "macwindow.on.rectangle", "cursorarrow.motionlines"], tint: Color(red: 0.25, green: 0.88, blue: 1.0)),
         AppUpdate(version: "2.13", date: "November 15th, 2026", title: "Even faster dragging",
                   improvements: [
                       "Option-drag now runs on its own, so the rest of the app can never slow your mouse or the window down.",

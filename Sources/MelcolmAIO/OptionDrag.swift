@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import ScreenCaptureKit
 
 @_silgen_name("CGSMoveWindow") private func CGSMoveWindow(_ cid: Int32, _ wid: UInt32, _ p: UnsafePointer<CGPoint>) -> Int32
 @_silgen_name("_CGSDefaultConnection") private func dragConn() -> Int32
@@ -80,18 +81,24 @@ final class OptionDrag: ObservableObject {
         case .leftMouseDragged where active:
             let p = e.location
             showBadge(true, at: p)
-            // Never block the mouse: move the window off the event path, only to the newest spot.
-            pending = CGPoint(x: startPos.x + p.x - startMouse.x, y: startPos.y + p.y - startMouse.y)
-            pump()
+            // A see-through copy of the window rides the pointer (moved by the window server, instant);
+            // the real window jumps there once, when you let go.
+            var o = CGPoint(x: startPos.x + p.x - startMouse.x, y: startPos.y + p.y - startMouse.y)
+            lastOrigin = o
+            lock.lock(); let g = ghostID; lock.unlock()
+            if g != 0 { _ = CGSMoveWindow(cid, g, &o) } else { pending = o; pump() }
             let hit = island(at: p)?.screen
             if hit != lastHit { lastHit = hit; DispatchQueue.main.async { self.overBar = hit } }
             return nil
         case .leftMouseUp where active:
             active = false
-            pending = nil
             showBadge(e.flags.contains(modifier), at: e.location)
             let target = island(at: e.location)
             lastHit = nil; DispatchQueue.main.async { self.overBar = nil }
+            if target == nil, win != nil {
+                pending = lastOrigin; pump()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) { self.hideGhost() }
+            } else { DispatchQueue.main.async { self.hideGhost() } }
             if let target, let uuid = target.uuid, let win {
                 // Back where it was, then into its own full-screen Space at the end of that display.
                 let start = startPos
@@ -121,6 +128,42 @@ final class OptionDrag: ObservableObject {
     private var pending: CGPoint? { get { lock.lock(); defer { lock.unlock() }; return _pending } set { lock.lock(); _pending = newValue; lock.unlock() } }
     private var pumping = false
     private var lastHit: CGDirectDisplayID?
+    private var lastOrigin = CGPoint.zero
+    private var ghostID: UInt32 = 0
+    private var ghost: NSPanel?
+
+    /// The copy of the window that follows the pointer: a picture of it when Screen Recording is allowed, else a glowing outline.
+    private func makeGhost(_ r: CGRect, wid: CGWindowID, pid: pid_t) {
+        hideGhost()
+        guard active else { return }
+        let h = NSScreen.screens.first?.frame.height ?? 0
+        let p = NSPanel(contentRect: NSRect(x: r.minX, y: h - r.maxY, width: r.width, height: r.height),
+                        styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        p.isOpaque = false; p.backgroundColor = .clear; p.hasShadow = true; p.ignoresMouseEvents = true
+        p.level = .floating; p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
+        let model = GhostModel(); model.icon = NSRunningApplication(processIdentifier: pid)?.icon
+        p.contentView = NSHostingView(rootView: GhostView(m: model))
+        // Put it exactly where the pointer has already got to.
+        var o = lastOrigin == .zero ? r.origin : lastOrigin
+        p.orderFrontRegardless()
+        ghost = p
+        lock.lock(); ghostID = UInt32(p.windowNumber); lock.unlock()
+        _ = CGSMoveWindow(cid, UInt32(p.windowNumber), &o)
+        guard CGPreflightScreenCaptureAccess() else { return }
+        Task {
+            guard let all = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true),
+                  let w = all.windows.first(where: { $0.windowID == wid }) else { return }
+            let cfg = SCStreamConfiguration()
+            cfg.width = Int(r.width * 2); cfg.height = Int(r.height * 2); cfg.showsCursor = false
+            guard let img = try? await SCScreenshotManager.captureImage(contentFilter: SCContentFilter(desktopIndependentWindow: w), configuration: cfg) else { return }
+            await MainActor.run { model.image = NSImage(cgImage: img, size: r.size) }
+        }
+    }
+
+    private func hideGhost() {
+        lock.lock(); ghostID = 0; lock.unlock()
+        ghost?.orderOut(nil); ghost = nil
+    }
 
     /// One move in flight at a time, always to the latest pointer spot (skips stale ones). Never touches the main thread.
     private func pump() {
@@ -180,13 +223,37 @@ final class OptionDrag: ObservableObject {
             guard let ax = (v as? [AXUIElement])?.first(where: { var n: CGWindowID = 0; _ = axWindowID($0, &n); return n == wid }),
                   !SpaceMover.isFull(ax) else { return false }
             self.pid = pid; self.wid = wid; win = ax
-            startMouse = p; startPos = r.origin
+            startMouse = p; startPos = r.origin; lastOrigin = r.origin
+            active = true
+            DispatchQueue.main.async { self.makeGhost(r, wid: wid, pid: pid) }
             AXUIElementSetMessagingTimeout(ax, 0.25)
             NSRunningApplication(processIdentifier: pid)?.activate()
             AXUIElementPerformAction(ax, kAXRaiseAction as CFString)
             return true
         }
         return false
+    }
+}
+
+final class GhostModel: ObservableObject {
+    @Published var image: NSImage?
+    var icon: NSImage?
+}
+
+struct GhostView: View {
+    @ObservedObject var m: GhostModel
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
+        ZStack {
+            if let img = m.image { Image(nsImage: img).resizable() }
+            else {
+                shape.fill(accent.opacity(0.16))
+                if let i = m.icon { Image(nsImage: i).resizable().frame(width: 72, height: 72).opacity(0.9) }
+            }
+        }
+        .clipShape(shape)
+        .overlay(shape.strokeBorder(accent, lineWidth: 2.5))
+        .opacity(0.92)
     }
 }
 
