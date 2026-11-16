@@ -24,6 +24,17 @@ enum UpdateLog {
 
     /// Newest first.
     static let all: [AppUpdate] = [
+        AppUpdate(version: "2.16", date: "November 15th, 2026", title: "Snap spots and drop spots",
+                  improvements: [
+                      "Dragging is lighter and smoother: the copy of the window no longer blurs what's behind it as it moves.",
+                  ],
+                  fixes: [],
+                  features: [
+                      "Drag a window into any edge or corner of the screen and a glowing box shows where it'll snap; let go and it takes that spot.",
+                      "Settings ▸ Dragging has a picture of the screen with a picker on each of the 8 spots (corners and the middle of each edge). Choose a layout for each, or None.",
+                      "Drop a window on a particular spot on the bar to choose where its new Space goes, between the apps already there and on whichever display you drop it.",
+                  ],
+                  icons: ["rectangle.3.group.fill", "macwindow.on.rectangle", "plus.rectangle.on.rectangle"], tint: Color(red: 0.25, green: 0.88, blue: 1.0)),
         AppUpdate(version: "2.15", date: "November 15th, 2026", title: "Dragging you can feel",
                   improvements: [
                       "A grabbed window lifts off the screen with a soft spring and a glow, and settles smoothly when you let go.",
