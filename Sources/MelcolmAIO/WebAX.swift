@@ -33,10 +33,12 @@ enum WebAX {
     }
 
     /// Looks through one window (the one whose title contains `title`, or the first) of that app.
-    static func find(pid: pid_t, title: String) -> Found? {
+    /// MASTER RULE: a row only ever controls its own tab. With `title`, only a window showing that
+    /// title counts; `anyPlayer` (allowed only when this app has a single player) lets any player window count.
+    static func find(pid: pid_t, title: String, anyPlayer: Bool = true) -> Found? {
         guard AXIsProcessTrusted() else { BrowserMedia.log("ax not trusted"); return nil }
         enable(pid)
-        let key = "\(pid)"
+        let key = "\(pid)|\(title.prefix(30))"
         if let root = lastRoot[key], !str(root, kAXRoleAttribute).isEmpty, let f = scan(root) { return f }
         let app = AXUIElementCreateApplication(pid)
         AXUIElementSetMessagingTimeout(app, 0.4)
@@ -50,7 +52,7 @@ enum WebAX {
         // The window showing that tab; else any window that has a player (e.g. the YouTube Music app).
         let pick = wins.filter { !t.isEmpty && str($0, kAXTitleAttribute).localizedCaseInsensitiveContains(t) }
         let rest = wins.filter { w in let n = str(w, kAXTitleAttribute).lowercased(); return n.isEmpty || n.contains("youtube") || n.contains("spotify") || n.contains("soundcloud") || n.contains("music") }
-        for w in pick + rest { if let f = scan(w) { lastRoot[key] = w; return f } }
+        for w in pick + (anyPlayer || t.isEmpty ? rest : []) { if let f = scan(w) { lastRoot[key] = w; return f } }
         return nil
     }
     /// The page area where the player was last found, per app and tab title. Looked at first next time,

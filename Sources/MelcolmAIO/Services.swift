@@ -250,14 +250,19 @@ final class NowPlayingModel: ObservableObject {
     private func probeAX(_ list: [BrowserMedia.Result]) {
         guard !probing, !list.isEmpty, AXIsProcessTrusted() else { return }
         probing = true
-        let jobs = list.compactMap { r -> (String, pid_t, String)? in
+        let jobs = list.compactMap { r -> (String, pid_t, String, Bool)? in
             // Keep reading every player, so its state stays right when a song changes or you use the keyboard.
             guard r.browser != "Safari" || r.pwa != 0, let pid = BrowserMedia.pid(r) else { return nil }
-            return (r.id, pid, r.pwa != 0 ? "" : r.title)
+            return (r.id, pid, r.pwa != 0 ? "" : r.title, list.filter { BrowserMedia.pid($0) == pid }.count <= 1)
         }
         browserQueue.async { [weak self] in
             var out: [String: WebAX.Found] = [:]
-            for (id, pid, title) in jobs { if let f = WebAX.find(pid: pid, title: title) { out[id] = f } }
+            for (id, pid, title, solo) in jobs { if let f = WebAX.find(pid: pid, title: title, anyPlayer: solo) { out[id] = f } }
+            // Two rows that landed on the same play button can't both be right: drop both rather than mix them up.
+            let ids = Array(out.keys)
+            for a in ids { for b in ids where a < b {
+                if let x = out[a]?.play, let y = out[b]?.play, CFEqual(x, y) { out[a] = nil; out[b] = nil }
+            } }
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.probing = false
@@ -349,13 +354,18 @@ final class NowPlayingModel: ObservableObject {
     private var pressedAt: [String: Date] = [:]
     func held(_ id: String) -> Bool { Date().timeIntervalSince(pressedAt[id] ?? .distantPast) < 3 }
 
+    /// True when no other listed player lives in the same app process as `r`.
+    func soloInProcess(_ r: BrowserMedia.Result) -> Bool {
+        let p = BrowserMedia.pid(r); return others.filter { BrowserMedia.pid($0) == p }.count <= 1
+    }
+
     /// Plays or pauses exactly that tab. Others keep doing what they were doing.
     func toggle(_ r: BrowserMedia.Result) {
         // The page's own button says the truth: "pause" showing means it is playing right now.
         var button = ax[r.id]?.found.play
         // A saved button can go stale (new song, page redrawn): if it no longer answers, find it again now.
         if button.flatMap(WebAX.label) == nil, let pid = BrowserMedia.pid(r),
-           let f = WebAX.find(pid: pid, title: r.pwa != 0 ? "" : r.title) {
+           let f = WebAX.find(pid: pid, title: r.pwa != 0 ? "" : r.title, anyPlayer: soloInProcess(r)) {
             ax[r.id] = (f, Date()); button = f.play
         }
         let liveLabel = button.flatMap(WebAX.label)
@@ -371,7 +381,12 @@ final class NowPlayingModel: ObservableObject {
             if let after, after != before { viaAX = true }
         } else if !viaAX { BrowserMedia.log("toggle no button: button=\(button != nil) label=\(liveLabel ?? "nil")") }
         let viaJS = !viaAX && BrowserMedia.togglePlay(r)
-        if !viaAX && !viaJS { Self.mediaKey(16) }
+        // The keyboard play key goes to whatever macOS thinks is playing, so it is only safe
+        // when there is just one player. With two or more it would start the WRONG one: never.
+        if !viaAX && !viaJS {
+            if others.count <= 1 { Self.mediaKey(16) }
+            else { BrowserMedia.log("toggle \(r.id): no own button reachable, not sending the play key (would hit another player)") }
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { self.refresh() }
         BrowserMedia.log("toggle \(r.id) was=\(was) ax=\(viaAX) js=\(viaJS) axAge=\(ax[r.id].map { Date().timeIntervalSince($0.at) } ?? -1)")
         if let f = ax[r.id] { ax[r.id] = (f.found, .distantPast) }   // keep the button, drop its old play state
@@ -435,7 +450,7 @@ final class NowPlayingModel: ObservableObject {
     }
     func skip(_ r: BrowserMedia.Result, forward: Bool) {
         let b = forward ? ax[r.id]?.found.next : ax[r.id]?.found.prev
-        if !BrowserMedia.skip(r, forward: forward) && !WebAX.press(b) { Self.mediaKey(forward ? 17 : 18) }
+        if !BrowserMedia.skip(r, forward: forward) && !WebAX.press(b) && others.count <= 1 { Self.mediaKey(forward ? 17 : 18) }
         later()
     }
 

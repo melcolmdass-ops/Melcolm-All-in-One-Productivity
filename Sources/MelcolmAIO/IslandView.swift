@@ -344,8 +344,9 @@ struct SettingsTab: View {
                         Text(g.name).font(.system(size: 10.5, weight: .semibold)).lineLimit(1).fixedSize()
                             .foregroundStyle(on ? .white : .white.opacity(0.7))
                             .padding(.horizontal, 8).padding(.vertical, 5)
-                            .background(Capsule().fill(on ? AnyShapeStyle(accent) : AnyShapeStyle(.white.opacity(0.06))))
-                    }.buttonStyle(.plain)
+                            .background(Capsule().fill(on ? AnyShapeStyle(accent) : AnyShapeStyle(Color(white: 0.16))))
+                            .contentShape(Capsule())
+                    }.buttonStyle(PressStyle()).help(g.name)
                 }
             }
             if group.tabs.count > 1 {
@@ -356,8 +357,8 @@ struct SettingsTab: View {
                                 Text(t == .general ? "Main" : t.rawValue).font(.system(size: 11, weight: .semibold))
                                     .foregroundStyle(t == cur ? .white : .white.opacity(0.5))
                                 Capsule().fill(t == cur ? accent : .clear).frame(height: 2)
-                            }.fixedSize().contentShape(Rectangle())
-                        }.buttonStyle(.plain)
+                            }.fixedSize().padding(.vertical, 3).contentShape(Rectangle())
+                        }.buttonStyle(PressStyle())
                     }
                 }
             }
@@ -381,7 +382,7 @@ struct SettingsTab: View {
                     }
                 }
             }
-            Text("Melcolm All-in-One Productivity · v2.20").font(.system(size: 10)).foregroundStyle(.tertiary)
+            Text("Melcolm All-in-One Productivity · v2.21").font(.system(size: 10)).foregroundStyle(.tertiary)
         }
         .font(.system(size: 12))
         .toggleStyle(.switch).controlSize(.small)

@@ -24,6 +24,19 @@ enum UpdateLog {
 
     /// Newest first.
     static let all: [AppUpdate] = [
+        AppUpdate(version: "2.21", date: "November 15th, 2026", title: "Play the right thing, Hide spot, Settings tabs",
+                  improvements: [
+                      "The Settings tabs (General, Main Bar, Dragging and the rest) have a solid button area, so every click lands.",
+                  ],
+                  fixes: [
+                      "With two things playing (say a song and a TV show), pressing Play on one row now plays that one, never the other.",
+                      "Settings tabs that wouldn't switch when clicked now switch.",
+                  ],
+                  features: [
+                      "New Hide option for snap spots: drag a window into that circle and the app hides, just like ⌘H.",
+                      "New Master Rule: each Now Playing row only ever controls what it shows.",
+                  ],
+                  icons: ["play.circle.fill", "eye.slash.fill", "gearshape.fill"], tint: Color(red: 1.0, green: 0.42, blue: 0.7)),
         AppUpdate(version: "2.20", date: "November 15th, 2026", title: "Always shows what's playing, snap circles",
                   improvements: [
                       "Each snap spot is now a dashed circle you can see. Drop a window inside a circle to snap it; anywhere else it just moves.",
@@ -440,6 +453,8 @@ struct MasterRule: Identifiable {
                    detail: "Whenever sound is playing, its card shows the Pause button, its time keeps moving, and the bar shows the music note and wave. This holds even when the player is on another display or Space and its page stops reporting. When nothing has been playing for a few seconds, nothing shows as playing."),
         MasterRule(icon: "circle.dashed", title: "Snap circles only on a desktop",
                    detail: "Holding the drag key shows the dashed snap circles only on a desktop, where a window can actually be moved. Inside a full-screen app nothing appears. A window only snaps when you drop it inside a circle."),
+        MasterRule(icon: "play.circle.fill", title: "Each player controls only itself",
+                   detail: "Play, Pause, Next, Back and the play bar on a Now Playing row only ever act on the exact thing that row shows. If the app can't reach that one directly, it does nothing rather than risk starting something else."),
     ]
 }
 

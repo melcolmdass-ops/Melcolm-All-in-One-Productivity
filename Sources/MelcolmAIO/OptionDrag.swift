@@ -120,6 +120,13 @@ final class OptionDrag: ObservableObject {
                         DispatchQueue.main.async { for i in self.islands() { i.model.refresh() } }
                     }
                 }
+            } else if target == nil, win != nil, zone?.id == "hide" {
+                // Hide the app, exactly like Cmd-H.
+                let p = pid
+                DispatchQueue.main.async {
+                    self.fadeGhost(.settle, after: 0)
+                    NSRunningApplication(processIdentifier: p)?.hide()
+                }
             } else if target == nil, let win, let snap = zone {
                 let zone = snap.rect
                 // Snapped to a zone: the copy glides into the spot while the window takes it.
@@ -219,8 +226,14 @@ final class OptionDrag: ObservableObject {
             return Snap(rect: CGRect(x: v.midX - v.width * 0.18, y: v.minY + 12, width: v.width * 0.36, height: v.height * 0.26).integral,
                         title: "New Space", id: "space", zone: "top", space: u, display: s.id)
         }
-        guard let i = DragZone.all.firstIndex(of: zone), i < lay.count,
-              let wl = WindowLayout.all.first(where: { $0.id == lay[i] }) else { return nil }
+        guard let i = DragZone.all.firstIndex(of: zone), i < lay.count else { return nil }
+        // "Hide": drop here and the app hides (like Cmd-H). The box shows around the circle.
+        if lay[i] == "hide" {
+            let c = zone.center(in: v.size), r = DragZone.radius + 30
+            return Snap(rect: CGRect(x: v.minX + c.x - r, y: v.minY + c.y - r, width: 2 * r, height: 2 * r).integral,
+                        title: "Hide", id: "hide", zone: zone.rawValue, display: s.id)
+        }
+        guard let wl = WindowLayout.all.first(where: { $0.id == lay[i] }) else { return nil }
         return Snap(rect: CGRect(x: v.minX + v.width * wl.x, y: v.minY + v.height * wl.y, width: v.width * wl.w, height: v.height * wl.h).integral, title: wl.title, id: wl.id, zone: zone.rawValue, display: s.id)
     }
 
@@ -490,7 +503,7 @@ struct DotsView: View {
                 let lay = m.layouts[z.rawValue] ?? "none"
                 if isSpace || lay != "none" {
                     let on = m.active == z.rawValue && m.screen == screen
-                    let title = isSpace ? "New Space" : WindowLayout.all.first { $0.id == lay }?.title ?? ""
+                    let title = isSpace ? "New Space" : lay == "hide" ? "Hide" : WindowLayout.all.first { $0.id == lay }?.title ?? ""
                     let tint = isSpace ? Color(red: 0.25, green: 0.88, blue: 1.0) : accent
                     let d = DragZone.radius * 2
                     ZStack {
@@ -533,6 +546,11 @@ struct ZoneView: View {
             shape.strokeBorder(accent, lineWidth: 3)
             if m.id == "space" {
                 Label("New Space", systemImage: "plus.rectangle.on.rectangle").font(.system(size: 15, weight: .bold)).foregroundStyle(.white)
+                    .padding(.horizontal, 16).padding(.vertical, 9)
+                    .background(Capsule().fill(Color.black.opacity(0.75)))
+                    .overlay(Capsule().strokeBorder(accent, lineWidth: 1.5))
+            } else if m.id == "hide" {
+                Label("Hide app", systemImage: "eye.slash.fill").font(.system(size: 15, weight: .bold)).foregroundStyle(.white)
                     .padding(.horizontal, 16).padding(.vertical, 9)
                     .background(Capsule().fill(Color.black.opacity(0.75)))
                     .overlay(Capsule().strokeBorder(accent, lineWidth: 1.5))
@@ -614,7 +632,7 @@ struct DragZonesCard: View {
                             Text("Drop at").foregroundStyle(.secondary)
                             Text(sel.title).fontWeight(.heavy).foregroundStyle(accent)
                             Text("→").foregroundStyle(.secondary)
-                            Text(sel == .top ? "New Space" : WindowLayout.all.first { $0.id == layout(sel) }?.title ?? "Nothing").fontWeight(.heavy)
+                            Text(sel == .top ? "New Space" : layout(sel) == "hide" ? "Hide the app" : WindowLayout.all.first { $0.id == layout(sel) }?.title ?? "Nothing").fontWeight(.heavy)
                             if sel == .top { Image(systemName: "lock.fill").foregroundStyle(.secondary) }
                         }.font(.system(size: 12))
                         if sel == .top {
@@ -622,6 +640,7 @@ struct DragZonesCard: View {
                                 .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                         } else { LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 4), spacing: 6) {
                             chip("none", "None", nil)
+                            chip("hide", "Hide", nil)
                             ForEach(WindowLayout.all) { l in chip(l.id, l.title, l) }
                         } }
                     }
@@ -651,6 +670,11 @@ struct DragZonesCard: View {
                         .background(Capsule().fill(Color(red: 0.25, green: 0.88, blue: 1.0).opacity(0.35)))
                         .overlay(Capsule().strokeBorder(Color(red: 0.25, green: 0.88, blue: 1.0), lineWidth: 1.5))
                         .position(x: W / 2, y: area.minY + 52)
+                } else if layout(sel) == "hide" {
+                    Label("Hides the app (like ⌘H)", systemImage: "eye.slash.fill").font(.system(size: 12, weight: .bold)).foregroundStyle(.white)
+                        .padding(.horizontal, 12).padding(.vertical, 7)
+                        .background(Capsule().fill(accent.opacity(0.35))).overlay(Capsule().strokeBorder(accent, lineWidth: 1.5))
+                        .position(x: W / 2, y: area.midY)
                 } else if let l = WindowLayout.all.first(where: { $0.id == layout(sel) }) {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .fill(accent.opacity(0.28)).overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(accent, lineWidth: 2))
@@ -694,7 +718,7 @@ struct DragZonesCard: View {
         let picked = layout(sel) == id
         return Button { withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { set(sel, id) } } label: {
             VStack(spacing: 4) {
-                if let l { Image(nsImage: l.picture) } else { Image(systemName: "nosign").font(.system(size: 14)).frame(height: 20) }
+                if let l { Image(nsImage: l.picture) } else { Image(systemName: id == "hide" ? "eye.slash" : "nosign").font(.system(size: 14)).frame(height: 20) }
                 Text(title).font(.system(size: 10, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.8)
             }
             .frame(maxWidth: .infinity).padding(.vertical, 7)
