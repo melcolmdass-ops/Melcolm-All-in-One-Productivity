@@ -110,17 +110,18 @@ final class SpacesModel: ObservableObject {
         if groups != displays { displays = groups }
         let sp = SpaceMover.splitIDs()
         if sp != split { split = sp }
-        let a = Self.appsBySpace(allIDs)
+        let a = Self.appsBySpace(allIDs, split: sp)
         if a != apps { apps = a }
     }
 
     /// Which apps have normal windows on which Space (includes Spaces you're not on).
-    static func appsBySpace(_ ids: Set<Int>) -> [Int: [SpaceApp]] {
+    static func appsBySpace(_ ids: Set<Int>, split: Set<Int> = []) -> [Int: [SpaceApp]] {
         guard let list = CGWindowListCopyWindowInfo([.optionAll, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return [:] }
         let me = ProcessInfo.processInfo.processIdentifier
         let conn = _CGSDefaultConnection()
         var out: [Int: [SpaceApp]] = [:]
         var area: [Int: [pid_t: Double]] = [:]
+        var left: [Int: [pid_t: Double]] = [:]   // left edge, so a Split View shows apps in screen order
         var regular: [pid_t: NSRunningApplication?] = [:]
         for w in list {
             guard (w[kCGWindowLayer as String] as? Int) == 0,
@@ -133,12 +134,16 @@ final class SpacesModel: ObservableObject {
             guard let app = regular[pid] ?? nil, app.activationPolicy == .regular else { continue }
             guard let sp = CGSCopySpacesForWindows(conn, 0x7, [wid] as CFArray)?.takeRetainedValue() as? [Int] else { continue }
             for s in sp where ids.contains(s) {
+                left[s, default: [:]][pid] = min(left[s]?[pid] ?? .infinity, b["X"] ?? 0)
                 area[s, default: [:]][pid, default: 0] = max(area[s]?[pid] ?? 0, (b["Width"] ?? 0) * (b["Height"] ?? 0))
                 if out[s]?.contains(where: { $0.pid == pid }) == true { continue }
                 out[s, default: []].append(SpaceApp(pid: pid, name: app.localizedName ?? "App"))
             }
         }
-        for (id, apps) in out { out[id] = apps.sorted { (area[id]?[$0.pid] ?? 0) > (area[id]?[$1.pid] ?? 0) } }
+        for (id, apps) in out where split.contains(id) {
+            out[id] = apps.sorted { (left[id]?[$0.pid] ?? 0) < (left[id]?[$1.pid] ?? 0) }
+        }
+        for (id, apps) in out where !(split.contains(id)) { out[id] = apps.sorted { (area[id]?[$0.pid] ?? 0) > (area[id]?[$1.pid] ?? 0) } }
         return out
     }
 

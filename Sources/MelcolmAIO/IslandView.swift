@@ -8,7 +8,8 @@ let accentGradient = LinearGradient(colors: [Color(red: 0.36, green: 0.66, blue:
 struct IslandView: View {
     @EnvironmentObject var state: IslandState
     @ObservedObject var hoverModel = HoverModel.shared
-    var hoverIsland: Bool { hoverModel.island && !state.expanded }
+    @ObservedObject var optionDrag = OptionDrag.shared
+    var hoverIsland: Bool { (hoverModel.island || (optionDrag.overBar != nil && optionDrag.overBar == state.displayID)) && !state.expanded }
     @AppStorage("colRev") var colRev = 0
     let toggle: () -> Void
     let hover: (Bool) -> Void
@@ -301,10 +302,10 @@ struct Card<Content: View>: View {
 }
 
 struct SettingsTab: View {
-    enum Page: String, CaseIterable { case general = "General", commands = "Commands", bar = "Bar", display = "Display on bar", spaces = "Spaces", mouse = "Mouse", hover = "Hover bar", panel = "Pages", utility = "Utility Bar", colors = "Colors", rules = "Master Rules", updates = "Update Log" }
+    enum Page: String, CaseIterable { case general = "General", commands = "Commands", bar = "Bar", display = "Display on bar", spaces = "Spaces", dragging = "Dragging", mouse = "Mouse", hover = "Hover bar", panel = "Pages", utility = "Utility Bar", colors = "Colors", rules = "Master Rules", updates = "Update Log" }
     /// Top tabs, each with its own sub-tabs.
     static let groups: [(name: String, tabs: [Page])] = [
-        ("General", [.general, .commands]), ("Main Bar", [.bar, .panel, .display, .spaces, .mouse, .hover]), ("Utility Bar", [.utility]), ("Colors", [.colors]),
+        ("General", [.general, .commands]), ("Main Bar", [.bar, .panel, .display, .spaces, .mouse, .hover]), ("Dragging", [.dragging]), ("Utility Bar", [.utility]), ("Colors", [.colors]),
         ("Master Rules", [.rules]), ("Update Log", [.updates]),
     ]
     @AppStorage("settingsPage") var page = Page.general.rawValue
@@ -369,6 +370,7 @@ struct SettingsTab: View {
                     case .display: displayPage
                     case .panel: panelPage
                     case .spaces: spacesPage
+                    case .dragging: DraggingSettings()
                     case .mouse: mouse
                     case .hover: hoverPage
                     case .commands: commandsPage
@@ -379,8 +381,7 @@ struct SettingsTab: View {
                     }
                 }
             }
-            if cur == .spaces { DragSpacesCard() }
-            Text("Melcolm All-in-One Productivity · v2.10").font(.system(size: 10)).foregroundStyle(.tertiary)
+            Text("Melcolm All-in-One Productivity · v2.11").font(.system(size: 10)).foregroundStyle(.tertiary)
         }
         .font(.system(size: 12))
         .toggleStyle(.switch).controlSize(.small)

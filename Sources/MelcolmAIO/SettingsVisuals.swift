@@ -30,6 +30,7 @@ struct SettingsVisual: View {
         case .bar: "Where the island sits, how tall it is and its icon size."
         case .display: "What shows beside the arrow, and the pop-ups under the bar."
         case .spaces: "Your desktops and full-screen apps, one box per display."
+        case .dragging: "Hold a key to drag any window, and drag apps on the bar."
         case .mouse: "Scrolling, hovering and clicking on the island."
         case .hover: "The strip that drops down when you rest on the island."
         case .panel: "Which pages are on Home, their order, and which show in Quick View."
@@ -80,6 +81,12 @@ struct SettingsVisual: View {
                 Image(systemName: "power.circle.fill").font(.system(size: 26)).foregroundStyle(.green)
                 Image(systemName: "lock.shield.fill").font(.system(size: 26)).foregroundStyle(accent)
                 Image(systemName: "arrow.counterclockwise.circle.fill").font(.system(size: 26)).foregroundStyle(.orange)
+            }
+        case .dragging:
+            HStack(spacing: 10) {
+                Image(systemName: "macwindow.and.cursorarrow").font(.system(size: 26)).foregroundStyle(accent)
+                Image(systemName: "arrow.right").font(.system(size: 16, weight: .bold)).foregroundStyle(.secondary)
+                Image(systemName: "menubar.rectangle").font(.system(size: 26)).foregroundStyle(.cyan)
             }
         case .commands:
             HStack(spacing: 5) { key("⌃"); key("⌥"); key("Space") }

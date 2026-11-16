@@ -18,6 +18,7 @@ final class IslandState: ObservableObject {
     /// How many display boxes sit left of the notch (the rest go right). 0 when menus would be covered.
     @Published var leftDisplays = 1
     /// Collapsed, the island sits beside the notch instead of wrapping around it, so it is as short as on any other screen.
+    var displayID: CGDirectDisplayID = 0
     var collapsedWidth: CGFloat { leftWing + rightWing }
     /// The open panel is centred, so on a notched screen it is symmetric around the notch.
     var expandedWidth: CGFloat {
@@ -72,6 +73,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Tiler.watch()
         NSApp.setActivationPolicy(.accessory)
         rebuildIslands()
+        OptionDrag.shared.islands = { [weak self] in
+            (self?.islands ?? []).compactMap { i in i.panel.map { ($0.frame, i.screenID, SpacesModel.uuid(of: i.screen), i.spaces) } }
+        }
+        OptionDrag.shared.start()
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
             self?.rebuildIslands()
         }
@@ -271,6 +276,7 @@ final class Island: NSObject {
         let sid = Island.id(of: screen)
         screenID = sid
         self.app = app
+        state.displayID = sid
         spaces = SpacesModel(screen: { NSScreen.screens.first { Island.id(of: $0) == sid } })
         super.init()
         // Which Space you're on, after a switch.
@@ -322,6 +328,19 @@ final class Island: NSObject {
                 guard let self else { return }
                 if state.expanded { setExpanded(false, restoreFocus: false) }
                 if state.peek != nil { endPeek() }
+            }
+            .store(in: &bag)
+        // Always on every Space: macOS sometimes leaves an all-Spaces window off a newly made
+        // full-screen / Split View Space (Claude, Premiere…). Re-show it on each switch and check every second.
+        NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.activeSpaceDidChangeNotification)
+            .merge(with: Timer.publish(every: 1, on: .main, in: .common).autoconnect().map { _ in Notification(name: .init("tick")) })
+            .receive(on: RunLoop.main)
+            .sink { [weak self] n in
+                guard let self, let p = panel else { return }
+                if n.name.rawValue != "tick" || !p.isOnActiveSpace || !p.isVisible {
+                    p.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
+                    p.orderFrontRegardless()
+                }
             }
             .store(in: &bag)
         // Menus are built a moment after an app comes forward; look again then.
@@ -395,6 +414,12 @@ final class Island: NSObject {
                 panel.setFrame(f, display: false)
                 panel.contentView?.layoutSubtreeIfNeeded()
                 panel.displayIfNeeded()
+            }
+        } else if state.expanded, f != panel.frame {
+            // The bar grew/shrank while the panel is open (e.g. the stopwatch started): follow it smoothly.
+            NSAnimationContext.runAnimationGroup { c in
+                c.duration = 0.22; c.allowsImplicitAnimation = true
+                panel.animator().setFrame(f, display: true)
             }
         }
     }

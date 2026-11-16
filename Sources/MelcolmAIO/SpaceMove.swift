@@ -3,7 +3,7 @@ import SwiftUI
 
 @_silgen_name("_CGSDefaultConnection") private func moveConn() -> Int32
 @_silgen_name("CGSCopyManagedDisplaySpaces") private func moveDisplaySpaces(_ conn: Int32) -> Unmanaged<CFArray>?
-@_silgen_name("_AXUIElementGetWindow") private func axWindowID(_ e: AXUIElement, _ id: UnsafeMutablePointer<CGWindowID>) -> AXError
+@_silgen_name("_AXUIElementGetWindow") func axWindowID(_ e: AXUIElement, _ id: UnsafeMutablePointer<CGWindowID>) -> AXError
 
 // MARK: - Dragging full-screen apps on the bar
 

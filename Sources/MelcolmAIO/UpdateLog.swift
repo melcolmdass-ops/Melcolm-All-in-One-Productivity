@@ -24,6 +24,20 @@ enum UpdateLog {
 
     /// Newest first.
     static let all: [AppUpdate] = [
+        AppUpdate(version: "2.11", date: "November 15th, 2026", title: "Drag any window onto the bar",
+                  improvements: [
+                      "If the bar gets wider while the panel is open (like when you start the stopwatch), the panel now grows with it smoothly.",
+                  ],
+                  fixes: [
+                      "Split View apps now show on the bar in the same order as on screen (left app on the left).",
+                      "The bar now always shows on every Space, including full-screen apps like Claude and Premiere Pro and newly made Split Views.",
+                  ],
+                  features: [
+                      "Hold Option and drag any window from anywhere on it, not just the top.",
+                      "Drop that window on the bar and it becomes its own full-screen Space.",
+                      "New Dragging page in Settings: turn it on or off and pick the key to hold (Option, Shift, Control or Command).",
+                  ],
+                  icons: ["macwindow.and.cursorarrow", "rectangle.split.2x1.fill", "stopwatch"], tint: Color(red: 0.25, green: 0.88, blue: 1.0)),
         AppUpdate(version: "2.10", date: "November 15th, 2026", title: "A smoother drop",
                   improvements: [
                       "When you let go, the app glides from your pointer straight into its new place in one smooth motion.",

@@ -19,6 +19,8 @@ enum Prefs {
         "indicatorStyle": "glow",      // glow / box
         "showNumbers": true,
         "showAppIcons": true,
+        "optionDrag": true,            // hold a key and drag any window from anywhere; drop on the bar = own Space
+        "dragModifier": "option",
         "dragSpaces": true,            // drag full-screen apps on the bar to move them
         "dimOthers": false,            // false = every icon bright, the app in use underlined
         "maxIcons": 4,
