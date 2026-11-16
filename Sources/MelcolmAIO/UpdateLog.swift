@@ -24,6 +24,19 @@ enum UpdateLog {
 
     /// Newest first.
     static let all: [AppUpdate] = [
+        AppUpdate(version: "2.20", date: "November 15th, 2026", title: "Always shows what's playing, snap circles",
+                  improvements: [
+                      "Each snap spot is now a dashed circle you can see. Drop a window inside a circle to snap it; anywhere else it just moves.",
+                      "Settings ▸ Dragging shows the same dashed circles around each spot.",
+                  ],
+                  fixes: [
+                      "A song playing in the YouTube Music app on another display or Space now shows as playing, with its time moving and the wave on the bar.",
+                      "Holding the drag key inside a full-screen app no longer shows the snap spots.",
+                  ],
+                  features: [
+                      "Two new Master Rules: what you hear always shows as playing, and snap circles only appear on a desktop.",
+                  ],
+                  icons: ["waveform", "circle.dashed", "rectangle.3.group.fill"], tint: Color(red: 0.36, green: 0.62, blue: 1.0)),
         AppUpdate(version: "2.19", date: "November 15th, 2026", title: "Smoother, cleaner dragging",
                   improvements: [
                       "The snap dots are built once and just fade in and out, so they no longer flash when you tap or hold Option.",
@@ -423,6 +436,10 @@ struct MasterRule: Identifiable {
                    detail: "Drop a window from your desktop onto the bar, or onto the top-middle New Space spot, and it always becomes the last Space on that display, wherever you let go. Nothing else opens, closes or moves to make room."),
         MasterRule(icon: "hand.draw.fill", title: "Dragging is always smooth",
                    detail: "Anything you drag on the bar follows your pointer, the other apps slide aside to make room where it will land, and the bar shows the new order the moment you let go while macOS catches up. Only what has to move moves, so a swap is one quick step."),
+        MasterRule(icon: "waveform", title: "If you can hear it, it shows as playing",
+                   detail: "Whenever sound is playing, its card shows the Pause button, its time keeps moving, and the bar shows the music note and wave. This holds even when the player is on another display or Space and its page stops reporting. When nothing has been playing for a few seconds, nothing shows as playing."),
+        MasterRule(icon: "circle.dashed", title: "Snap circles only on a desktop",
+                   detail: "Holding the drag key shows the dashed snap circles only on a desktop, where a window can actually be moved. Inside a full-screen app nothing appears. A window only snaps when you drop it inside a circle."),
     ]
 }
 

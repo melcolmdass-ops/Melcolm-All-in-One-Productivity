@@ -51,7 +51,8 @@ final class OptionDrag: ObservableObject {
                                               vis: CGRect(x: $0.visibleFrame.minX, y: h - $0.visibleFrame.maxY, width: $0.visibleFrame.width, height: $0.visibleFrame.height),
                                               uuid: SpacesModel.uuid(of: $0), id: Island.id(of: $0)) }
             let z = DragZone.all.map { (Prefs.d.string(forKey: "zone.\($0.rawValue)") ?? $0.defaultLayout) }
-            lock.lock(); cached = c; mainH = h; slots = sl; screens = scr; zoneLayouts = z; zonesOn = Prefs.bool("dragZones"); lock.unlock() }
+            let fs = Self.fullScreenDisplays(c)
+            lock.lock(); cached = c; mainH = h; slots = sl; screens = scr; zoneLayouts = z; zonesOn = Prefs.bool("dragZones"); fullScreens = fs; lock.unlock() }
         snap(); Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in snap() }
         let mask = (1 << CGEventType.mouseMoved.rawValue) | (1 << CGEventType.flagsChanged.rawValue) | (1 << CGEventType.leftMouseDown.rawValue) | (1 << CGEventType.leftMouseDragged.rawValue) | (1 << CGEventType.leftMouseUp.rawValue)
         let me = Unmanaged.passUnretained(self).toOpaque()
@@ -77,10 +78,10 @@ final class OptionDrag: ObservableObject {
         }
         switch type {
         case .flagsChanged, .mouseMoved:
-            showBadge(Prefs.bool("optionDrag") && e.flags.contains(modifier), at: e.location)
+            showBadge(Prefs.bool("optionDrag") && e.flags.contains(modifier) && !inFullScreen(at: e.location), at: e.location)
             return Unmanaged.passUnretained(e)
         case .leftMouseDown:
-            guard Prefs.bool("optionDrag"), e.flags.contains(modifier), grab(at: e.location) else { break }
+            guard Prefs.bool("optionDrag"), e.flags.contains(modifier), !inFullScreen(at: e.location), grab(at: e.location) else { break }
             active = true
             return nil
         case .leftMouseDragged where active:
@@ -155,6 +156,28 @@ final class OptionDrag: ObservableObject {
     private var screens: [(cg: CGRect, vis: CGRect, uuid: String?, id: CGDirectDisplayID)] = []
     private var zoneLayouts: [String] = []
     private var zonesOn = true
+    /// Displays whose current Space is a full-screen app. MASTER RULE: no snap spots there.
+    private var fullScreens = Set<String>()
+    private var anyFullScreen = false
+
+    /// UUIDs of the displays showing a full-screen app right now ("*" = every display, when
+    /// macOS shares one set of Spaces across all of them).
+    static func fullScreenDisplays(_ c: [(frame: NSRect, screen: CGDirectDisplayID, uuid: String?, model: SpacesModel)]) -> Set<String> {
+        var out = Set<String>()
+        for g in c.first?.model.displays ?? [] where g.spaces.first(where: { $0.id == g.currentID })?.isFullscreen == true {
+            out.insert(g.id.count < 10 ? "*" : g.id.uppercased())
+        }
+        return out
+    }
+    private func isFullScreen(_ uuid: String?) -> Bool {
+        lock.lock(); let fs = fullScreens; lock.unlock()
+        return fs.contains("*") || (uuid.map { fs.contains($0.uppercased()) } ?? false)
+    }
+    /// True when the pointer is on a display that's showing a full-screen app.
+    private func inFullScreen(at p: CGPoint) -> Bool {
+        lock.lock(); let scr = screens; lock.unlock()
+        return isFullScreen(scr.first { $0.cg.contains(p) }?.uuid)
+    }
 
     /// Where each display's box and full-screen apps sit on each bar, in top-left screen coords.
     static func barSlots(_ list: [(frame: NSRect, screen: CGDirectDisplayID, uuid: String?, model: SpacesModel)], mainH: CGFloat) -> [CGDirectDisplayID: [(uuid: String, box: CGRect, cells: [CGFloat])]] {
@@ -178,27 +201,27 @@ final class OptionDrag: ObservableObject {
         return (g.uuid, g.cells.filter { $0 < p.x }.count)
     }
 
-    /// The screen spot a window snaps to when dropped at `p` (near an edge or corner), top-left coords.
+    /// The screen spot a window snaps to when dropped at `p`, top-left coords. You only snap
+    /// inside one of the dashed circles you can see; anywhere else the window just moves.
     private func zoneRect(at p: CGPoint) -> Snap? {
         lock.lock(); let scr = screens; let lay = zoneLayouts; let on = zonesOn; lock.unlock()
-        guard on, let s = scr.first(where: { $0.cg.contains(p) }) else { return nil }
-        // Easy to hit, hard to fall out of: once a spot is showing, you have to move well away to leave it.
-        let v = s.vis, edge: CGFloat = lastZone == nil ? 48 : 110
-        let corner = max(160, min(v.width, v.height) * 0.22)
-        let l = p.x < v.minX + edge, rt = p.x > v.maxX - edge, t = p.y < v.minY + edge, b = p.y > v.maxY - edge
-        let nl = p.x < v.minX + corner, nr = p.x > v.maxX - corner, nt = p.y < v.minY + corner, nb = p.y > v.maxY - corner
-        let zone: DragZone? =
-            (t && nl) || (l && nt) ? .topLeft : (t && nr) || (rt && nt) ? .topRight :
-            (b && nl) || (l && nb) ? .bottomLeft : (b && nr) || (rt && nb) ? .bottomRight :
-            t ? .top : b ? .bottom : l ? .left : rt ? .right : nil
+        guard on, let s = scr.first(where: { $0.cg.contains(p) }), !isFullScreen(s.uuid) else { return nil }
+        let v = s.vis
+        // Once inside a circle you have to move a little further out to leave it (no flicker on the rim).
+        let reach = DragZone.radius + (lastZone == nil ? 0 : 18)
+        let zone = DragZone.all.first { z in
+            let c = z.center(in: v.size)
+            return hypot(p.x - (v.minX + c.x), p.y - (v.minY + c.y)) <= reach
+        }
+        guard let zone else { return nil }
         // Top middle is always "New Space": the window becomes its own Space, last on this display.
         if zone == .top, let u = s.uuid {
             return Snap(rect: CGRect(x: v.midX - v.width * 0.18, y: v.minY + 12, width: v.width * 0.36, height: v.height * 0.26).integral,
                         title: "New Space", id: "space", zone: "top", space: u, display: s.id)
         }
-        guard let zone, let i = DragZone.all.firstIndex(of: zone), i < lay.count,
+        guard let i = DragZone.all.firstIndex(of: zone), i < lay.count,
               let wl = WindowLayout.all.first(where: { $0.id == lay[i] }) else { return nil }
-        return Snap(rect: CGRect(x: v.minX + v.width * wl.x, y: v.minY + v.height * wl.y, width: v.width * wl.w, height: v.height * wl.h).integral, title: wl.title, id: wl.id, zone: zone.rawValue)
+        return Snap(rect: CGRect(x: v.minX + v.width * wl.x, y: v.minY + v.height * wl.y, width: v.width * wl.w, height: v.height * wl.h).integral, title: wl.title, id: wl.id, zone: zone.rawValue, display: s.id)
     }
 
     // The glowing preview of where the window will snap.
@@ -230,6 +253,7 @@ final class OptionDrag: ObservableObject {
         for (i, sc) in scr.enumerated() {
             let p = dotPanels[i]
             let sid = Island.id(of: sc)
+            if isFullScreen(SpacesModel.uuid(of: sc)) { p.orderOut(nil); continue }   // nothing to snap in a full-screen app
             if p.frame != sc.visibleFrame { p.setFrame(sc.visibleFrame, display: false) }
             // Build the dots once per screen and keep them; only fade in/out after that.
             if (p.contentView as? NSHostingView<DotsView>)?.rootView.screen != sid {
@@ -454,7 +478,8 @@ final class DotsModel: ObservableObject {
     var layouts: [String: String] = [:]
 }
 
-/// The 8 spots drawn on the real screen while the drag key is held.
+/// The 8 spots drawn on the real screen while the drag key is held: each one a dashed circle
+/// (the exact area that snaps), a dot and its name.
 struct DotsView: View {
     @ObservedObject var m: DotsModel
     let screen: CGDirectDisplayID
@@ -467,20 +492,27 @@ struct DotsView: View {
                     let on = m.active == z.rawValue && m.screen == screen
                     let title = isSpace ? "New Space" : WindowLayout.all.first { $0.id == lay }?.title ?? ""
                     let tint = isSpace ? Color(red: 0.25, green: 0.88, blue: 1.0) : accent
-                    VStack(spacing: 6) {
-                        Circle().fill(on ? tint : Color.white.opacity(0.9))
-                            .frame(width: on ? 26 : 16, height: on ? 26 : 16)
-                            .overlay(Circle().strokeBorder(tint, lineWidth: on ? 3 : 2))
-                            .shadow(color: tint.opacity(0.9), radius: on ? 12 : 6)
-                        Text(title).font(.system(size: 11, weight: .bold)).foregroundStyle(.white)
-                            .padding(.horizontal, 8).padding(.vertical, 3)
-                            .background(Capsule().fill(Color.black.opacity(0.7)))
-                            .overlay(Capsule().strokeBorder(tint.opacity(on ? 1 : 0.5), lineWidth: 1))
-                            .opacity(on || isSpace ? 1 : 0.75)
+                    let d = DragZone.radius * 2
+                    ZStack {
+                        Circle().fill(tint.opacity(on ? 0.34 : 0.14))
+                        Circle().strokeBorder(tint.opacity(on ? 1 : 0.75),
+                                              style: StrokeStyle(lineWidth: on ? 2.5 : 1.8, lineCap: .round, dash: on ? [] : [7, 6]))
+                        VStack(spacing: 7) {
+                            Circle().fill(on ? tint : Color.white.opacity(0.95))
+                                .frame(width: on ? 22 : 15, height: on ? 22 : 15)
+                                .overlay(Circle().strokeBorder(tint, lineWidth: on ? 3 : 2))
+                                .shadow(color: tint.opacity(0.9), radius: on ? 10 : 5)
+                            Text(title).font(.system(size: 11, weight: .bold)).foregroundStyle(.white)
+                                .lineLimit(1).minimumScaleFactor(0.8)
+                                .padding(.horizontal, 8).padding(.vertical, 3)
+                                .background(Capsule().fill(Color.black.opacity(0.72)))
+                        }
                     }
-                    .scaleEffect(on ? 1.12 : 1)
-                    .animation(.spring(response: 0.25, dampingFraction: 0.7), value: on)
-                    .position(x: 40 + (g.size.width - 80) * z.spot.x, y: 40 + (g.size.height - 80) * z.spot.y)
+                    .frame(width: d, height: d)
+                    .shadow(color: tint.opacity(on ? 0.55 : 0.2), radius: on ? 16 : 8)
+                    .scaleEffect(on ? 1.06 : 1)
+                    .animation(.spring(response: 0.25, dampingFraction: 0.75), value: on)
+                    .position(z.center(in: g.size))
                 }
             }
         }
@@ -535,6 +567,13 @@ enum DragZone: String, CaseIterable {
         case .bottomRight: "br"; case .bottom: "bottom"; case .bottomLeft: "bl"; case .left: "left"
         }
     }
+    /// Size of each snap circle (points on the real screen).
+    static let radius: CGFloat = 62
+    /// Centre of this spot's circle on a screen of `size` (top-left origin), kept fully on screen.
+    func center(in size: CGSize) -> CGPoint {
+        let r = Self.radius + 10
+        return CGPoint(x: r + (size.width - 2 * r) * spot.x, y: r + (size.height - 2 * r) * spot.y)
+    }
     /// Where the picker sits on the settings picture (0…1).
     var spot: UnitPoint {
         switch self {
@@ -562,7 +601,7 @@ struct DragZonesCard: View {
                         .frame(width: 30, height: 30).background(NeonBox(color: accent, radius: 8, strength: 0.5))
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Snap to the edges").font(.system(size: 13, weight: .heavy))
-                        Text("Drag a window into a corner or edge. A blue box shows where it'll go; let go and it snaps there.")
+                        Text("Drag a window into one of the dashed circles. A blue box shows where it'll go; let go and it snaps there. Outside the circles it just moves. Only on a desktop, never inside a full-screen app.")
                             .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     }
                     Spacer(minLength: 0)
@@ -626,16 +665,24 @@ struct DragZonesCard: View {
                     let on = z == sel
                     let none = layout(z) == "none"
                     let cyan = Color(red: 0.25, green: 0.88, blue: 1.0)
+                    let tint = z == .top ? cyan : accent
                     Button { withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { selRaw = z.rawValue } } label: {
-                        Circle().fill(z == .top ? cyan : on ? accent : none ? Color.white.opacity(0.12) : Color.white.opacity(0.85))
-                            .frame(width: on ? 18 : 12, height: on ? 18 : 12)
-                            .overlay(Circle().strokeBorder(.white.opacity(on ? 0.9 : 0.3), lineWidth: on ? 2 : 1))
-                            .shadow(color: on ? accent : .clear, radius: 6)
-                            .frame(width: 34, height: 34).contentShape(Rectangle())
+                        ZStack {
+                            // The snap area: a dashed circle you drop the window into.
+                            if !none || z == .top {
+                                Circle().fill(tint.opacity(on ? 0.3 : 0.12))
+                                Circle().strokeBorder(tint.opacity(on ? 1 : 0.7), style: StrokeStyle(lineWidth: on ? 1.6 : 1.2, lineCap: .round, dash: [3.5, 3]))
+                            }
+                            Circle().fill(z == .top ? cyan : on ? accent : none ? Color.white.opacity(0.12) : Color.white.opacity(0.85))
+                                .frame(width: on ? 14 : 10, height: on ? 14 : 10)
+                                .overlay(Circle().strokeBorder(.white.opacity(on ? 0.9 : 0.3), lineWidth: on ? 2 : 1))
+                                .shadow(color: on ? accent : .clear, radius: 6)
+                        }
+                        .frame(width: 40, height: 40).contentShape(Circle())
                     }
                     .buttonStyle(PressStyle())
                     .help(z.title)
-                    .position(x: area.minX + 14 + (area.width - 28) * z.spot.x, y: area.minY + 14 + (area.height - 28) * z.spot.y)
+                    .position(x: area.minX + 22 + (area.width - 44) * z.spot.x, y: area.minY + 22 + (area.height - 44) * z.spot.y)
                 }
             }
         }

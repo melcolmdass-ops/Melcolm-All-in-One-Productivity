@@ -216,6 +216,7 @@ final class NowPlayingModel: ObservableObject {
     func refresh() {
         if refreshScripts() {
             var l = BrowserMedia.scan(); for i in l.indices { fillFromVideo(&l[i]); applyAX(&l[i]) }
+            enforceSound(&l)
             others = l.sorted { $0.id < $1.id }; probeAX(l); return
         }
         // AppleScript has to run on the main thread; the scan is a few milliseconds.
@@ -223,6 +224,7 @@ final class NowPlayingModel: ObservableObject {
         for i in list.indices { fillFromVideo(&list[i]); applyAX(&list[i]) }
         probeAX(list)
         for i in list.indices where !list[i].knownState || held(list[i].id) { if let f = forced[list[i].id] { list[i].playing = f } }
+        enforceSound(&list)
         let main = list.first(where: { forced[$0.id] ?? $0.playing }) ?? list.first
         mainID = main?.id ?? ""
         others = list.sorted { $0.id < $1.id }            // fixed order, so cards never swap places
@@ -260,11 +262,16 @@ final class NowPlayingModel: ObservableObject {
                 guard let self else { return }
                 self.probing = false
                 let now = Date()
-                for (id, f) in out { self.ax[id] = (f, now) }
+                for (id, f) in out {
+                    self.ax[id] = (f, now)
+                    // Same spot as last time? Keep the time it was first seen there (to spot a frozen read).
+                    if let old = self.axSince[id], abs(old.pos - f.pos) < 0.5 { } else { self.axSince[id] = (f.pos, now) }
+                }
                 for i in self.others.indices { self.applyAX(&self.others[i]) }
-                if let m = self.mainResult, self.app == "Browser", let f = out[m.id] {
-                    if let p = f.playing, !self.held(m.id) { self.playing = p }
-                    if f.hasTime { self.position = f.pos; self.duration = f.dur }
+                self.enforceSound(&self.others)
+                if let m = self.mainResult, self.app == "Browser", out[m.id] != nil {
+                    if !self.held(m.id) { self.playing = m.playing }
+                    if m.duration > 0 { self.position = m.position; self.duration = m.duration }
                 }
                 if let m = self.mainResult, self.app == "Browser", self.duration == 0 {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self.refresh() }   // not there yet: look again soon
@@ -272,6 +279,32 @@ final class NowPlayingModel: ObservableObject {
                 BrowserMedia.log("ax \(out.map { "\($0.key) pos=\($0.value.pos)/\($0.value.dur) play=\(String(describing: $0.value.playing))" })")
             }
         }
+    }
+
+    /// Where each player's read last stood, and since when. A read that stays put while sound is
+    /// coming out is frozen (Chrome stops updating pages on another Space or display).
+    private var axSince: [String: (pos: Double, since: Date)] = [:]
+
+    /// MASTER RULE: what you hear decides. If the browser is making sound, a player shows as playing
+    /// (on its card and on the bar) even when the page's own read is stale; if it has been silent
+    /// for a few seconds, nothing shows as playing. A press you just made still wins for 3 s.
+    func enforceSound(_ l: inout [BrowserMedia.Result]) {
+        let audible = BrowserMedia.audibleNow()
+        if !audible {
+            for i in l.indices where l[i].playing && !held(l[i].id) { l[i].playing = false }
+            return
+        }
+        guard !l.isEmpty, !l.contains(where: { $0.playing }) else { return }
+        // The one making the sound: a song page (YouTube Music shows the song in its title only while
+        // it plays), else the main card, else the first.
+        let pick = l.firstIndex { !$0.generic && !$0.videoID.isEmpty } ?? l.firstIndex { $0.id == mainID } ?? 0
+        let id = l[pick].id
+        if held(id), forced[id] == false { return }       // you just paused it
+        l[pick].playing = true
+        if let s = axSince[id], l[pick].duration > 0 {
+            l[pick].position = min(l[pick].duration, s.pos + Date().timeIntervalSince(s.since))
+        }
+        BrowserMedia.log("sound rule: \(l[pick].title) shown as playing")
     }
 
     /// Every other playing or paused tab / web app, shown under the main card.
