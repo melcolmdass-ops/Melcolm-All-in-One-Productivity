@@ -24,6 +24,16 @@ enum UpdateLog {
 
     /// Newest first.
     static let all: [AppUpdate] = [
+        AppUpdate(version: "2.15", date: "November 15th, 2026", title: "Dragging you can feel",
+                  improvements: [
+                      "A grabbed window lifts off the screen with a soft spring and a glow, and settles smoothly when you let go.",
+                  ],
+                  fixes: [],
+                  features: [
+                      "Drag a window over the bar and it shrinks into a glowing \"New Space\" tile, so you can see it's about to become a Space.",
+                      "Let go on the bar and it zips into the bar, and the bar says \"App → new Space\".",
+                  ],
+                  icons: ["sparkles", "plus.rectangle.on.rectangle", "menubar.rectangle"], tint: Color(red: 0.25, green: 0.88, blue: 1.0)),
         AppUpdate(version: "2.14", date: "November 15th, 2026", title: "Instant dragging",
                   improvements: [
                       "Option-drag is now instant: a see-through copy of the window sticks to your pointer, and the window jumps there the moment you let go.",

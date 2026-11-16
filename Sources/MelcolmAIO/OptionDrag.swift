@@ -86,9 +86,9 @@ final class OptionDrag: ObservableObject {
             var o = CGPoint(x: startPos.x + p.x - startMouse.x, y: startPos.y + p.y - startMouse.y)
             lastOrigin = o
             lock.lock(); let g = ghostID; lock.unlock()
-            if g != 0 { _ = CGSMoveWindow(cid, g, &o) } else { pending = o; pump() }
+            if g != 0 { var go = CGPoint(x: o.x - 30, y: o.y - 30); _ = CGSMoveWindow(cid, g, &go) } else { pending = o; pump() }
             let hit = island(at: p)?.screen
-            if hit != lastHit { lastHit = hit; DispatchQueue.main.async { self.overBar = hit } }
+            if hit != lastHit { lastHit = hit; DispatchQueue.main.async { self.overBar = hit; self.ghostModel?.overBar = hit != nil } }
             return nil
         case .leftMouseUp where active:
             active = false
@@ -97,7 +97,15 @@ final class OptionDrag: ObservableObject {
             lastHit = nil; DispatchQueue.main.async { self.overBar = nil }
             if target == nil, win != nil {
                 pending = lastOrigin; pump()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) { self.hideGhost() }
+                // The real window is there now: the copy melts away.
+                DispatchQueue.main.async { self.fadeGhost(.settle, after: 0.22) }
+            } else if let t = target {
+                // Into the bar: the copy shrinks into the pointer and the bar announces the new Space.
+                let name = NSRunningApplication(processIdentifier: pid)?.localizedName ?? "App"
+                DispatchQueue.main.async {
+                    self.fadeGhost(.intoBar, after: 0.38)
+                    self.onDropToBar(t.screen, name)
+                }
             } else { DispatchQueue.main.async { self.hideGhost() } }
             if let target, let uuid = target.uuid, let win {
                 // Back where it was, then into its own full-screen Space at the end of that display.
@@ -131,21 +139,38 @@ final class OptionDrag: ObservableObject {
     private var lastOrigin = CGPoint.zero
     private var ghostID: UInt32 = 0
     private var ghost: NSPanel?
+    private var ghostModel: GhostModel?
+    /// Called when a window is dropped on a display's bar (AppDelegate shows the pop-up there).
+    var onDropToBar: (CGDirectDisplayID, String) -> Void = { _, _ in }
+
+    private func fadeGhost(_ how: GhostModel.End, after t: Double) {
+        guard let m = ghostModel, let g = ghost else { hideGhost(); return }
+        lock.lock(); ghostID = 0; lock.unlock()        // stop following the pointer
+        withAnimation(how == .intoBar ? .spring(response: 0.34, dampingFraction: 0.8) : .easeOut(duration: 0.2)) { m.end = how }
+        DispatchQueue.main.asyncAfter(deadline: .now() + t) { [weak self] in
+            g.orderOut(nil)
+            if self?.ghost === g { self?.ghost = nil; self?.ghostModel = nil }
+        }
+    }
 
     /// The copy of the window that follows the pointer: a picture of it when Screen Recording is allowed, else a glowing outline.
     private func makeGhost(_ r: CGRect, wid: CGWindowID, pid: pid_t) {
         hideGhost()
         guard active else { return }
         let h = NSScreen.screens.first?.frame.height ?? 0
-        let p = NSPanel(contentRect: NSRect(x: r.minX, y: h - r.maxY, width: r.width, height: r.height),
+        let p = NSPanel(contentRect: NSRect(x: r.minX - 30, y: h - r.maxY - 30, width: r.width + 60, height: r.height + 60),
                         styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         p.isOpaque = false; p.backgroundColor = .clear; p.hasShadow = true; p.ignoresMouseEvents = true
         p.level = .floating; p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
         let model = GhostModel(); model.icon = NSRunningApplication(processIdentifier: pid)?.icon
+        model.grip = UnitPoint(x: (startMouse.x - r.minX) / max(1, r.width), y: (startMouse.y - r.minY) / max(1, r.height))
+        ghostModel = model
         p.contentView = NSHostingView(rootView: GhostView(m: model))
         // Put it exactly where the pointer has already got to.
-        var o = lastOrigin == .zero ? r.origin : lastOrigin
+        let at = lastOrigin == .zero ? r.origin : lastOrigin
+        var o = CGPoint(x: at.x - 30, y: at.y - 30)
         p.orderFrontRegardless()
+        DispatchQueue.main.async { withAnimation(.spring(response: 0.28, dampingFraction: 0.72)) { model.lifted = true } }
         ghost = p
         lock.lock(); ghostID = UInt32(p.windowNumber); lock.unlock()
         _ = CGSMoveWindow(cid, UInt32(p.windowNumber), &o)
@@ -162,7 +187,7 @@ final class OptionDrag: ObservableObject {
 
     private func hideGhost() {
         lock.lock(); ghostID = 0; lock.unlock()
-        ghost?.orderOut(nil); ghost = nil
+        ghost?.orderOut(nil); ghost = nil; ghostModel = nil
     }
 
     /// One move in flight at a time, always to the latest pointer spot (skips stale ones). Never touches the main thread.
@@ -236,24 +261,45 @@ final class OptionDrag: ObservableObject {
 }
 
 final class GhostModel: ObservableObject {
+    enum End { case none, settle, intoBar }
     @Published var image: NSImage?
+    @Published var lifted = false          // pops up off the screen when grabbed
+    @Published var overBar = false         // over the bar: shrinks to a Space-sized tile
+    @Published var end: End = .none
     var icon: NSImage?
+    var grip: UnitPoint = .center          // where the pointer holds it, so it shrinks into the pointer
 }
 
 struct GhostView: View {
     @ObservedObject var m: GhostModel
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: m.overBar ? 22 : 12, style: .continuous)
+        let tint = m.overBar ? Color(red: 0.25, green: 0.88, blue: 1.0) : accent
+        let scale: CGFloat = m.end == .intoBar ? 0.02 : m.overBar ? 0.3 : m.end == .settle ? 1.0 : m.lifted ? 1.02 : 0.97
         ZStack {
-            if let img = m.image { Image(nsImage: img).resizable() }
+            if let img = m.image, !m.overBar { Image(nsImage: img).resizable() }
             else {
-                shape.fill(accent.opacity(0.16))
-                if let i = m.icon { Image(nsImage: i).resizable().frame(width: 72, height: 72).opacity(0.9) }
+                shape.fill(tint.opacity(m.overBar ? 0.35 : 0.16)).background(.ultraThinMaterial, in: shape)
+                if let i = m.icon { Image(nsImage: i).resizable().frame(width: m.overBar ? 200 : 72, height: m.overBar ? 200 : 72) }
+            }
+            if m.overBar {
+                VStack {
+                    Spacer()
+                    Label("New Space", systemImage: "plus.rectangle.on.rectangle")
+                        .font(.system(size: 56, weight: .heavy)).foregroundStyle(.white)
+                        .padding(.horizontal, 40).padding(.vertical, 18)
+                        .background(Capsule().fill(tint))
+                        .padding(.bottom, 60)
+                }
             }
         }
         .clipShape(shape)
-        .overlay(shape.strokeBorder(accent, lineWidth: 2.5))
-        .opacity(0.92)
+        .overlay(shape.strokeBorder(tint, lineWidth: m.overBar ? 8 : 2.5))
+        .shadow(color: tint.opacity(m.lifted ? 0.55 : 0), radius: m.overBar ? 40 : 18)
+        .scaleEffect(scale, anchor: m.grip)
+        .opacity(m.end == .none ? (m.lifted ? 0.94 : 0.6) : 0)
+        .animation(.spring(response: 0.3, dampingFraction: 0.75), value: m.overBar)
+        .padding(30)   // room for the glow
     }
 }
 

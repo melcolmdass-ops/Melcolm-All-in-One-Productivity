@@ -76,6 +76,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         OptionDrag.shared.islands = { [weak self] in
             (self?.islands ?? []).compactMap { i in i.panel.map { ($0.frame, i.screenID, SpacesModel.uuid(of: i.screen), i.spaces) } }
         }
+        OptionDrag.shared.onDropToBar = { [weak self] screen, name in
+            guard let i = self?.islands.first(where: { $0.screenID == screen }) else { return }
+            i.peek(.init(text: "\(name) → new Space", icon: "plus.rectangle.on.rectangle"), for: 2.2)
+        }
         OptionDrag.shared.start()
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
             self?.rebuildIslands()
