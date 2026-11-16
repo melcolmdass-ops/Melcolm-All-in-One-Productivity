@@ -209,6 +209,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let t = UserDefaults.standard.string(forKey: "debugOpen"), let i = islands.first {
             i.state.page = PanelPage.allCases.first { $0.rawValue.lowercased() == t.lowercased() } ?? .home; i.setExpanded(true)
         }
+        // For testing: `-debugClicks "x,y;x,y"` (screen points, top-left origin) clicks inside the panel
+        // itself, one every 0.9 s, and writes what Settings page is showing after each to /tmp/melcolm-clicks.log.
+        if let list = UserDefaults.standard.string(forKey: "debugClicks"), let i = islands.first {
+            let pts = list.split(separator: ";").compactMap { s -> CGPoint? in
+                let v = s.split(separator: ",").compactMap { Double($0) }; return v.count == 2 ? CGPoint(x: v[0], y: v[1]) : nil }
+            let logURL = URL(fileURLWithPath: "/tmp/melcolm-clicks.log"); try? "".write(to: logURL, atomically: true, encoding: .utf8)
+            for (k, p) in pts.enumerated() {
+                let delay: Double = 1.5 + Double(k) * 0.9
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { self.debugClick(i, p, logURL) }
+            }
+        }
+    }
+
+    private func debugClick(_ i: Island, _ p: CGPoint, _ logURL: URL) {
+        let w: NSPanel = i.panel
+        let top: CGFloat = NSScreen.screens[0].frame.maxY
+        let local = NSPoint(x: p.x - w.frame.minX, y: top - p.y - w.frame.minY)
+        let now: TimeInterval = ProcessInfo.processInfo.systemUptime
+        for t: NSEvent.EventType in [.leftMouseDown, .leftMouseUp] {
+            if let e = NSEvent.mouseEvent(with: t, location: local, modifierFlags: [], timestamp: now, windowNumber: w.windowNumber,
+                                          context: nil, eventNumber: 0, clickCount: 1, pressure: 1) { w.sendEvent(e) }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            let pg: String = UserDefaults.standard.string(forKey: "settingsPage") ?? "-"
+            let line: String = "\(Int(p.x)),\(Int(p.y)) page=\(pg) open=\(i.state.expanded)\n"
+            if let h = try? FileHandle(forWritingTo: logURL) { h.seekToEndOfFile(); h.write(Data(line.utf8)); try? h.close() }
+        }
     }
 
     /// One island on the main display, or one on every display if that setting is on.

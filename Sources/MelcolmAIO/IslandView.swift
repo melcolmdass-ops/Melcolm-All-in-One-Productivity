@@ -341,14 +341,16 @@ struct SettingsTab: View {
                 ForEach(Self.groups, id: \.name) { g in
                     let on = g.name == group.name
                     Button { page = g.tabs[0].rawValue } label: {
-                        Text(g.name).font(.system(size: 10.5, weight: .semibold)).lineLimit(1).fixedSize()
+                        // Always fits the panel: tabs shrink a little instead of running off the edges.
+                        Text(g.name).font(.system(size: 10.5, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.75)
                             .foregroundStyle(on ? .white : .white.opacity(0.7))
-                            .padding(.horizontal, 8).padding(.vertical, 5)
+                            .padding(.horizontal, 6).padding(.vertical, 5).frame(maxWidth: .infinity)
                             .background(Capsule().fill(on ? AnyShapeStyle(accent) : AnyShapeStyle(Color(white: 0.16))))
                             .contentShape(Capsule())
                     }.buttonStyle(PressStyle()).help(g.name)
                 }
             }
+            .frame(maxWidth: .infinity)
             if group.tabs.count > 1 {
                 HStack(spacing: 14) {
                     ForEach(group.tabs, id: \.self) { t in

@@ -31,7 +31,7 @@ enum UpdateLog {
                   fixes: [
                       "Dragging the play bar on YouTube / YouTube Music works without Chrome's \"Allow JavaScript from Apple Events\" setting: if the page won't move, the same song reopens at the spot you picked. The orange warning is gone.",
                       "With two things playing (say a song and a TV show), pressing Play on one row now plays that one, never the other.",
-                      "Settings tabs that wouldn't switch when clicked now switch.",
+                      "Settings tabs that wouldn't switch when clicked now switch. The tab row always fits inside the panel, so the end tabs (General, Update Log) aren't half off the edge.",
                   ],
                   features: [
                       "New Hide option for snap spots: drag a window into that circle and the app hides, just like ⌘H.",
