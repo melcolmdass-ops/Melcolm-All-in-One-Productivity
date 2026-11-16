@@ -24,6 +24,18 @@ enum UpdateLog {
 
     /// Newest first.
     static let all: [AppUpdate] = [
+        AppUpdate(version: "2.19", date: "November 15th, 2026", title: "Smoother, cleaner dragging",
+                  improvements: [
+                      "The snap dots are built once and just fade in and out, so they no longer flash when you tap or hold Option.",
+                      "The window's picture fades into the dragged copy instead of popping in.",
+                      "The blue snap box hides cleanly and never blinks when you move between spots quickly.",
+                  ],
+                  fixes: [
+                      "The window no longer jumps a little at the very start of a drag.",
+                      "Quickly pressing and releasing Option no longer leaves the dots half-shown.",
+                  ],
+                  features: [],
+                  icons: ["sparkles", "wand.and.stars", "circle.grid.3x3.fill"], tint: Color(red: 0.25, green: 0.88, blue: 1.0)),
         AppUpdate(version: "2.18", date: "November 15th, 2026", title: "See the snap spots",
                   improvements: [
                       "A window dropped on the bar now always becomes the last Space, wherever you drop it, so other apps no longer open and close one after another to make room.",

@@ -91,7 +91,7 @@ final class OptionDrag: ObservableObject {
             var o = CGPoint(x: startPos.x + p.x - startMouse.x, y: startPos.y + p.y - startMouse.y)
             lastOrigin = o
             lock.lock(); let g = ghostID; lock.unlock()
-            if g != 0 { var go = CGPoint(x: o.x - 30, y: o.y - 30); _ = CGSMoveWindow(cid, g, &go) } else { pending = o; pump() }
+            if g != 0 { var go = CGPoint(x: o.x - 30, y: o.y - 30); _ = CGSMoveWindow(cid, g, &go) }   // until the copy appears, the window stays put (no jump)
             let hit = island(at: p)?.screen
             let z = hit == nil ? zoneRect(at: p) : nil
             if z != lastZone { lastZone = z; DispatchQueue.main.async { self.showZone(z); self.dots.active = z?.zone ?? ""; self.dots.screen = z?.display ?? 0 } }
@@ -204,15 +204,21 @@ final class OptionDrag: ObservableObject {
     // The glowing preview of where the window will snap.
     private var zonePanel: NSPanel?
     private let zoneModel = ZoneModel()
+    private var zoneToken = 0
 
     // The snap dots shown on every screen while the key is held.
     let dots = DotsModel()
     private var dotPanels: [NSPanel] = []
+    private var dotsToken = 0
     private func showDots(_ on: Bool) {
+        dotsToken += 1; let token = dotsToken
         guard on, Prefs.bool("dragZones") else {
-            dotPanels.forEach { p in NSAnimationContext.runAnimationGroup({ $0.duration = 0.15; p.animator().alphaValue = 0 }, completionHandler: { p.orderOut(nil) }) }
+            // Fade out; only hide if nothing asked to show them again meanwhile (no flicker on quick taps).
+            dotPanels.forEach { p in NSAnimationContext.runAnimationGroup({ $0.duration = 0.15; p.animator().alphaValue = 0 },
+                                                                         completionHandler: { [weak self] in if self?.dotsToken == token { p.orderOut(nil) } }) }
             return
         }
+        dots.objectWillChange.send()
         dots.layouts = Dictionary(uniqueKeysWithValues: DragZone.all.map { ($0.rawValue, Prefs.d.string(forKey: "zone.\($0.rawValue)") ?? $0.defaultLayout) })
         let scr = NSScreen.screens
         while dotPanels.count < scr.count {
@@ -223,9 +229,14 @@ final class OptionDrag: ObservableObject {
         }
         for (i, sc) in scr.enumerated() {
             let p = dotPanels[i]
-            p.setFrame(sc.visibleFrame, display: false)
-            p.contentView = NSHostingView(rootView: DotsView(m: dots, screen: Island.id(of: sc)))
-            p.alphaValue = 0; p.orderFrontRegardless()
+            let sid = Island.id(of: sc)
+            if p.frame != sc.visibleFrame { p.setFrame(sc.visibleFrame, display: false) }
+            // Build the dots once per screen and keep them; only fade in/out after that.
+            if (p.contentView as? NSHostingView<DotsView>)?.rootView.screen != sid {
+                p.contentView = NSHostingView(rootView: DotsView(m: dots, screen: sid))
+            }
+            if !p.isVisible { p.alphaValue = 0 }
+            p.orderFrontRegardless()
             NSAnimationContext.runAnimationGroup { $0.duration = 0.18; p.animator().alphaValue = 1 }
         }
     }
@@ -233,7 +244,9 @@ final class OptionDrag: ObservableObject {
         ghostModel?.dimmed = snap != nil
         if let snap { zoneModel.title = snap.title; zoneModel.id = snap.id }
         guard let z = snap?.rect else {
-            if let p = zonePanel { NSAnimationContext.runAnimationGroup { $0.duration = 0.12; p.animator().alphaValue = 0 } }
+            zoneToken += 1; let t = zoneToken
+            if let p = zonePanel { NSAnimationContext.runAnimationGroup({ $0.duration = 0.14; p.animator().alphaValue = 0 },
+                                                                      completionHandler: { [weak self] in if self?.zoneToken == t { p.orderOut(nil) } }) }
             return
         }
         let h = NSScreen.screens.first?.frame.height ?? 0
@@ -245,8 +258,9 @@ final class OptionDrag: ObservableObject {
             p.contentView = NSHostingView(rootView: ZoneView(m: zoneModel)); p.alphaValue = 0
             zonePanel = p; return p
         }()
+        zoneToken += 1
+        if !p.isVisible || p.alphaValue < 0.05 { p.setFrame(r, display: true) }
         p.orderFrontRegardless()
-        if p.alphaValue < 0.05 { p.setFrame(r, display: true) }
         NSAnimationContext.runAnimationGroup { c in
             c.duration = 0.2; c.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.9, 0.3, 1)
             p.animator().setFrame(r, display: true); p.animator().alphaValue = 1
@@ -310,7 +324,7 @@ final class OptionDrag: ObservableObject {
             let cfg = SCStreamConfiguration()
             cfg.width = Int(r.width * 2); cfg.height = Int(r.height * 2); cfg.showsCursor = false
             guard let img = try? await SCScreenshotManager.captureImage(contentFilter: SCContentFilter(desktopIndependentWindow: w), configuration: cfg) else { return }
-            await MainActor.run { model.image = NSImage(cgImage: img, size: r.size) }
+            await MainActor.run { withAnimation(.easeOut(duration: 0.15)) { model.image = NSImage(cgImage: img, size: r.size) } }
         }
     }
 
@@ -407,7 +421,7 @@ struct GhostView: View {
         let tint = m.overBar ? Color(red: 0.25, green: 0.88, blue: 1.0) : accent
         let scale: CGFloat = m.end == .intoBar ? 0.02 : m.overBar ? 0.3 : m.end == .settle ? 1.0 : m.lifted ? 1.02 : 0.97
         ZStack {
-            if let img = m.image, !m.overBar { Image(nsImage: img).resizable() }
+            if let img = m.image, !m.overBar { Image(nsImage: img).resizable().transition(.opacity) }
             else {
                 shape.fill(tint.opacity(m.overBar ? 0.55 : 0.22))
                 if let i = m.icon { Image(nsImage: i).resizable().frame(width: m.overBar ? 200 : 72, height: m.overBar ? 200 : 72) }
