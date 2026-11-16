@@ -48,7 +48,8 @@ final class OptionDrag: ObservableObject {
         let snap = { [weak self] in guard let self else { return }; let c = islands(); let h = NSScreen.screens.first?.frame.height ?? 0
             let sl = Self.barSlots(c, mainH: h)
             let scr = NSScreen.screens.map { (cg: CGRect(x: $0.frame.minX, y: h - $0.frame.maxY, width: $0.frame.width, height: $0.frame.height),
-                                              vis: CGRect(x: $0.visibleFrame.minX, y: h - $0.visibleFrame.maxY, width: $0.visibleFrame.width, height: $0.visibleFrame.height)) }
+                                              vis: CGRect(x: $0.visibleFrame.minX, y: h - $0.visibleFrame.maxY, width: $0.visibleFrame.width, height: $0.visibleFrame.height),
+                                              uuid: SpacesModel.uuid(of: $0), id: Island.id(of: $0)) }
             let z = DragZone.all.map { (Prefs.d.string(forKey: "zone.\($0.rawValue)") ?? $0.defaultLayout) }
             lock.lock(); cached = c; mainH = h; slots = sl; screens = scr; zoneLayouts = z; zonesOn = Prefs.bool("dragZones"); lock.unlock() }
         snap(); Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in snap() }
@@ -93,7 +94,7 @@ final class OptionDrag: ObservableObject {
             if g != 0 { var go = CGPoint(x: o.x - 30, y: o.y - 30); _ = CGSMoveWindow(cid, g, &go) } else { pending = o; pump() }
             let hit = island(at: p)?.screen
             let z = hit == nil ? zoneRect(at: p) : nil
-            if z != lastZone { lastZone = z; DispatchQueue.main.async { self.showZone(z) } }
+            if z != lastZone { lastZone = z; DispatchQueue.main.async { self.showZone(z); self.dots.active = z?.zone ?? ""; self.dots.screen = z?.display ?? 0 } }
             if hit != lastHit { lastHit = hit; DispatchQueue.main.async { self.overBar = hit; self.ghostModel?.overBar = hit != nil } }
             return nil
         case .leftMouseUp where active:
@@ -103,7 +104,22 @@ final class OptionDrag: ObservableObject {
             lastHit = nil; DispatchQueue.main.async { self.overBar = nil }
             let zone = lastZone; lastZone = nil
             DispatchQueue.main.async { self.showZone(nil) }
-            if target == nil, let win, let snap = zone {
+            // Into the bar, or onto the top-middle "New Space" spot: always the LAST Space on that display.
+            // (Inserting between apps would make macOS re-enter every app after it, one by one.)
+            let newSpace: (uuid: String, display: CGDirectDisplayID)? =
+                target.flatMap { t in t.uuid.map { ($0, t.screen) } } ?? zone?.space.map { ($0, zone!.display) }
+            if let ns = newSpace, let win {
+                let name = NSRunningApplication(processIdentifier: pid)?.localizedName ?? "App"
+                let (p, w) = (pid, wid)
+                DispatchQueue.main.async { [mover] in
+                    self.fadeGhost(.intoBar, after: 0.38)
+                    self.onDropToBar(ns.display, name)
+                    mover.async {
+                        SpaceMover.move(pid: p, wid: w, display: ns.uuid, index: 999)
+                        DispatchQueue.main.async { for i in self.islands() { i.model.refresh() } }
+                    }
+                }
+            } else if target == nil, let win, let snap = zone {
                 let zone = snap.rect
                 // Snapped to a zone: the copy glides into the spot while the window takes it.
                 mover.async {
@@ -117,30 +133,7 @@ final class OptionDrag: ObservableObject {
                 pending = lastOrigin; pump()
                 // The real window is there now: the copy melts away.
                 DispatchQueue.main.async { self.fadeGhost(.settle, after: 0.22) }
-            } else if let t = target {
-                // Into the bar: the copy shrinks into the pointer and the bar announces the new Space.
-                let name = NSRunningApplication(processIdentifier: pid)?.localizedName ?? "App"
-                DispatchQueue.main.async {
-                    self.fadeGhost(.intoBar, after: 0.38)
-                    self.onDropToBar(t.screen, name)
-                }
             } else { DispatchQueue.main.async { self.hideGhost() } }
-            if let target, let uuid = target.uuid, let win {
-                // Back where it was, then into its own full-screen Space at the end of that display.
-                let start = startPos
-                let (p, w) = (pid, wid)
-                let spot = barSpot(at: e.location, island: target.screen)
-                DispatchQueue.main.async { [mover] in
-                    let uuid = spot?.uuid ?? uuid
-                    let count = spot?.index ?? target.model.displays.first { $0.id == uuid }?.spaces.filter(\.isFullscreen).count ?? 99
-                    mover.async {
-                        var o = start
-                        if let v = AXValueCreate(.cgPoint, &o) { AXUIElementSetAttributeValue(win, kAXPositionAttribute as CFString, v) }
-                        SpaceMover.move(pid: p, wid: w, display: uuid, index: count)
-                        DispatchQueue.main.async { target.model.refresh() }
-                    }
-                }
-            }
             win = nil
             return nil
         default: break
@@ -157,9 +150,9 @@ final class OptionDrag: ObservableObject {
     private var pumping = false
     private var lastHit: CGDirectDisplayID?
     private var lastZone: Snap?
-    struct Snap: Equatable { let rect: CGRect; let title: String; let id: String }
+    struct Snap: Equatable { let rect: CGRect; let title: String; let id: String; var zone = ""; var space: String? = nil; var display: CGDirectDisplayID = 0 }
     private var slots: [CGDirectDisplayID: [(uuid: String, box: CGRect, cells: [CGFloat])]] = [:]
-    private var screens: [(cg: CGRect, vis: CGRect)] = []
+    private var screens: [(cg: CGRect, vis: CGRect, uuid: String?, id: CGDirectDisplayID)] = []
     private var zoneLayouts: [String] = []
     private var zonesOn = true
 
@@ -198,14 +191,44 @@ final class OptionDrag: ObservableObject {
             (t && nl) || (l && nt) ? .topLeft : (t && nr) || (rt && nt) ? .topRight :
             (b && nl) || (l && nb) ? .bottomLeft : (b && nr) || (rt && nb) ? .bottomRight :
             t ? .top : b ? .bottom : l ? .left : rt ? .right : nil
+        // Top middle is always "New Space": the window becomes its own Space, last on this display.
+        if zone == .top, let u = s.uuid {
+            return Snap(rect: CGRect(x: v.midX - v.width * 0.18, y: v.minY + 12, width: v.width * 0.36, height: v.height * 0.26).integral,
+                        title: "New Space", id: "space", zone: "top", space: u, display: s.id)
+        }
         guard let zone, let i = DragZone.all.firstIndex(of: zone), i < lay.count,
               let wl = WindowLayout.all.first(where: { $0.id == lay[i] }) else { return nil }
-        return Snap(rect: CGRect(x: v.minX + v.width * wl.x, y: v.minY + v.height * wl.y, width: v.width * wl.w, height: v.height * wl.h).integral, title: wl.title, id: wl.id)
+        return Snap(rect: CGRect(x: v.minX + v.width * wl.x, y: v.minY + v.height * wl.y, width: v.width * wl.w, height: v.height * wl.h).integral, title: wl.title, id: wl.id, zone: zone.rawValue)
     }
 
     // The glowing preview of where the window will snap.
     private var zonePanel: NSPanel?
     private let zoneModel = ZoneModel()
+
+    // The snap dots shown on every screen while the key is held.
+    let dots = DotsModel()
+    private var dotPanels: [NSPanel] = []
+    private func showDots(_ on: Bool) {
+        guard on, Prefs.bool("dragZones") else {
+            dotPanels.forEach { p in NSAnimationContext.runAnimationGroup({ $0.duration = 0.15; p.animator().alphaValue = 0 }, completionHandler: { p.orderOut(nil) }) }
+            return
+        }
+        dots.layouts = Dictionary(uniqueKeysWithValues: DragZone.all.map { ($0.rawValue, Prefs.d.string(forKey: "zone.\($0.rawValue)") ?? $0.defaultLayout) })
+        let scr = NSScreen.screens
+        while dotPanels.count < scr.count {
+            let p = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+            p.isOpaque = false; p.backgroundColor = .clear; p.hasShadow = false; p.ignoresMouseEvents = true
+            p.level = .floating; p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+            dotPanels.append(p)
+        }
+        for (i, sc) in scr.enumerated() {
+            let p = dotPanels[i]
+            p.setFrame(sc.visibleFrame, display: false)
+            p.contentView = NSHostingView(rootView: DotsView(m: dots, screen: Island.id(of: sc)))
+            p.alphaValue = 0; p.orderFrontRegardless()
+            NSAnimationContext.runAnimationGroup { $0.duration = 0.18; p.animator().alphaValue = 1 }
+        }
+    }
     private func showZone(_ snap: Snap?) {
         ghostModel?.dimmed = snap != nil
         if let snap { zoneModel.title = snap.title; zoneModel.id = snap.id }
@@ -326,8 +349,8 @@ final class OptionDrag: ObservableObject {
         if on {
             var o = CGPoint(x: p.x + 14, y: p.y + 10)
             _ = CGSMoveWindow(cid, badgeID, &o)
-            if !badgeOn { badgeOn = true; DispatchQueue.main.async { self.badge.orderFrontRegardless(); var o2 = o; _ = CGSMoveWindow(self.cid, self.badgeID, &o2) } }
-        } else if badgeOn { badgeOn = false; DispatchQueue.main.async { self.badge.orderOut(nil) } }
+            if !badgeOn { badgeOn = true; DispatchQueue.main.async { self.showDots(true); self.badge.orderFrontRegardless(); var o2 = o; _ = CGSMoveWindow(self.cid, self.badgeID, &o2) } }
+        } else if badgeOn { badgeOn = false; DispatchQueue.main.async { self.showDots(false); self.badge.orderOut(nil) } }
     }
 
     private func island(at p: CGPoint) -> (frame: NSRect, screen: CGDirectDisplayID, uuid: String?, model: SpacesModel)? {
@@ -411,6 +434,45 @@ struct GhostView: View {
     }
 }
 
+final class DotsModel: ObservableObject {
+    @Published var active = ""                      // zone being hovered while dragging
+    @Published var screen: CGDirectDisplayID = 0
+    var layouts: [String: String] = [:]
+}
+
+/// The 8 spots drawn on the real screen while the drag key is held.
+struct DotsView: View {
+    @ObservedObject var m: DotsModel
+    let screen: CGDirectDisplayID
+    var body: some View {
+        GeometryReader { g in
+            ForEach(DragZone.all, id: \.self) { z in
+                let isSpace = z == .top
+                let lay = m.layouts[z.rawValue] ?? "none"
+                if isSpace || lay != "none" {
+                    let on = m.active == z.rawValue && m.screen == screen
+                    let title = isSpace ? "New Space" : WindowLayout.all.first { $0.id == lay }?.title ?? ""
+                    let tint = isSpace ? Color(red: 0.25, green: 0.88, blue: 1.0) : accent
+                    VStack(spacing: 6) {
+                        Circle().fill(on ? tint : Color.white.opacity(0.9))
+                            .frame(width: on ? 26 : 16, height: on ? 26 : 16)
+                            .overlay(Circle().strokeBorder(tint, lineWidth: on ? 3 : 2))
+                            .shadow(color: tint.opacity(0.9), radius: on ? 12 : 6)
+                        Text(title).font(.system(size: 11, weight: .bold)).foregroundStyle(.white)
+                            .padding(.horizontal, 8).padding(.vertical, 3)
+                            .background(Capsule().fill(Color.black.opacity(0.7)))
+                            .overlay(Capsule().strokeBorder(tint.opacity(on ? 1 : 0.5), lineWidth: 1))
+                            .opacity(on || isSpace ? 1 : 0.75)
+                    }
+                    .scaleEffect(on ? 1.12 : 1)
+                    .animation(.spring(response: 0.25, dampingFraction: 0.7), value: on)
+                    .position(x: 40 + (g.size.width - 80) * z.spot.x, y: 40 + (g.size.height - 80) * z.spot.y)
+                }
+            }
+        }
+    }
+}
+
 final class ZoneModel: ObservableObject {
     @Published var title = ""
     @Published var id = ""
@@ -423,7 +485,12 @@ struct ZoneView: View {
         ZStack {
             shape.fill(accent.opacity(0.18))
             shape.strokeBorder(accent, lineWidth: 3)
-            if let l = WindowLayout.all.first(where: { $0.id == m.id }) {
+            if m.id == "space" {
+                Label("New Space", systemImage: "plus.rectangle.on.rectangle").font(.system(size: 15, weight: .bold)).foregroundStyle(.white)
+                    .padding(.horizontal, 16).padding(.vertical, 9)
+                    .background(Capsule().fill(Color.black.opacity(0.75)))
+                    .overlay(Capsule().strokeBorder(accent, lineWidth: 1.5))
+            } else if let l = WindowLayout.all.first(where: { $0.id == m.id }) {
                 HStack(spacing: 8) {
                     Image(nsImage: l.picture)
                     Text(l.title).font(.system(size: 15, weight: .bold)).foregroundStyle(.white)
@@ -470,7 +537,7 @@ struct DragZonesCard: View {
     @AppStorage("colRev") var rev = 0
     var sel: DragZone { DragZone(rawValue: selRaw) ?? .topLeft }
 
-    func layout(_ z: DragZone) -> String { let _ = rev; return Prefs.d.string(forKey: "zone.\(z.rawValue)") ?? z.defaultLayout }
+    func layout(_ z: DragZone) -> String { let _ = rev; if z == .top { return "space" }; return Prefs.d.string(forKey: "zone.\(z.rawValue)") ?? z.defaultLayout }
     func set(_ z: DragZone, _ id: String) { Prefs.d.set(id, forKey: "zone.\(z.rawValue)"); rev += 1 }
 
     var body: some View {
@@ -494,12 +561,16 @@ struct DragZonesCard: View {
                             Text("Drop at").foregroundStyle(.secondary)
                             Text(sel.title).fontWeight(.heavy).foregroundStyle(accent)
                             Text("→").foregroundStyle(.secondary)
-                            Text(WindowLayout.all.first { $0.id == layout(sel) }?.title ?? "Nothing").fontWeight(.heavy)
+                            Text(sel == .top ? "New Space" : WindowLayout.all.first { $0.id == layout(sel) }?.title ?? "Nothing").fontWeight(.heavy)
+                            if sel == .top { Image(systemName: "lock.fill").foregroundStyle(.secondary) }
                         }.font(.system(size: 12))
-                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 4), spacing: 6) {
+                        if sel == .top {
+                            Text("This spot is always New Space: the window becomes its own Space, added last on that display. It can't be changed.")
+                                .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                        } else { LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 4), spacing: 6) {
                             chip("none", "None", nil)
                             ForEach(WindowLayout.all) { l in chip(l.id, l.title, l) }
-                        }
+                        } }
                     }
                 }
                 .opacity(on ? 1 : 0.4).disabled(!on)
@@ -521,7 +592,13 @@ struct DragZonesCard: View {
                 Capsule().fill(Color.black).overlay(Capsule().strokeBorder(BarColor.outline.color, lineWidth: 1))
                     .frame(width: 110, height: 11).position(x: W / 2, y: inner.minY + 6)
                 // What the chosen spot does.
-                if let l = WindowLayout.all.first(where: { $0.id == layout(sel) }) {
+                if sel == .top {
+                    Label("New Space", systemImage: "plus.rectangle.on.rectangle").font(.system(size: 12, weight: .bold)).foregroundStyle(.white)
+                        .padding(.horizontal, 12).padding(.vertical, 7)
+                        .background(Capsule().fill(Color(red: 0.25, green: 0.88, blue: 1.0).opacity(0.35)))
+                        .overlay(Capsule().strokeBorder(Color(red: 0.25, green: 0.88, blue: 1.0), lineWidth: 1.5))
+                        .position(x: W / 2, y: area.minY + 52)
+                } else if let l = WindowLayout.all.first(where: { $0.id == layout(sel) }) {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .fill(accent.opacity(0.28)).overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(accent, lineWidth: 2))
                         .frame(width: area.width * l.w - 6, height: area.height * l.h - 6)
@@ -534,8 +611,9 @@ struct DragZonesCard: View {
                 ForEach(DragZone.all, id: \.self) { z in
                     let on = z == sel
                     let none = layout(z) == "none"
+                    let cyan = Color(red: 0.25, green: 0.88, blue: 1.0)
                     Button { withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { selRaw = z.rawValue } } label: {
-                        Circle().fill(on ? accent : none ? Color.white.opacity(0.12) : Color.white.opacity(0.85))
+                        Circle().fill(z == .top ? cyan : on ? accent : none ? Color.white.opacity(0.12) : Color.white.opacity(0.85))
                             .frame(width: on ? 18 : 12, height: on ? 18 : 12)
                             .overlay(Circle().strokeBorder(.white.opacity(on ? 0.9 : 0.3), lineWidth: on ? 2 : 1))
                             .shadow(color: on ? accent : .clear, radius: 6)

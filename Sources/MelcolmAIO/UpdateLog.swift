@@ -24,6 +24,16 @@ enum UpdateLog {
 
     /// Newest first.
     static let all: [AppUpdate] = [
+        AppUpdate(version: "2.18", date: "November 15th, 2026", title: "See the snap spots",
+                  improvements: [
+                      "A window dropped on the bar now always becomes the last Space, wherever you drop it, so other apps no longer open and close one after another to make room.",
+                  ],
+                  fixes: [],
+                  features: [
+                      "Hold Option and the snap spots appear on your screen as glowing dots with labels, so you know exactly where to drag.",
+                      "The top-middle spot is now always \"New Space\": drag a window there and it becomes its own Space. It's locked in Settings so it can't be changed.",
+                  ],
+                  icons: ["circle.grid.3x3.fill", "plus.rectangle.on.rectangle", "lock.fill"], tint: Color(red: 0.25, green: 0.88, blue: 1.0)),
         AppUpdate(version: "2.17", date: "November 15th, 2026", title: "Better snapping",
                   improvements: [
                       "Snap spots are bigger and easier to hit, and once one shows it doesn't flicker off if your hand wobbles.",
@@ -397,6 +407,8 @@ struct MasterRule: Identifiable {
                    detail: "Rest the pointer on anything in the bar (a display number, an app, the music, the arrow, the notch or the island itself) and it lifts up a little and glows in the colour you picked for it in Colors."),
         MasterRule(icon: "menubar.rectangle", title: "App menus are never covered",
                    detail: "If an app's menus (File, Edit, View…) would run under the island, your displays move to the right of the notch instead."),
+        MasterRule(icon: "plus.rectangle.on.rectangle", title: "A dragged window always becomes the last Space",
+                   detail: "Drop a window from your desktop onto the bar, or onto the top-middle New Space spot, and it always becomes the last Space on that display, wherever you let go. Nothing else opens, closes or moves to make room."),
         MasterRule(icon: "hand.draw.fill", title: "Dragging is always smooth",
                    detail: "Anything you drag on the bar follows your pointer, the other apps slide aside to make room where it will land, and the bar shows the new order the moment you let go while macOS catches up. Only what has to move moves, so a swap is one quick step."),
     ]
