@@ -103,15 +103,16 @@ final class OptionDrag: ObservableObject {
             lastHit = nil; DispatchQueue.main.async { self.overBar = nil }
             let zone = lastZone; lastZone = nil
             DispatchQueue.main.async { self.showZone(nil) }
-            if target == nil, let win, let zone {
-                // Snapped to a zone: the window takes that spot.
+            if target == nil, let win, let snap = zone {
+                let zone = snap.rect
+                // Snapped to a zone: the copy glides into the spot while the window takes it.
                 mover.async {
                     var o = zone.origin, sz = zone.size
                     if let v = AXValueCreate(.cgPoint, &o) { AXUIElementSetAttributeValue(win, kAXPositionAttribute as CFString, v) }
                     if let v = AXValueCreate(.cgSize, &sz) { AXUIElementSetAttributeValue(win, kAXSizeAttribute as CFString, v) }
                     if let v = AXValueCreate(.cgPoint, &o) { AXUIElementSetAttributeValue(win, kAXPositionAttribute as CFString, v) }
                 }
-                DispatchQueue.main.async { self.fadeGhost(.settle, after: 0.22) }
+                DispatchQueue.main.async { self.flyGhost(to: zone) }
             } else if target == nil, win != nil {
                 pending = lastOrigin; pump()
                 // The real window is there now: the copy melts away.
@@ -155,7 +156,8 @@ final class OptionDrag: ObservableObject {
     private var pending: CGPoint? { get { lock.lock(); defer { lock.unlock() }; return _pending } set { lock.lock(); _pending = newValue; lock.unlock() } }
     private var pumping = false
     private var lastHit: CGDirectDisplayID?
-    private var lastZone: CGRect?
+    private var lastZone: Snap?
+    struct Snap: Equatable { let rect: CGRect; let title: String; let id: String }
     private var slots: [CGDirectDisplayID: [(uuid: String, box: CGRect, cells: [CGFloat])]] = [:]
     private var screens: [(cg: CGRect, vis: CGRect)] = []
     private var zoneLayouts: [String] = []
@@ -184,10 +186,12 @@ final class OptionDrag: ObservableObject {
     }
 
     /// The screen spot a window snaps to when dropped at `p` (near an edge or corner), top-left coords.
-    private func zoneRect(at p: CGPoint) -> CGRect? {
+    private func zoneRect(at p: CGPoint) -> Snap? {
         lock.lock(); let scr = screens; let lay = zoneLayouts; let on = zonesOn; lock.unlock()
         guard on, let s = scr.first(where: { $0.cg.contains(p) }) else { return nil }
-        let v = s.vis, edge: CGFloat = 28, corner: CGFloat = 140
+        // Easy to hit, hard to fall out of: once a spot is showing, you have to move well away to leave it.
+        let v = s.vis, edge: CGFloat = lastZone == nil ? 48 : 110
+        let corner = max(160, min(v.width, v.height) * 0.22)
         let l = p.x < v.minX + edge, rt = p.x > v.maxX - edge, t = p.y < v.minY + edge, b = p.y > v.maxY - edge
         let nl = p.x < v.minX + corner, nr = p.x > v.maxX - corner, nt = p.y < v.minY + corner, nb = p.y > v.maxY - corner
         let zone: DragZone? =
@@ -196,14 +200,16 @@ final class OptionDrag: ObservableObject {
             t ? .top : b ? .bottom : l ? .left : rt ? .right : nil
         guard let zone, let i = DragZone.all.firstIndex(of: zone), i < lay.count,
               let wl = WindowLayout.all.first(where: { $0.id == lay[i] }) else { return nil }
-        return CGRect(x: v.minX + v.width * wl.x, y: v.minY + v.height * wl.y, width: v.width * wl.w, height: v.height * wl.h).integral
+        return Snap(rect: CGRect(x: v.minX + v.width * wl.x, y: v.minY + v.height * wl.y, width: v.width * wl.w, height: v.height * wl.h).integral, title: wl.title, id: wl.id)
     }
 
     // The glowing preview of where the window will snap.
     private var zonePanel: NSPanel?
-    private func showZone(_ z: CGRect?) {
-        ghostModel?.dimmed = z != nil
-        guard let z else {
+    private let zoneModel = ZoneModel()
+    private func showZone(_ snap: Snap?) {
+        ghostModel?.dimmed = snap != nil
+        if let snap { zoneModel.title = snap.title; zoneModel.id = snap.id }
+        guard let z = snap?.rect else {
             if let p = zonePanel { NSAnimationContext.runAnimationGroup { $0.duration = 0.12; p.animator().alphaValue = 0 } }
             return
         }
@@ -213,13 +219,13 @@ final class OptionDrag: ObservableObject {
             let p = NSPanel(contentRect: r, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
             p.isOpaque = false; p.backgroundColor = .clear; p.hasShadow = false; p.ignoresMouseEvents = true
             p.level = .floating; p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
-            p.contentView = NSHostingView(rootView: ZoneView()); p.alphaValue = 0
+            p.contentView = NSHostingView(rootView: ZoneView(m: zoneModel)); p.alphaValue = 0
             zonePanel = p; return p
         }()
         p.orderFrontRegardless()
         if p.alphaValue < 0.05 { p.setFrame(r, display: true) }
         NSAnimationContext.runAnimationGroup { c in
-            c.duration = 0.16; c.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            c.duration = 0.2; c.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.9, 0.3, 1)
             p.animator().setFrame(r, display: true); p.animator().alphaValue = 1
         }
     }
@@ -229,6 +235,19 @@ final class OptionDrag: ObservableObject {
     private var ghostModel: GhostModel?
     /// Called when a window is dropped on a display's bar (AppDelegate shows the pop-up there).
     var onDropToBar: (CGDirectDisplayID, String) -> Void = { _, _ in }
+
+    /// Snap drop: the copy glides into the spot and fades as the real window appears there.
+    private func flyGhost(to z: CGRect) {
+        guard let g = ghost, let m = ghostModel else { return }
+        lock.lock(); ghostID = 0; lock.unlock()
+        let h = NSScreen.screens.first?.frame.height ?? 0
+        let r = NSRect(x: z.minX - 30, y: h - z.maxY - 30, width: z.width + 60, height: z.height + 60)
+        withAnimation(.easeOut(duration: 0.15)) { m.dimmed = false }
+        NSAnimationContext.runAnimationGroup({ c in
+            c.duration = 0.2; c.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.9, 0.3, 1)
+            g.animator().setFrame(r, display: true)
+        }, completionHandler: { [weak self] in self?.fadeGhost(.settle, after: 0.2) })
+    }
 
     private func fadeGhost(_ how: GhostModel.End, after t: Double) {
         guard let m = ghostModel, let g = ghost else { hideGhost(); return }
@@ -392,11 +411,30 @@ struct GhostView: View {
     }
 }
 
+final class ZoneModel: ObservableObject {
+    @Published var title = ""
+    @Published var id = ""
+}
+
 struct ZoneView: View {
+    @ObservedObject var m: ZoneModel
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
-        shape.fill(accent.opacity(0.22)).overlay(shape.strokeBorder(accent, lineWidth: 3)).shadow(color: accent.opacity(0.6), radius: 12)
-            .padding(4)
+        let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
+        ZStack {
+            shape.fill(accent.opacity(0.18))
+            shape.strokeBorder(accent, lineWidth: 3)
+            if let l = WindowLayout.all.first(where: { $0.id == m.id }) {
+                HStack(spacing: 8) {
+                    Image(nsImage: l.picture)
+                    Text(l.title).font(.system(size: 15, weight: .bold)).foregroundStyle(.white)
+                }
+                .padding(.horizontal, 16).padding(.vertical, 9)
+                .background(Capsule().fill(Color.black.opacity(0.75)))
+                .overlay(Capsule().strokeBorder(accent, lineWidth: 1.5))
+            }
+        }
+        .shadow(color: accent.opacity(0.6), radius: 14)
+        .padding(4)
     }
 }
 
@@ -425,67 +463,106 @@ enum DragZone: String, CaseIterable {
     }
 }
 
-/// Settings: a picture of the screen with a picker on each edge and corner.
+/// Settings: a big picture of the screen. Tap a spot, see what it does, pick a layout underneath.
 struct DragZonesCard: View {
     @AppStorage("dragZones") var on = true
+    @AppStorage("zoneSelected") var selRaw = DragZone.topLeft.rawValue
     @AppStorage("colRev") var rev = 0
-    func binding(_ z: DragZone) -> Binding<String> {
-        Binding(get: { Prefs.d.string(forKey: "zone.\(z.rawValue)") ?? z.defaultLayout },
-                set: { Prefs.d.set($0, forKey: "zone.\(z.rawValue)"); rev += 1 })
-    }
+    var sel: DragZone { DragZone(rawValue: selRaw) ?? .topLeft }
+
+    func layout(_ z: DragZone) -> String { let _ = rev; return Prefs.d.string(forKey: "zone.\(z.rawValue)") ?? z.defaultLayout }
+    func set(_ z: DragZone, _ id: String) { Prefs.d.set(id, forKey: "zone.\(z.rawValue)"); rev += 1 }
+
     var body: some View {
         Card {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 14) {
                 HStack(alignment: .top, spacing: 10) {
                     Image(systemName: "rectangle.3.group.fill").font(.system(size: 16, weight: .semibold)).foregroundStyle(accent)
                         .frame(width: 30, height: 30).background(NeonBox(color: accent, radius: 8, strength: 0.5))
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Drop on an edge to arrange").font(.system(size: 13, weight: .heavy))
-                        Text("While you hold the key and drag, push the window into an edge or corner of the screen. A glowing box shows where it'll go; let go and it snaps there. Pick what each spot does, or None.")
+                        Text("Snap to the edges").font(.system(size: 13, weight: .heavy))
+                        Text("Drag a window into a corner or edge. A blue box shows where it'll go; let go and it snaps there.")
                             .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     }
                     Spacer(minLength: 0)
                     Toggle("", isOn: $on).labelsHidden()
                 }
-                let _ = rev
-                ZStack {
-                    // The screen, with the bar at the top.
-                    RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color(white: 0.08))
-                        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(.white.opacity(0.18), lineWidth: 1.2))
-                        .overlay(alignment: .top) {
-                            Capsule().fill(Color.black).overlay(Capsule().strokeBorder(BarColor.outline.color, lineWidth: 1))
-                                .frame(width: 90, height: 12).padding(.top, 5)
+                Group {
+                    screen
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 6) {
+                            Text("Drop at").foregroundStyle(.secondary)
+                            Text(sel.title).fontWeight(.heavy).foregroundStyle(accent)
+                            Text("→").foregroundStyle(.secondary)
+                            Text(WindowLayout.all.first { $0.id == layout(sel) }?.title ?? "Nothing").fontWeight(.heavy)
+                        }.font(.system(size: 12))
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 4), spacing: 6) {
+                            chip("none", "None", nil)
+                            ForEach(WindowLayout.all) { l in chip(l.id, l.title, l) }
                         }
-                        .padding(14)
-                    Text("Drop on the bar = new Space").font(.system(size: 10, weight: .semibold)).foregroundStyle(.tertiary)
-                    ForEach(DragZone.all, id: \.self) { z in
-                        Menu {
-                            Picker("", selection: binding(z)) {
-                                Text("None").tag("none")
-                                ForEach(WindowLayout.all) { l in Text(l.title).tag(l.id) }
-                            }.pickerStyle(.inline).labelsHidden()
-                        } label: {
-                            let id = binding(z).wrappedValue
-                            let l = WindowLayout.all.first { $0.id == id }
-                            HStack(spacing: 4) {
-                                if let l { Image(nsImage: l.picture) } else { Image(systemName: "nosign").foregroundStyle(.secondary) }
-                                Text(l?.title ?? "None").font(.system(size: 10, weight: .semibold)).lineLimit(1)
-                            }
-                            .padding(.horizontal, 6).padding(.vertical, 4)
-                            .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(l == nil ? Color.white.opacity(0.06) : accent.opacity(0.25)))
-                            .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).strokeBorder(l == nil ? .white.opacity(0.15) : accent, lineWidth: 1))
-                        }
-                        .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-                        .help(z.title)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: Alignment(horizontal: z.spot.x < 0.3 ? .leading : z.spot.x > 0.7 ? .trailing : .center,
-                                                                                               vertical: z.spot.y < 0.3 ? .top : z.spot.y > 0.7 ? .bottom : .center))
-                        .padding(.top, z.spot.y < 0.3 ? 22 : 0)
                     }
                 }
-                .frame(height: 210)
-                .opacity(on ? 1 : 0.45).disabled(!on)
+                .opacity(on ? 1 : 0.4).disabled(!on)
             }
         }
+    }
+
+    /// The screen: a dot on each spot, the chosen spot's result filled in.
+    var screen: some View {
+        GeometryReader { geo in
+            let W = geo.size.width, H = geo.size.height
+            let inner = CGRect(x: 0, y: 0, width: W, height: H).insetBy(dx: 10, dy: 10)
+            let bar: CGFloat = 16
+            let area = CGRect(x: inner.minX, y: inner.minY + bar, width: inner.width, height: inner.height - bar)
+            ZStack(alignment: .topLeading) {
+                RoundedRectangle(cornerRadius: 14, style: .continuous).fill(LinearGradient(colors: [Color(white: 0.13), Color(white: 0.07)], startPoint: .top, endPoint: .bottom))
+                    .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(.white.opacity(0.16), lineWidth: 1.2))
+                // The bar.
+                Capsule().fill(Color.black).overlay(Capsule().strokeBorder(BarColor.outline.color, lineWidth: 1))
+                    .frame(width: 110, height: 11).position(x: W / 2, y: inner.minY + 6)
+                // What the chosen spot does.
+                if let l = WindowLayout.all.first(where: { $0.id == layout(sel) }) {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(accent.opacity(0.28)).overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(accent, lineWidth: 2))
+                        .frame(width: area.width * l.w - 6, height: area.height * l.h - 6)
+                        .position(x: area.minX + area.width * (l.x + l.w / 2), y: area.minY + area.height * (l.y + l.h / 2))
+                        .animation(.spring(response: 0.32, dampingFraction: 0.8), value: layout(sel) + selRaw)
+                } else {
+                    Label("Does nothing", systemImage: "nosign").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
+                        .position(x: W / 2, y: area.midY)
+                }
+                ForEach(DragZone.all, id: \.self) { z in
+                    let on = z == sel
+                    let none = layout(z) == "none"
+                    Button { withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { selRaw = z.rawValue } } label: {
+                        Circle().fill(on ? accent : none ? Color.white.opacity(0.12) : Color.white.opacity(0.85))
+                            .frame(width: on ? 18 : 12, height: on ? 18 : 12)
+                            .overlay(Circle().strokeBorder(.white.opacity(on ? 0.9 : 0.3), lineWidth: on ? 2 : 1))
+                            .shadow(color: on ? accent : .clear, radius: 6)
+                            .frame(width: 34, height: 34).contentShape(Rectangle())
+                    }
+                    .buttonStyle(PressStyle())
+                    .help(z.title)
+                    .position(x: area.minX + 14 + (area.width - 28) * z.spot.x, y: area.minY + 14 + (area.height - 28) * z.spot.y)
+                }
+            }
+        }
+        .aspectRatio(16 / 10, contentMode: .fit)
+        .frame(maxWidth: .infinity)
+    }
+
+    func chip(_ id: String, _ title: String, _ l: WindowLayout?) -> some View {
+        let picked = layout(sel) == id
+        return Button { withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { set(sel, id) } } label: {
+            VStack(spacing: 4) {
+                if let l { Image(nsImage: l.picture) } else { Image(systemName: "nosign").font(.system(size: 14)).frame(height: 20) }
+                Text(title).font(.system(size: 10, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.8)
+            }
+            .frame(maxWidth: .infinity).padding(.vertical, 7)
+            .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(picked ? accent.opacity(0.3) : Color.white.opacity(0.05)))
+            .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(picked ? accent : .white.opacity(0.1), lineWidth: picked ? 1.5 : 1))
+            .contentShape(Rectangle())
+        }.buttonStyle(PressStyle())
     }
 }
 

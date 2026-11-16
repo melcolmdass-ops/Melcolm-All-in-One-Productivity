@@ -24,6 +24,16 @@ enum UpdateLog {
 
     /// Newest first.
     static let all: [AppUpdate] = [
+        AppUpdate(version: "2.17", date: "November 15th, 2026", title: "Better snapping",
+                  improvements: [
+                      "Snap spots are bigger and easier to hit, and once one shows it doesn't flicker off if your hand wobbles.",
+                      "The blue snap box glides between spots and says what it'll do (like \"Left half\").",
+                      "When you let go, the window glides into its spot instead of jumping.",
+                      "The snap settings are now one big picture of your screen: tap a dot to pick a spot, see exactly where windows will go, and choose a layout from the tiles underneath.",
+                  ],
+                  fixes: [],
+                  features: [],
+                  icons: ["rectangle.3.group.fill", "hand.tap.fill", "sparkles"], tint: Color(red: 0.25, green: 0.88, blue: 1.0)),
         AppUpdate(version: "2.16", date: "November 15th, 2026", title: "Snap spots and drop spots",
                   improvements: [
                       "Dragging is lighter and smoother: the copy of the window no longer blurs what's behind it as it moves.",

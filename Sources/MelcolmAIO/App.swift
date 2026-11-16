@@ -188,7 +188,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         // For testing: `-debugRenderDrag <png path>` saves a picture of the Dragging box in Settings.
         if let path = UserDefaults.standard.string(forKey: "debugRenderDrag") {
-            let r = ImageRenderer(content: DragSpacesCard().frame(width: 430).padding(12).background(Color(white: 0.06))
+            let r = ImageRenderer(content: DragZonesCard().frame(width: 430).padding(12).background(Color(white: 0.06))
                 .toggleStyle(.switch).controlSize(.small).environment(\.colorScheme, .dark))
             r.scale = 2
             if let t = r.nsImage?.tiffRepresentation, let png = NSBitmapImageRep(data: t)?.representation(using: .png, properties: [:]) {
