@@ -24,6 +24,16 @@ enum UpdateLog {
 
     /// Newest first.
     static let all: [AppUpdate] = [
+        AppUpdate(version: "2.12", date: "November 15th, 2026", title: "Fast, smooth window dragging",
+                  improvements: [
+                      "Holding Option and dragging a window is now fast and smooth: the window keeps up with your pointer instead of lagging behind.",
+                      "Your mouse never slows down while you drag.",
+                  ],
+                  fixes: [],
+                  features: [
+                      "Hold the drag key and a small ⌥ badge appears beside your pointer, so you know you can grab any window.",
+                  ],
+                  icons: ["macwindow.and.cursorarrow", "hare.fill", "option"], tint: Color(red: 0.25, green: 0.88, blue: 1.0)),
         AppUpdate(version: "2.11", date: "November 15th, 2026", title: "Drag any window onto the bar",
                   improvements: [
                       "If the bar gets wider while the panel is open (like when you start the stopwatch), the panel now grows with it smoothly.",
