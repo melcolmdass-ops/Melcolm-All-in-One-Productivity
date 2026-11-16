@@ -444,8 +444,9 @@ final class NowPlayingModel: ObservableObject {
         if BrowserMedia.seek(r, to: t) { seekBlocked = false; return }
         let slider = ax[r.id]?.found.slider
         browserQueue.async { [weak self] in
-            let ok = WebAX.seek(slider, to: t)
-            DispatchQueue.main.async { self?.seekBlocked = !ok && !r.browser.isEmpty }
+            // No JavaScript needed: the page's slider first, then reopen the same video at that time.
+            let ok = WebAX.seek(slider, to: t) || BrowserMedia.seekByURL(r, to: t)
+            DispatchQueue.main.async { self?.seekBlocked = false; if !ok { BrowserMedia.log("seek \(r.id): every way failed") } }
         }
     }
     func skip(_ r: BrowserMedia.Result, forward: Bool) {
@@ -938,6 +939,25 @@ enum BrowserMedia {
         let out = NSAppleScript(source: src)?.executeAndReturnError(&err).stringValue
         log("js seek \(r.browser) w\(r.window) t\(r.tab) pwa=\(r.pwa) → \(out ?? "nil") \(err?["NSAppleScriptErrorMessage"] ?? "")")
         return out == "ok"
+    }
+
+    /// Jump without page JavaScript: point the tab at the same video with "&t=<seconds>".
+    /// Chrome and Safari let AppleScript set a tab's address with no extra setting turned on.
+    static func seekByURL(_ r: Result, to t: Double) -> Bool {
+        guard !r.videoID.isEmpty, !r.url.isEmpty, r.window > 0, r.tab > 0,
+              var c = URLComponents(string: r.url) else { return false }
+        var q = (c.queryItems ?? []).filter { $0.name != "t" && $0.name != "start" }
+        q.append(URLQueryItem(name: "t", value: "\(Int(t))s"))
+        c.queryItems = q
+        guard let u = c.url?.absoluteString.replacingOccurrences(of: "\"", with: "%22") else { return false }
+        let src = r.browser == "Safari"
+            ? "tell application \"Safari\" to set URL of tab \(r.tab) of window \(r.window) to \"\(u)\""
+            : "tell application \"\(r.browser)\" to set URL of tab \(r.tab) of window \(r.window) to \"\(u)\""
+        var err: NSDictionary?
+        var ok = false
+        DispatchQueue.main.sync { NSAppleScript(source: src)?.executeAndReturnError(&err); ok = err == nil }
+        log("url seek \(r.browser) w\(r.window) t\(r.tab) → \(ok) \(err?["NSAppleScriptErrorMessage"] ?? "")")
+        return ok
     }
 
     /// Next / previous track inside one tab (YouTube Music and YouTube buttons).

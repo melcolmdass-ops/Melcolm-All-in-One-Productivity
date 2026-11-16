@@ -29,6 +29,7 @@ enum UpdateLog {
                       "The Settings tabs (General, Main Bar, Dragging and the rest) have a solid button area, so every click lands.",
                   ],
                   fixes: [
+                      "Dragging the play bar on YouTube / YouTube Music works without Chrome's \"Allow JavaScript from Apple Events\" setting: if the page won't move, the same song reopens at the spot you picked. The orange warning is gone.",
                       "With two things playing (say a song and a TV show), pressing Play on one row now plays that one, never the other.",
                       "Settings tabs that wouldn't switch when clicked now switch.",
                   ],

@@ -413,7 +413,7 @@ struct NowPlayingPage: View {
                           play: { playing.toggle(r) }, next: { playing.skip(r, forward: true) },
                           seek: { playing.seek(r, to: $0) })
             }
-            if playing.seekBlocked {
+            if false, playing.seekBlocked {
                 Label("Chrome blocked the jump. In that Chrome window, choose View ▸ Developer ▸ Allow JavaScript from Apple Events (once per Chrome profile).", systemImage: "exclamationmark.circle.fill")
                     .font(.system(size: 10.5, weight: .medium)).foregroundStyle(.orange)
                     .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 4)
