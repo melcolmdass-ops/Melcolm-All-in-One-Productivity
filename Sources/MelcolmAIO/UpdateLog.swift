@@ -24,6 +24,20 @@ enum UpdateLog {
 
     /// Newest first.
     static let all: [AppUpdate] = [
+        AppUpdate(version: "2.22", date: "November 16th, 2026", title: "Wi-Fi + Bluetooth pill, drag fixes",
+                  improvements: [
+                      "Dropping an app onto a desktop number on the bar now makes that number swell, fill bright and glow, so you can clearly see where it's going.",
+                      "The New Space circle grows and glows when you drag over it, and its preview is much bigger and brighter.",
+                  ],
+                  fixes: [
+                      "Dragging an app from the bar onto a desktop number now works on the MacBook too, not just the big display.",
+                      "The drag spots now show on every display while you hold the drag key.",
+                      "Dragging a window onto the bar no longer makes a second New Space. New Space is only the circle at the top.",
+                  ],
+                  features: [
+                      "The Wi-Fi & Bluetooth button shows both icons. Tap one to open its tab straight away.",
+                  ],
+                  icons: ["wifi", "dot.radiowaves.left.and.right", "plus.rectangle.on.rectangle"], tint: cyan),
         AppUpdate(version: "2.21", date: "November 15th, 2026", title: "Play the right thing, Hide spot, Settings tabs",
                   improvements: [
                       "The Settings tabs (General, Main Bar, Dragging and the rest) have a solid button area, so every click lands.",

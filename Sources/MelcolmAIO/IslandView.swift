@@ -184,10 +184,10 @@ struct SpacesStrip: View {
                 .frame(width: Layout.groupWidth(g, icon: icon, m: spaces), height: h, alignment: .leading)
                 .background(alignment: .leading) {
                     // The box stretches or shrinks with the apps sliding inside it while you drag.
-                    NeonBox(color: BarColor.displayBox.color, strength: drag.target.map { Self.display(of: $0) == g.id } == true ? 1.2 : 0.7)
+                    NeonBox(color: BarColor.displayBox.color, strength: drag.target == .desktop(g.id) ? 2.2 : drag.target.map { Self.display(of: $0) == g.id } == true ? 1.2 : 0.7)
                         .frame(width: Layout.groupWidth(g, icon: icon, m: spaces) + drag.grow(g))
                 }
-                .dragFrame("box-\(g.id)")
+                .dragFrame("\(state.displayID):box-\(g.id)")
                 .zIndex(g.spaces.contains { $0.id == drag.dragging } ? 2 : 0)
                 .help("Display \(g.number)")
             }
@@ -225,19 +225,25 @@ struct SpacesStrip: View {
                     Circle().fill(on ? .white : BarColor.number.color).frame(width: 8, height: 8)
                 }
             }
+            .scaleEffect(drag.target == .desktop(g.id) ? 1.3 : 1)
             .frame(width: Layout.numberCell(icon), height: h)
             .background(glow(on, g.id))
-            .overlay {
-                // Drop a dragged app here to take it out of full screen onto this desktop.
+            .background {
+                // Drop a dragged app here to take it out of full screen onto this desktop:
+                // the desktop cell swells wide, fills bright and glows hard so it's obvious.
                 if drag.target == .desktop(g.id) {
-                    RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(BarColor.space.color, lineWidth: 1.6)
-                        .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(BarColor.space.color.opacity(0.25)))
-                        .neon(BarColor.space.color, 1).scaleEffect(1.12)
+                    let r = RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    r.fill(LinearGradient(colors: [BarColor.space.color.opacity(0.95), BarColor.space.color.opacity(0.55)], startPoint: .top, endPoint: .bottom))
+                        .overlay(r.strokeBorder(Color.white, lineWidth: 2))
+                        .neon(BarColor.space.color, 1.6)
+                        .scaleEffect(x: 1.7, y: 1.0)
+                        .transition(.scale(scale: 0.4).combined(with: .opacity))
                 }
             }
+            .animation(.spring(response: 0.26, dampingFraction: 0.62), value: drag.target)
             .contentShape(Rectangle())
             .hoverLift("num-\(g.id)", BarColor.number.color, radius: 6)
-            .dragFrame("num-\(g.id)")
+            .dragFrame("\(state.displayID):num-\(g.id)")
         }
         .buttonStyle(PressStyle())
         .help("Desktop \(g.number)")
@@ -271,7 +277,7 @@ struct SpacesStrip: View {
             .background(glow(on, g.id))
             .contentShape(Rectangle())
             .hoverLift("app-\(s.id)", BarColor.space.color, radius: 6)
-            .dragFrame("app-\(s.id)")
+            .dragFrame("\(state.displayID):app-\(s.id)")
             .scaleEffect(lifted ? 1.15 : 1)
             .shadow(color: lifted ? BarColor.space.color.opacity(0.8) : .clear, radius: 8)
             .offset(lifted ? drag.offset : .zero)
@@ -280,7 +286,7 @@ struct SpacesStrip: View {
         .simultaneousGesture(
             DragGesture(minimumDistance: 6, coordinateSpace: .global)
                 .onChanged { v in
-                    drag.begin(s.id, model: spaces)
+                    drag.begin(s.id, model: spaces, bar: state.displayID)
                     drag.update(v.location, offset: CGSize(width: v.translation.width, height: max(-6, min(6, v.translation.height))), model: spaces)
                 }
                 .onEnded { _ in drag.end(model: spaces) },
@@ -384,7 +390,7 @@ struct SettingsTab: View {
                     }
                 }
             }
-            Text("Melcolm All-in-One Productivity · v2.21").font(.system(size: 10)).foregroundStyle(.tertiary)
+            Text("Melcolm All-in-One Productivity · v2.22").font(.system(size: 10)).foregroundStyle(.tertiary)
         }
         .font(.system(size: 12))
         .toggleStyle(.switch).controlSize(.small)

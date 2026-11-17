@@ -715,6 +715,7 @@ struct UtilityBar: View {
     let items: [PanelPage]
     @EnvironmentObject var system: SystemModel
     @EnvironmentObject var sound: SoundModel
+    @EnvironmentObject var net: NetworkModel
     @AppStorage("utilityOpen") var open = ""
 
     var body: some View {
@@ -722,9 +723,16 @@ struct UtilityBar: View {
             ForEach(items, id: \.self) { p in
                 Button { open = open == p.rawValue ? "" : p.rawValue } label: {
                     HStack(spacing: 5) {
-                        Image(systemName: icon(p)).font(.system(size: 12, weight: .semibold)).symbolRenderingMode(.hierarchical)
-                            .foregroundStyle(p.tint[0])
-                        Text(label(p)).font(.system(size: 11, weight: .semibold).monospacedDigit()).lineLimit(1)
+                        if p == .network {
+                            // Wi-Fi and Bluetooth side by side: tap either one to open its tab.
+                            netHalf(0, system.wifiOn ? "wifi" : "wifi.slash", system.wifiOn)
+                            Capsule().fill(.white.opacity(0.18)).frame(width: 1, height: 14)
+                            netHalf(1, "dot.radiowaves.left.and.right", system.bluetoothOn)
+                        } else {
+                            Image(systemName: icon(p)).font(.system(size: 12, weight: .semibold)).symbolRenderingMode(.hierarchical)
+                                .foregroundStyle(p.tint[0])
+                            Text(label(p)).font(.system(size: 11, weight: .semibold).monospacedDigit()).lineLimit(1)
+                        }
                     }
                     .padding(.horizontal, 9).frame(height: 28)
                     .background(Capsule().fill(.white.opacity(open == p.rawValue ? 0.16 : 0.07))
@@ -749,6 +757,20 @@ struct UtilityBar: View {
             if items.isEmpty { Text("Pick items in Settings ▸ Utility Bar").foregroundStyle(.tertiary) }
             Spacer(minLength: 0)
         }
+    }
+
+    /// One half of the Wi-Fi & Bluetooth pill. Picks its tab, opens (or switches) the pop-up.
+    func netHalf(_ tab: Int, _ symbol: String, _ on: Bool) -> some View {
+        let shown = open == PanelPage.network.rawValue && net.tab == tab
+        return Image(systemName: symbol).font(.system(size: 12, weight: .semibold)).symbolRenderingMode(.hierarchical)
+            .foregroundStyle(on ? PanelPage.network.tint[0] : .white.opacity(0.45))
+            .frame(width: 22, height: 22)
+            .background(Circle().fill(.white.opacity(shown ? 0.2 : 0)))
+            .contentShape(Rectangle())
+            .onTapGesture {
+                if shown { open = "" } else { withAnimation(.easeOut(duration: 0.15)) { net.tab = tab }; open = PanelPage.network.rawValue }
+            }
+            .help(tab == 0 ? "Wi-Fi" : "Bluetooth")
     }
 
     func icon(_ p: PanelPage) -> String {

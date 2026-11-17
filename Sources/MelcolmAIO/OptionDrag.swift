@@ -93,15 +93,16 @@ final class OptionDrag: ObservableObject {
             lastOrigin = o
             lock.lock(); let g = ghostID; lock.unlock()
             if g != 0 { var go = CGPoint(x: o.x - 30, y: o.y - 30); _ = CGSMoveWindow(cid, g, &go) }   // until the copy appears, the window stays put (no jump)
-            let hit = island(at: p)?.screen
-            let z = hit == nil ? zoneRect(at: p) : nil
+            // The bar is not a drop spot: New Space only lives in its circle (no second "New Space" on the bar).
+            let hit: CGDirectDisplayID? = nil
+            let z = zoneRect(at: p)
             if z != lastZone { lastZone = z; DispatchQueue.main.async { self.showZone(z); self.dots.active = z?.zone ?? ""; self.dots.screen = z?.display ?? 0 } }
             if hit != lastHit { lastHit = hit; DispatchQueue.main.async { self.overBar = hit; self.ghostModel?.overBar = hit != nil } }
             return nil
         case .leftMouseUp where active:
             active = false
             showBadge(e.flags.contains(modifier), at: e.location)
-            let target = island(at: e.location)
+            let target: (frame: NSRect, screen: CGDirectDisplayID, uuid: String?, model: SpacesModel)? = nil
             lastHit = nil; DispatchQueue.main.async { self.overBar = nil }
             let zone = lastZone; lastZone = nil
             DispatchQueue.main.async { self.showZone(nil) }
@@ -193,8 +194,8 @@ final class OptionDrag: ObservableObject {
         for i in list {
             let ox = i.frame.minX, oy = mainH - i.frame.maxY
             out[i.screen] = i.model.displays.compactMap { g in
-                guard let b = f["box-\(g.id)"] else { return nil }
-                let cells = g.spaces.filter(\.isFullscreen).compactMap { f["app-\($0.id)"] }.map { ox + $0.midX }
+                guard let b = f["\(i.screen):box-\(g.id)"] else { return nil }
+                let cells = g.spaces.filter(\.isFullscreen).compactMap { f["\(i.screen):app-\($0.id)"] }.map { ox + $0.midX }
                 return (g.id, b.offsetBy(dx: ox, dy: oy), cells)
             }
         }
@@ -223,7 +224,7 @@ final class OptionDrag: ObservableObject {
         guard let zone else { return nil }
         // Top middle is always "New Space": the window becomes its own Space, last on this display.
         if zone == .top, let u = s.uuid {
-            return Snap(rect: CGRect(x: v.midX - v.width * 0.18, y: v.minY + 12, width: v.width * 0.36, height: v.height * 0.26).integral,
+            return Snap(rect: CGRect(x: v.midX - v.width * 0.3, y: v.minY + 12, width: v.width * 0.6, height: v.height * 0.45).integral,
                         title: "New Space", id: "space", zone: "top", space: u, display: s.id)
         }
         guard let i = DragZone.all.firstIndex(of: zone), i < lay.count else { return nil }
@@ -245,6 +246,7 @@ final class OptionDrag: ObservableObject {
     // The snap dots shown on every screen while the key is held.
     let dots = DotsModel()
     private var dotPanels: [NSPanel] = []
+    private var dotPanelsByScreen: [CGDirectDisplayID: NSPanel] = [:]
     private var dotsToken = 0
     private func showDots(_ on: Bool) {
         dotsToken += 1; let token = dotsToken
@@ -256,22 +258,18 @@ final class OptionDrag: ObservableObject {
         }
         dots.objectWillChange.send()
         dots.layouts = Dictionary(uniqueKeysWithValues: DragZone.all.map { ($0.rawValue, Prefs.d.string(forKey: "zone.\($0.rawValue)") ?? $0.defaultLayout) })
-        let scr = NSScreen.screens
-        while dotPanels.count < scr.count {
-            let p = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-            p.isOpaque = false; p.backgroundColor = .clear; p.hasShadow = false; p.ignoresMouseEvents = true
-            p.level = .floating; p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
-            dotPanels.append(p)
-        }
-        for (i, sc) in scr.enumerated() {
-            let p = dotPanels[i]
+        // One panel per display, keyed by the display (not list order), so every screen gets its dots.
+        for sc in NSScreen.screens {
             let sid = Island.id(of: sc)
-            if isFullScreen(SpacesModel.uuid(of: sc)) { p.orderOut(nil); continue }   // nothing to snap in a full-screen app
-            if p.frame != sc.visibleFrame { p.setFrame(sc.visibleFrame, display: false) }
-            // Build the dots once per screen and keep them; only fade in/out after that.
-            if (p.contentView as? NSHostingView<DotsView>)?.rootView.screen != sid {
+            let p = dotPanelsByScreen[sid] ?? {
+                let p = NSPanel(contentRect: sc.visibleFrame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false, screen: sc)
+                p.isOpaque = false; p.backgroundColor = .clear; p.hasShadow = false; p.ignoresMouseEvents = true
+                p.level = .floating; p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
                 p.contentView = NSHostingView(rootView: DotsView(m: dots, screen: sid))
-            }
+                dotPanelsByScreen[sid] = p; dotPanels.append(p); return p
+            }()
+            if isFullScreen(SpacesModel.uuid(of: sc)) { p.orderOut(nil); continue }   // nothing to snap in a full-screen app
+            if p.frame != sc.visibleFrame { p.setFrame(sc.visibleFrame, display: true) }
             if !p.isVisible { p.alphaValue = 0 }
             p.orderFrontRegardless()
             NSAnimationContext.runAnimationGroup { $0.duration = 0.18; p.animator().alphaValue = 1 }
@@ -507,7 +505,7 @@ struct DotsView: View {
                     let tint = isSpace ? Color(red: 0.25, green: 0.88, blue: 1.0) : accent
                     let d = DragZone.radius * 2
                     ZStack {
-                        Circle().fill(tint.opacity(on ? 0.34 : 0.14))
+                        Circle().fill(tint.opacity(on ? (isSpace ? 0.6 : 0.34) : 0.14))
                         Circle().strokeBorder(tint.opacity(on ? 1 : 0.75),
                                               style: StrokeStyle(lineWidth: on ? 2.5 : 1.8, lineCap: .round, dash: on ? [] : [7, 6]))
                         VStack(spacing: 7) {
@@ -522,8 +520,9 @@ struct DotsView: View {
                         }
                     }
                     .frame(width: d, height: d)
-                    .shadow(color: tint.opacity(on ? 0.55 : 0.2), radius: on ? 16 : 8)
-                    .scaleEffect(on ? 1.06 : 1)
+                    .shadow(color: tint.opacity(on ? (isSpace ? 1 : 0.55) : 0.2), radius: on ? (isSpace ? 40 : 16) : 8)
+                    .scaleEffect(on ? (isSpace ? 1.6 : 1.06) : 1)
+                    .brightness(on && isSpace ? 0.15 : 0)
                     .animation(.spring(response: 0.25, dampingFraction: 0.75), value: on)
                     .position(z.center(in: g.size))
                 }
@@ -541,14 +540,21 @@ struct ZoneView: View {
     @ObservedObject var m: ZoneModel
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
+        let space = m.id == "space"
+        let tint = space ? Color(red: 0.25, green: 0.88, blue: 1.0) : accent
         ZStack {
-            shape.fill(accent.opacity(0.18))
-            shape.strokeBorder(accent, lineWidth: 3)
-            if m.id == "space" {
-                Label("New Space", systemImage: "plus.rectangle.on.rectangle").font(.system(size: 15, weight: .bold)).foregroundStyle(.white)
-                    .padding(.horizontal, 16).padding(.vertical, 9)
-                    .background(Capsule().fill(Color.black.opacity(0.75)))
-                    .overlay(Capsule().strokeBorder(accent, lineWidth: 1.5))
+            shape.fill(tint.opacity(space ? 0.42 : 0.18))
+            shape.strokeBorder(space ? Color.white : tint, lineWidth: space ? 6 : 3)
+                .shadow(color: tint, radius: space ? 30 : 0)
+            if space {
+                VStack(spacing: 14) {
+                    Image(systemName: "plus.rectangle.on.rectangle").font(.system(size: 72, weight: .bold))
+                    Text("New Space").font(.system(size: 40, weight: .heavy))
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 40).padding(.vertical, 24)
+                .background(RoundedRectangle(cornerRadius: 24, style: .continuous).fill(tint.opacity(0.85)))
+                .shadow(color: tint, radius: 24)
             } else if m.id == "hide" {
                 Label("Hide app", systemImage: "eye.slash.fill").font(.system(size: 15, weight: .bold)).foregroundStyle(.white)
                     .padding(.horizontal, 16).padding(.vertical, 9)

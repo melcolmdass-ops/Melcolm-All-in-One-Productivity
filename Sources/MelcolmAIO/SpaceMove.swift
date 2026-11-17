@@ -25,11 +25,17 @@ final class SpaceDragModel: ObservableObject {
     var gap: CGFloat = 0                     // room the dragged app takes up
     var droppedAt = Date.distantPast         // a drop isn't also a click
 
-    func begin(_ id: Int, model m: SpacesModel) {
+    /// Each bar (one per display) keeps its own cell frames, keyed "<bar display id>:<key>".
+    var bar: CGDirectDisplayID = 0
+    func f(_ k: String) -> CGRect? { frames["\(bar):\(k)"] }
+    func h(_ k: String) -> CGRect? { home["\(bar):\(k)"] }
+
+    func begin(_ id: Int, model m: SpacesModel, bar b: CGDirectDisplayID = 0) {
         guard dragging != id else { return }
+        bar = b
         home = frames
         source = m.displays.first { g in g.spaces.contains { $0.id == id } }?.id
-        gap = (frames["app-\(id)"]?.width ?? 30) + 2
+        gap = (f("app-\(id)")?.width ?? 30) + 2
         dragging = id
         NSCursor.closedHand.push()
     }
@@ -59,11 +65,11 @@ final class SpaceDragModel: ObservableObject {
         offset = o
         var t: SpaceDrop?
         for g in m.displays {
-            guard let box = home["box-\(g.id)"], p.x >= box.minX - 6, p.x <= box.maxX + 6,
+            guard let box = h("box-\(g.id)"), p.x >= box.minX - 6, p.x <= box.maxX + 6,
                   p.y >= box.minY - 40, p.y <= box.maxY + 40 else { continue }
-            if let n = home["num-\(g.id)"], p.x <= n.maxX + 2 { t = .desktop(g.id); break }
+            if let n = h("num-\(g.id)"), p.x <= n.maxX + 2 { t = .desktop(g.id); break }
             let others = Layout.fullscreens(g).filter { $0.id != dragging }
-            let k = others.filter { s in (home["app-\(s.id)"]?.midX ?? .infinity) < p.x }.count
+            let k = others.filter { s in (h("app-\(s.id)")?.midX ?? .infinity) < p.x }.count
             t = .slot(g.id, k); break
         }
         if t != target { withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) { target = t } }
