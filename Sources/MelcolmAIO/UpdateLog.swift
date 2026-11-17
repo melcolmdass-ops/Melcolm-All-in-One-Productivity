@@ -24,6 +24,15 @@ enum UpdateLog {
 
     /// Newest first.
     static let all: [AppUpdate] = [
+        AppUpdate(version: "2.26", date: "November 16th, 2026", title: "One colour for all box outlines",
+                  improvements: [
+                      "Colours is simpler: the display boxes, the notch and the Play / Open box are all outlines, so one row, Box outlines, colours all of them.",
+                  ],
+                  fixes: [
+                      "Removed the \"same as\" notes. They were more confusing than helpful.",
+                  ],
+                  features: [],
+                  icons: ["paintpalette.fill", "square.dashed"], tint: purple),
         AppUpdate(version: "2.25", date: "November 16th, 2026", title: "Drop circle, smoother snapping, colour flash",
                   improvements: [
                       "Moving from one snap spot to another (left third to left half) switches at once. The old outline never hangs around.",

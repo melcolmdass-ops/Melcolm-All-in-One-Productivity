@@ -12,16 +12,9 @@ enum BarColor: String, CaseIterable {
         case .notch: "Notch outline"
         case .statusBox: "Play / Open box outline"
         case .status: "Music note, wave and timer"
-        case .displayBox: "Display box outline"
+        case .displayBox: "Box outlines"
         case .number: "Display number"
         case .space: "Space highlight"
-        }
-    }
-    /// Short name for the "same as" note.
-    var short: String {
-        switch self {
-        case .outline: "Island"; case .notch: "Notch"; case .statusBox: "Play box"; case .status: "Music note"
-        case .displayBox: "Display box"; case .number: "Number"; case .space: "Space"
         }
     }
     var fallback: Color {
@@ -32,8 +25,15 @@ enum BarColor: String, CaseIterable {
         case .space: Color(red: 0.25, green: 0.88, blue: 1.0)
         }
     }
-    /// The colour in use right now.
-    var color: Color { Color(hex: Prefs.d.string(forKey: rawValue) ?? "") ?? fallback }
+    /// The colour in use right now. Every box outline (display boxes, notch, Play / Open box) is one colour.
+    var color: Color {
+        if self == .notch || self == .statusBox { return BarColor.displayBox.color }
+        return Color(hex: Prefs.d.string(forKey: rawValue) ?? "") ?? fallback
+    }
+    /// The rows on the Colours page (the notch and Play / Open box follow "Box outlines").
+    static let shown: [BarColor] = [.outline, .displayBox, .status, .number, .space]
+    /// True when picking `self` colours `p` too.
+    func covers(_ p: BarColor) -> Bool { p == self || (self == .displayBox && (p == .notch || p == .statusBox)) }
 }
 
 extension Color {
@@ -55,21 +55,11 @@ struct ColorsPage: View {
     var body: some View {
         let _ = rev
         VStack(alignment: .leading, spacing: 4) {
-            ForEach(BarColor.allCases, id: \.self) { c in
+            ForEach(BarColor.shown, id: \.self) { c in
                 let cur = Prefs.d.string(forKey: c.rawValue) ?? ""
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(alignment: .center) {
                         Text(c.title).font(.system(size: 12.5, weight: .medium))
-                        // Two parts in the same colour blend together on the bar; say which.
-                        let twins = BarColor.allCases.filter { $0 != c && $0.color.hex == c.color.hex }
-                        if !twins.isEmpty {
-                            Text("same as \(twins.map { $0.short }.joined(separator: ", "))")
-                                .font(.system(size: 10, weight: .semibold)).foregroundStyle(c.color)
-                                .padding(.horizontal, 7).padding(.vertical, 2)
-                                .background(Capsule().fill(c.color.opacity(0.15)))
-                                .overlay(Capsule().strokeBorder(c.color.opacity(0.5), lineWidth: 1))
-                                .lineLimit(1)
-                        }
                         Spacer(minLength: 8)
                         MiniBar(part: c)
                     }
@@ -107,8 +97,8 @@ struct ColorsPage: View {
 /// live colour (so picking a colour changes it right here); every other part is faded back.
 struct MiniBar: View {
     let part: BarColor
-    func col(_ p: BarColor) -> Color { p.color.opacity(p == part ? 1 : 0.22) }
-    func glow(_ p: BarColor) -> CGFloat { p == part ? 1 : 0 }
+    func col(_ p: BarColor) -> Color { p.color.opacity(part.covers(p) ? 1 : 0.22) }
+    func glow(_ p: BarColor) -> CGFloat { part.covers(p) ? 1 : 0 }
     var body: some View {
         let island = UnevenRoundedRectangle(bottomLeadingRadius: 9, bottomTrailingRadius: 9, style: .continuous)
         HStack(spacing: 6) {
@@ -171,7 +161,7 @@ struct FlashPart: ViewModifier {
     let part: BarColor
     @ObservedObject var f = ColorFlash.shared
     func body(content: Content) -> some View {
-        let on = f.part == part
+        let on = f.part?.covers(part) == true
         content.brightness(on ? 0.3 : 0).neon(part.color, on ? 2.6 : 0)
     }
 }
