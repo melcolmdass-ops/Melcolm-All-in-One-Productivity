@@ -92,11 +92,13 @@ final class OptionDrag: ObservableObject {
             var o = CGPoint(x: startPos.x + p.x - startMouse.x, y: startPos.y + p.y - startMouse.y)
             lastOrigin = o
             lock.lock(); let g = ghostID; lock.unlock()
-            if g != 0 { var go = CGPoint(x: o.x - 30, y: o.y - 30); _ = CGSMoveWindow(cid, g, &go) }   // until the copy appears, the window stays put (no jump)
+            if g != 0 { var go = CGPoint(x: o.x - 30, y: o.y - 30); _ = CGSMoveWindow(cid, g, &go) }
+            if ringID != 0 { var ro = CGPoint(x: p.x - Self.ringSize / 2, y: p.y - Self.ringSize / 2); _ = CGSMoveWindow(cid, ringID, &ro) }   // until the copy appears, the window stays put (no jump)
             // The bar is not a drop spot: New Space only lives in its circle (no second "New Space" on the bar).
             let hit: CGDirectDisplayID? = nil
             let z = zoneRect(at: p)
-            if z != lastZone { lastZone = z; DispatchQueue.main.async { self.showZone(z); self.dots.active = z?.zone ?? ""; self.dots.screen = z?.display ?? 0 } }
+            if z != lastZone { lastZone = z; DispatchQueue.main.async { self.showZone(z); self.dots.active = z?.zone ?? ""; self.dots.screen = z?.display ?? 0
+                self.ringModel.tint = z == nil ? nil : (z?.id == "space" ? Color(red: 0.25, green: 0.88, blue: 1.0) : accent) } }
             if hit != lastHit { lastHit = hit; DispatchQueue.main.async { self.overBar = hit; self.ghostModel?.overBar = hit != nil } }
             return nil
         case .leftMouseUp where active:
@@ -105,7 +107,7 @@ final class OptionDrag: ObservableObject {
             let target: (frame: NSRect, screen: CGDirectDisplayID, uuid: String?, model: SpacesModel)? = nil
             lastHit = nil; DispatchQueue.main.async { self.overBar = nil }
             let zone = lastZone; lastZone = nil
-            DispatchQueue.main.async { self.showZone(nil) }
+            DispatchQueue.main.async { self.dropRing(into: zone?.rect); self.showZone(nil) }
             // Into the bar, or onto the top-middle "New Space" spot: always the LAST Space on that display.
             // (Inserting between apps would make macOS re-enter every app after it, one by one.)
             let newSpace: (uuid: String, display: CGDirectDisplayID)? =
@@ -294,13 +296,49 @@ final class OptionDrag: ObservableObject {
             zonePanel = p; return p
         }()
         zoneToken += 1
-        if !p.isVisible || p.alphaValue < 0.05 { p.setFrame(r, display: true) }
+        // Switching straight from one spot to another: jump there at once (no sliding, no fade),
+        // so the old outline never lingers next to the new one.
+        let switching = p.isVisible && p.alphaValue > 0.05
+        NSAnimationContext.runAnimationGroup { c in c.duration = 0; p.animator().alphaValue = switching ? 1 : 0 }
+        p.setFrame(r, display: true)
         p.orderFrontRegardless()
-        NSAnimationContext.runAnimationGroup { c in
-            c.duration = 0.2; c.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.9, 0.3, 1)
-            p.animator().setFrame(r, display: true); p.animator().alphaValue = 1
-        }
+        if !switching { NSAnimationContext.runAnimationGroup { c in c.duration = 0.12; p.animator().alphaValue = 1 } }
     }
+    // MARK: the circle around the pointer while dragging
+
+    static let ringSize: CGFloat = 46
+    private let ringModel = RingModel()
+    private var ringID: UInt32 = 0
+    private lazy var ring: NSPanel = {
+        let p = NSPanel(contentRect: NSRect(x: 0, y: 0, width: Self.ringSize, height: Self.ringSize), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        p.isOpaque = false; p.backgroundColor = .clear; p.hasShadow = false; p.ignoresMouseEvents = true
+        p.level = .screenSaver; p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+        p.contentView = NSHostingView(rootView: RingView(m: ringModel))
+        return p
+    }()
+    private func showRing(at pt: CGPoint) {
+        guard active else { return }
+        let h = NSScreen.screens.first?.frame.height ?? 0, d = Self.ringSize
+        ringModel.tint = nil; ringModel.dropping = false
+        ring.alphaValue = 1
+        ring.setFrame(NSRect(x: pt.x - d / 2, y: h - pt.y - d / 2, width: d, height: d), display: true)
+        ring.orderFrontRegardless()
+        lock.lock(); ringID = UInt32(ring.windowNumber); lock.unlock()
+    }
+    /// Let go over a spot: the circle sinks into the middle of it. Anywhere else it just fades.
+    private func dropRing(into z: CGRect?) {
+        lock.lock(); ringID = 0; lock.unlock()
+        let p = ring
+        guard p.isVisible else { return }
+        let h = NSScreen.screens.first?.frame.height ?? 0, d = Self.ringSize
+        NSAnimationContext.runAnimationGroup({ c in
+            c.duration = z == nil ? 0.15 : 0.28; c.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.9, 0.3, 1)
+            if let z { p.animator().setFrame(NSRect(x: z.midX - d / 2, y: h - z.midY - d / 2, width: d, height: d), display: true) }
+            p.animator().alphaValue = 0
+        }, completionHandler: { p.orderOut(nil) })
+        if z != nil { withAnimation(.easeIn(duration: 0.28)) { ringModel.dropping = true } }
+    }
+
     private var lastOrigin = CGPoint.zero
     private var ghostID: UInt32 = 0
     private var ghost: NSPanel?
@@ -428,7 +466,7 @@ final class OptionDrag: ObservableObject {
             self.pid = pid; self.wid = wid; win = ax
             startMouse = p; startPos = r.origin; lastOrigin = r.origin
             active = true
-            DispatchQueue.main.async { self.makeGhost(r, wid: wid, pid: pid) }
+            DispatchQueue.main.async { self.makeGhost(r, wid: wid, pid: pid); self.showRing(at: p) }
             AXUIElementSetMessagingTimeout(ax, 0.25)
             NSRunningApplication(processIdentifier: pid)?.activate()
             AXUIElementPerformAction(ax, kAXRaiseAction as CFString)
@@ -476,10 +514,32 @@ struct GhostView: View {
         .overlay(shape.strokeBorder(tint, lineWidth: m.overBar ? 8 : 2.5))
         .shadow(color: tint.opacity(m.lifted ? 0.55 : 0), radius: m.overBar ? 40 : 18)
         .scaleEffect(scale, anchor: m.grip)
-        .opacity(m.end == .none ? (m.dimmed ? 0.35 : m.lifted ? 0.94 : 0.6) : 0)
-        .animation(.easeOut(duration: 0.15), value: m.dimmed)
+        .opacity(m.end == .none ? (m.dimmed ? 0 : m.lifted ? 0.94 : 0.6) : 0)
+        .animation(.easeOut(duration: 0.1), value: m.dimmed)
         .animation(.spring(response: 0.3, dampingFraction: 0.75), value: m.overBar)
         .padding(30)   // room for the glow
+    }
+}
+
+final class RingModel: ObservableObject {
+    @Published var tint: Color?        // over a spot: takes the spot's colour and fills
+    @Published var dropping = false    // let go over a spot: shrinks into it
+}
+
+/// The small circle around the pointer: exactly where the drop will happen.
+struct RingView: View {
+    @ObservedObject var m: RingModel
+    var body: some View {
+        let c = m.tint ?? .white
+        ZStack {
+            Circle().fill(c.opacity(m.tint == nil ? 0.08 : 0.35))
+            Circle().strokeBorder(c.opacity(0.95), lineWidth: m.tint == nil ? 2 : 3)
+            Circle().fill(c).frame(width: 5, height: 5)
+        }
+        .shadow(color: (m.tint ?? .black).opacity(0.8), radius: m.tint == nil ? 3 : 10)
+        .scaleEffect(m.dropping ? 0.25 : m.tint == nil ? 0.8 : 1)
+        .animation(.spring(response: 0.18, dampingFraction: 0.7), value: m.tint == nil)
+        .padding(4)
     }
 }
 

@@ -44,6 +44,7 @@ struct IslandView: View {
                 // Resting anywhere on the island makes its outline glow brighter.
                 shape.strokeBorder(BarColor.outline.color.opacity(hoverIsland ? 1 : 0.85), lineWidth: hoverIsland ? 2.2 : 1.6)
                     .neon(BarColor.outline.color, hoverIsland ? 1 : 0.4)
+                    .flash(.outline)
                     .animation(.easeOut(duration: 0.18), value: hoverIsland)
             }
             .shadow(color: .black.opacity(state.expanded ? 0.6 : 0), radius: 22, y: 10)
@@ -114,6 +115,7 @@ struct TopBar: View {
                             }
                         }.padding(.horizontal, 9).frame(maxHeight: .infinity).contentShape(Rectangle())
                         .hoverLift("bar-status", BarColor.status.color)
+                        .flash(.status)
                     }.buttonStyle(PressStyle()).help(a == .music ? "\(playing.title) · click to open Now Playing" : "Click to open Clock")
                     Capsule().fill(BarColor.statusBox.color.opacity(0.45)).frame(width: 1, height: 14)
                 }
@@ -130,7 +132,7 @@ struct TopBar: View {
                 .help("Open Melcolm (⌃⌥Space)")
                 }
                 .frame(height: max(20, state.barHeight - 4))
-                .background { NeonBox(color: BarColor.statusBox.color) }
+                .background { NeonBox(color: BarColor.statusBox.color).flash(.statusBox) }
             }
             .padding(state.notchWidth > 0 ? .leading : .trailing, state.notchWidth > 0 ? 18 : 10)
             .frame(maxWidth: .infinity, alignment: state.notchWidth > 0 ? .leading : .trailing)
@@ -186,6 +188,7 @@ struct SpacesStrip: View {
                     // The box stretches or shrinks with the apps sliding inside it while you drag.
                     NeonBox(color: BarColor.displayBox.color, strength: drag.target == .desktop(g.id) ? 2.2 : drag.target.map { Self.display(of: $0) == g.id } == true ? 1.2 : 0.7)
                         .frame(width: Layout.groupWidth(g, icon: icon, m: spaces) + drag.grow(g))
+                        .flash(.displayBox)
                 }
                 .dragFrame("\(state.displayID):box-\(g.id)")
                 .zIndex(g.spaces.contains { $0.id == drag.dragging } ? 2 : 0)
@@ -210,6 +213,7 @@ struct SpacesStrip: View {
                     r.strokeBorder(cyan, lineWidth: 1.3).neon(cyan, style == "glow" ? 0.9 : 0.3)
                 }
                 .padding(.vertical, 0.5).padding(.horizontal, 0.5)
+                .flash(.space)
                 .matchedGeometryEffect(id: "glow-\(display)", in: ns)
             }
         }
@@ -221,6 +225,7 @@ struct SpacesStrip: View {
                 if showNumbers {
                     Text("\(g.number)").font(.system(size: icon * 0.72, weight: .heavy, design: .rounded))
                         .foregroundStyle(on ? .white : BarColor.number.color.opacity(0.9))
+                        .flash(.number)
                 } else {
                     Circle().fill(on ? .white : BarColor.number.color).frame(width: 8, height: 8)
                 }
@@ -390,7 +395,7 @@ struct SettingsTab: View {
                     }
                 }
             }
-            Text("Melcolm All-in-One Productivity · v2.24").font(.system(size: 10)).foregroundStyle(.tertiary)
+            Text("Melcolm All-in-One Productivity · v2.25").font(.system(size: 10)).foregroundStyle(.tertiary)
         }
         .font(.system(size: 12))
         .toggleStyle(.switch).controlSize(.small)
@@ -857,6 +862,7 @@ struct NotchButton: View {
                 .overlay(shape.strokeBorder(LinearGradient(colors: [accent.opacity(0.5), accent], startPoint: .top, endPoint: .bottom),
                                             lineWidth: hot || state.expanded ? 1.8 : 1.4))
                 .neon(accent, hot || state.expanded ? 1.2 : 0.75)
+                .flash(.notch)
                 .padding(.horizontal, -3).padding(.bottom, -3)
                 .contentShape(Rectangle())
         }

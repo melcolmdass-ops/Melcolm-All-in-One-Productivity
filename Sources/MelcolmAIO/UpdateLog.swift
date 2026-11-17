@@ -24,6 +24,20 @@ enum UpdateLog {
 
     /// Newest first.
     static let all: [AppUpdate] = [
+        AppUpdate(version: "2.25", date: "November 16th, 2026", title: "Drop circle, smoother snapping, colour flash",
+                  improvements: [
+                      "Moving from one snap spot to another (left third to left half) switches at once. The old outline never hangs around.",
+                      "Only one outline at a time: over a spot you see just the spot. Let go and the window shows again as it moves in.",
+                  ],
+                  fixes: [
+                      "The snap outline no longer blinks or slides up and down while you drag between spots.",
+                  ],
+                  features: [
+                      "A small circle sits around the pointer while you drag. It takes the spot's colour when you're over one, and sinks into it when you let go.",
+                      "Picking a colour makes that part of the real bar glow for a second.",
+                      "Colours shows a \"same as\" note when two parts share a colour, so you know why they blend.",
+                  ],
+                  icons: ["circle.dashed", "rectangle.split.3x1", "paintpalette.fill"], tint: cyan),
         AppUpdate(version: "2.24", date: "November 16th, 2026", title: "See what each colour changes",
                   improvements: [], fixes: [],
                   features: [

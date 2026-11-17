@@ -17,6 +17,13 @@ enum BarColor: String, CaseIterable {
         case .space: "Space highlight"
         }
     }
+    /// Short name for the "same as" note.
+    var short: String {
+        switch self {
+        case .outline: "Island"; case .notch: "Notch"; case .statusBox: "Play box"; case .status: "Music note"
+        case .displayBox: "Display box"; case .number: "Number"; case .space: "Space"
+        }
+    }
     var fallback: Color {
         switch self {
         case .outline: .white.opacity(0.28)
@@ -53,6 +60,16 @@ struct ColorsPage: View {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(alignment: .center) {
                         Text(c.title).font(.system(size: 12.5, weight: .medium))
+                        // Two parts in the same colour blend together on the bar; say which.
+                        let twins = BarColor.allCases.filter { $0 != c && $0.color.hex == c.color.hex }
+                        if !twins.isEmpty {
+                            Text("same as \(twins.map { $0.short }.joined(separator: ", "))")
+                                .font(.system(size: 10, weight: .semibold)).foregroundStyle(c.color)
+                                .padding(.horizontal, 7).padding(.vertical, 2)
+                                .background(Capsule().fill(c.color.opacity(0.15)))
+                                .overlay(Capsule().strokeBorder(c.color.opacity(0.5), lineWidth: 1))
+                                .lineLimit(1)
+                        }
                         Spacer(minLength: 8)
                         MiniBar(part: c)
                     }
@@ -82,6 +99,7 @@ struct ColorsPage: View {
     func set(_ c: BarColor, _ hex: String) {
         if hex.isEmpty { Prefs.d.removeObject(forKey: c.rawValue) } else { Prefs.d.set(hex, forKey: c.rawValue) }
         rev += 1
+        ColorFlash.shared.flash(c)
     }
 }
 
@@ -132,6 +150,34 @@ struct MiniBar: View {
         .allowsHitTesting(false)
         .help("Where \(part.title.lowercased()) shows on the bar")
     }
+}
+
+/// Picking a colour makes that part of the real bar glow for a moment, so you see what changed.
+final class ColorFlash: ObservableObject {
+    static let shared = ColorFlash()
+    @Published var part: BarColor?
+    private var token = 0
+    func flash(_ p: BarColor) {
+        token += 1; let t = token
+        withAnimation(.easeOut(duration: 0.15)) { self.part = p }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.1) { [weak self] in
+            guard let self, token == t else { return }
+            withAnimation(.easeOut(duration: 0.45)) { self.part = nil }
+        }
+    }
+}
+
+struct FlashPart: ViewModifier {
+    let part: BarColor
+    @ObservedObject var f = ColorFlash.shared
+    func body(content: Content) -> some View {
+        let on = f.part == part
+        content.brightness(on ? 0.3 : 0).neon(part.color, on ? 2.6 : 0)
+    }
+}
+
+extension View {
+    func flash(_ p: BarColor) -> some View { modifier(FlashPart(part: p)) }
 }
 
 // MARK: - Neon look shared by every box on the bar
