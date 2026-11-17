@@ -85,6 +85,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if let text { i.peek(.init(text: text, icon: "macwindow.and.arrow.down"), for: 0) } else { i.endPeek() }
         }
         OptionDrag.shared.start()
+        Installed.loadShortcuts()
         // For testing: `-debugFocusOverlay YES` shows the focus feedback with what's running now.
         if UserDefaults.standard.bool(forKey: "debugFocusOverlay") {
             let apps = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }.prefix(6)

@@ -24,6 +24,13 @@ enum UpdateLog {
 
     /// Newest first.
     static let all: [AppUpdate] = [
+        AppUpdate(version: "2.37", date: "November 16th, 2026", title: "Focus Workflows crash fix",
+                  improvements: [],
+                  fixes: [
+                      "Opening a focus workflow to edit it could close the app. Your Shortcuts list is now read quietly in the background instead.",
+                  ],
+                  features: [],
+                  icons: ["wrench.and.screwdriver.fill"], tint: green),
         AppUpdate(version: "2.36", date: "November 16th, 2026", title: "Focus Workflows on the bar",
                   improvements: [
                       "Focus is now called Focus Workflows everywhere: Settings, Pages, Home and the pop-ups.",

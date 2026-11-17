@@ -375,16 +375,19 @@ enum Installed {
         for d in dirs { for f in (try? fm.contentsOfDirectory(atPath: d)) ?? [] where f.hasSuffix(".app") { out.insert(String(f.dropLast(4))) } }
         return out.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }()
-    private static var shortcutCache: [String]?
-    static var shortcuts: [String] {
-        if let c = shortcutCache { return c }
-        let p = Process(), pipe = Pipe()
-        p.executableURL = URL(fileURLWithPath: "/usr/bin/shortcuts"); p.arguments = ["list"]; p.standardOutput = pipe
-        try? p.run(); p.waitUntilExit()
-        let list = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
-            .split(separator: "\n").map(String.init).filter { !$0.isEmpty } ?? []
-        shortcutCache = list.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
-        return shortcutCache!
+    /// Your Shortcuts. Read in the background (never while a page is drawing, which crashed the editor);
+    /// empty until the first read finishes, a moment after launch.
+    private(set) static var shortcuts: [String] = []
+    static func loadShortcuts() {
+        DispatchQueue.global(qos: .utility).async {
+            let p = Process(), pipe = Pipe()
+            p.executableURL = URL(fileURLWithPath: "/usr/bin/shortcuts"); p.arguments = ["list"]; p.standardOutput = pipe
+            guard (try? p.run()) != nil else { return }
+            let data = pipe.fileHandleForReading.readDataToEndOfFile(); p.waitUntilExit()
+            let list = (String(data: data, encoding: .utf8) ?? "").split(separator: "\n").map(String.init).filter { !$0.isEmpty }
+                .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+            DispatchQueue.main.async { shortcuts = list }
+        }
     }
     private static var icons: [String: NSImage] = [:]
     static func icon(_ name: String) -> NSImage? {
