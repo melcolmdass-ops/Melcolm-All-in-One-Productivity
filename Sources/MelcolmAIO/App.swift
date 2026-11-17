@@ -93,7 +93,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     .init(icon: "eye.slash.fill", tint: .orange, verb: "Hid", all: "all other apps", apps: Array(apps)),
                     .init(icon: "cup.and.saucer.fill", tint: .yellow, verb: "Keeping", all: "the screen awake"),
                     .init(icon: "timer", tint: .cyan, verb: "Started", all: "a 50 min timer")], showApps: true)
-                FocusDone.show("Deep Work flow completed", icon: "brain.head.profile")
+                if let m = self.focus.modes.first { self.focus.active = m.id; DispatchQueue.main.asyncAfter(deadline: .now() + 6) { self.focus.active = nil } }
+                FocusDone.show("Deep Work workflow completed", icon: "brain.head.profile")
             }
         }
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
@@ -363,6 +364,7 @@ final class Island: NSObject {
             app.timer.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
             app.playing.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
             app.sound.$micInUse.removeDuplicates().map { _ in () }.eraseToAnyPublisher(),
+            app.focus.$active.removeDuplicates().map { _ in () }.eraseToAnyPublisher(),
             NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification).map { _ in () }.eraseToAnyPublisher()
         )
         .receive(on: RunLoop.main)
@@ -425,6 +427,7 @@ final class Island: NSObject {
         case nil: status -= 12
         }
         if app.sound.micInUse { status += 30 }                                  // microphone icon
+        if app.focus.active != nil { status += 136 }                            // running focus workflow
         let h = Prefs.d.string(forKey: "heightMode") == "custom" ? CGFloat(Prefs.d.double(forKey: "customHeight")) : screenBar
         icon = Layout.icon(forBar: h)
         let groups = spaces.displays.map { Layout.groupWidth($0, icon: ic, m: spaces) }

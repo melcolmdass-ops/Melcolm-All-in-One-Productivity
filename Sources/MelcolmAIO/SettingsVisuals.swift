@@ -34,7 +34,7 @@ struct SettingsVisual: View {
         case .mouse: "Scrolling, hovering and clicking on the island."
         case .hover: "The strip that drops down when you rest on the island."
         case .panel: "Which pages are on Home, their order, and which show in Quick View."
-        case .focus: "Your focus modes and how a focus starts and ends."
+        case .focus: "Your focus workflows: steps that run in order, once, like a shortcut."
         case .colors: "Pick the colours of the closed bar: outlines, boxes and highlights."
         case .utility: "Quick buttons at the bottom of Home; each opens its page as a pop-up."
         case .rules: "Things the app always does, everywhere. You can't switch these off."

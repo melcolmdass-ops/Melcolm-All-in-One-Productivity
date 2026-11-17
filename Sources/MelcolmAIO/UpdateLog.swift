@@ -24,6 +24,15 @@ enum UpdateLog {
 
     /// Newest first.
     static let all: [AppUpdate] = [
+        AppUpdate(version: "2.36", date: "November 16th, 2026", title: "Focus Workflows on the bar",
+                  improvements: [
+                      "Focus is now called Focus Workflows everywhere: Settings, Pages, Home and the pop-ups.",
+                  ],
+                  fixes: [],
+                  features: [
+                      "While a focus workflow runs, the bar shows it (its icon pulsing and its name) until it's done.",
+                  ],
+                  icons: ["brain.head.profile", "rectangle.topthird.inset.filled"], tint: purple),
         AppUpdate(version: "2.35", date: "November 16th, 2026", title: "Focus flows",
                   improvements: [
                       "Focus modes are now focus flows: press Run and it does its steps once, like a shortcut. No more Start and Stop.",

@@ -125,7 +125,7 @@ final class FocusModel: ObservableObject {
         func next() {
             guard !queue.isEmpty else {
                 active = nil
-                if Prefs.bool("focusDonePopup") { FocusDone.show("\(m.name) flow completed", icon: m.icon) }
+                if Prefs.bool("focusDonePopup") { FocusDone.show("\(m.name) workflow completed", icon: m.icon) }
                 return
             }
             let k = queue.removeFirst()
@@ -172,7 +172,7 @@ struct FocusPage: View {
             }
             if !light {
                 Button { focus.add() } label: {
-                    Label("New focus flow", systemImage: "plus").font(.system(size: 12, weight: .semibold))
+                    Label("New focus workflow", systemImage: "plus").font(.system(size: 12, weight: .semibold))
                         .frame(maxWidth: .infinity, minHeight: 32)
                         .background(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(.white.opacity(0.15), style: StrokeStyle(lineWidth: 1, dash: [4])))
                         .contentShape(Rectangle())
@@ -356,9 +356,9 @@ struct FocusSettings: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Toggle("\"Flow completed\" pop-up at the bottom of the screen", isOn: $donePopup)
+            Toggle("\"Workflow completed\" pop-up at the bottom of the screen", isOn: $donePopup)
             Divider().opacity(0.3).padding(.vertical, 4)
-            Text("Focus flows").font(.system(size: 12.5, weight: .semibold))
+            Text("Focus Workflows").font(.system(size: 12.5, weight: .semibold))
             Text("Each one runs its steps in order, once, like a shortcut. Click the pencil to change them.").font(.system(size: 11)).foregroundStyle(.secondary)
             FocusPage()
         }

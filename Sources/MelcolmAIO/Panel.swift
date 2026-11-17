@@ -27,7 +27,7 @@ enum PanelPage: String, CaseIterable {
         switch self {
         case .home: "Melcolm"; case .nowPlaying: "Now Playing"; case .sound: "Sound & Microphone"; case .brightness: "Brightness"
         case .network: "Wi-Fi & Bluetooth"; case .batteries: "Batteries"; case .awake: "Keep Awake"; case .dark: "Dark Mode"
-        case .timer: "Clock"; case .layouts: "Layouts"; case .focus: "Focus"; case .settings: "Settings"
+        case .timer: "Clock"; case .layouts: "Layouts"; case .focus: "Focus Workflows"; case .settings: "Settings"
         }
     }
     var icon: String {

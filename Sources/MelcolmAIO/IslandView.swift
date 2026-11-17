@@ -65,6 +65,7 @@ struct TopBar: View {
     @EnvironmentObject var timer: TimerModel
     @EnvironmentObject var playing: NowPlayingModel
     @EnvironmentObject var sound: SoundModel
+    @EnvironmentObject var focus: FocusModel
     @AppStorage("barShowTimer") var showTimer = true
     @AppStorage("barShowMusic") var showMusic = true
     @AppStorage("barOrder") var barOrder = "timer,music"
@@ -90,6 +91,19 @@ struct TopBar: View {
             HStack(spacing: 8) {
                 if state.notchWidth > 0 && left < spaces.displays.count {
                     SpacesStrip(first: left, count: nil)
+                }
+                // A focus workflow is running: show it on the bar until it's done.
+                if let id = focus.active, let m = focus.modes.first(where: { $0.id == id }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: m.icon).font(.system(size: 11, weight: .bold)).foregroundStyle(.white)
+                            .frame(width: 20, height: 20).background(Circle().fill(accentGradient))
+                            .symbolEffect(.pulse)
+                        Text(m.name).font(.system(size: 11.5, weight: .bold)).foregroundStyle(.white).lineLimit(1).frame(maxWidth: 90, alignment: .leading)
+                    }
+                    .padding(.leading, 3).padding(.trailing, 9).frame(height: 24)
+                    .background(Capsule().fill(accent.opacity(0.22)).overlay(Capsule().strokeBorder(accent.opacity(0.7), lineWidth: 1)))
+                    .help("Running the \(m.name) focus workflow")
+                    .transition(.scale.combined(with: .opacity))
                 }
                 if sound.micInUse {
                     Image(systemName: "mic.fill").font(.system(size: 11, weight: .bold)).foregroundStyle(.white)
@@ -313,10 +327,10 @@ struct Card<Content: View>: View {
 }
 
 struct SettingsTab: View {
-    enum Page: String, CaseIterable { case general = "General", commands = "Commands", bar = "Bar", display = "Display on bar", spaces = "Spaces", dragging = "Dragging", mouse = "Mouse", hover = "Hover bar", panel = "Pages", utility = "Utility Bar", focus = "Focus", colors = "Colors", rules = "Master Rules", updates = "Update Log" }
+    enum Page: String, CaseIterable { case general = "General", commands = "Commands", bar = "Bar", display = "Display on bar", spaces = "Spaces", dragging = "Dragging", mouse = "Mouse", hover = "Hover bar", panel = "Pages", utility = "Utility Bar", focus = "Focus Workflows", colors = "Colors", rules = "Master Rules", updates = "Update Log" }
     /// Top tabs, each with its own sub-tabs.
     static let groups: [(name: String, tabs: [Page])] = [
-        ("General", [.general, .commands]), ("Main Bar", [.bar, .panel, .display, .spaces, .mouse, .hover]), ("Dragging", [.dragging]), ("Utility Bar", [.utility]), ("Focus", [.focus]), ("Colors", [.colors]),
+        ("General", [.general, .commands]), ("Main Bar", [.bar, .panel, .display, .spaces, .mouse, .hover]), ("Dragging", [.dragging]), ("Utility Bar", [.utility]), ("Focus Workflows", [.focus]), ("Colors", [.colors]),
         ("Master Rules", [.rules]), ("Update Log", [.updates]),
     ]
     @AppStorage("settingsPage") var page = Page.general.rawValue
@@ -399,7 +413,7 @@ struct SettingsTab: View {
                     }
                 }
             }
-            Text("Melcolm All-in-One Productivity · v2.35").font(.system(size: 10)).foregroundStyle(.tertiary)
+            Text("Melcolm All-in-One Productivity · v2.36").font(.system(size: 10)).foregroundStyle(.tertiary)
         }
         .font(.system(size: 12))
         .toggleStyle(.switch).controlSize(.small)
