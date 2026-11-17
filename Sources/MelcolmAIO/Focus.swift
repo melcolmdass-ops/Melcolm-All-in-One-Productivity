@@ -17,6 +17,10 @@ struct FocusMode: Codable, Identifiable, Equatable {
     var mute = false
     var timer = 0                // minutes, 0 = none
     var clock: String? = nil     // "stopwatch" = count up instead of a timer (optional so old saves still load)
+    // Feedback when the focus starts (all optional so old saves still load).
+    var feedback: String? = nil       // nil = off, "message" = your message, "steps" = your message + what it did
+    var feedbackText: String? = nil   // your message, e.g. "Focus"
+    var feedbackApps: Bool? = nil     // list the apps (with icons) under each step, not just "all apps"
     var useStopwatch: Bool { get { clock == "stopwatch" } set { clock = newValue ? "stopwatch" : nil } }
     var shortcut = ""            // a Shortcuts shortcut to run (e.g. one that turns on Do Not Disturb)
 
@@ -64,29 +68,47 @@ final class FocusModel: ObservableObject {
         active = m.id
         let me = ProcessInfo.processInfo.processIdentifier
         let names = { (s: String) in s.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty } }
+        var steps: [FocusStep] = []
         let quit = names(m.quitApps).map { $0.lowercased() }
+        var quitList: [NSRunningApplication] = []
         for a in NSWorkspace.shared.runningApplications where a.activationPolicy == .regular && a.processIdentifier != me {
-            if quit.contains((a.localizedName ?? "").lowercased()) { a.terminate() }
+            if quit.contains((a.localizedName ?? "").lowercased()) { quitList.append(a); a.terminate() }
         }
-        if m.minimize { Self.minimizeAll() }
-        else if m.hideApps {
+        if !quitList.isEmpty { steps.append(.init(icon: "xmark.app.fill", tint: .red, verb: "Quit", all: "the apps you picked", apps: quitList)) }
+        if m.minimize {
+            let list = Self.minimizeAll()
+            steps.append(.init(icon: "rectangle.compress.vertical", tint: .purple, verb: "Minimized", all: "all windows", apps: list))
+        } else if m.hideApps {
+            var list: [NSRunningApplication] = []
             for a in NSWorkspace.shared.runningApplications where a.activationPolicy == .regular && a.processIdentifier != me
-                && a.bundleIdentifier != "com.apple.finder" { a.hide() }
+                && a.bundleIdentifier != "com.apple.finder" && !a.isHidden { list.append(a); a.hide() }
+            steps.append(.init(icon: "eye.slash.fill", tint: .orange, verb: "Hid", all: "all other apps", apps: list))
         }
-        for item in names(m.openApps) {
+        let opens = names(m.openApps)
+        for item in opens {
             if item.contains("."), !item.hasSuffix(".app"), let url = URL(string: item.hasPrefix("http") ? item : "https://\(item)") {
                 NSWorkspace.shared.open(url)
             } else {
                 let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/bin/open"); p.arguments = ["-a", item]; try? p.run()
             }
         }
-        if !names(m.openApps).isEmpty { openedOutside() }
-        if m.arrange { DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { _ = Tiler.autoArrange() } }
-        if m.keepAwake && !app.system.awake { app.system.toggleAwake() }
-        if m.mute && !app.sound.muted { app.sound.toggleMute() }
-        if m.useStopwatch { app.timer.startStopwatch() } else if m.timer > 0 { app.timer.start(minutes: Double(m.timer)) }
-        for sc in names(m.shortcut) {
+        if !opens.isEmpty { openedOutside(); steps.append(.init(icon: "arrow.up.forward.app.fill", tint: .green, verb: "Opened", all: opens.joined(separator: ", "), names: opens)) }
+        if m.arrange { DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { _ = Tiler.autoArrange() }
+            steps.append(.init(icon: "rectangle.split.2x2.fill", tint: .blue, verb: "Arranged", all: "your windows")) }
+        if m.keepAwake { if !app.system.awake { app.system.toggleAwake() }
+            steps.append(.init(icon: "cup.and.saucer.fill", tint: .yellow, verb: "Keeping", all: "the screen awake")) }
+        if m.mute { if !app.sound.muted { app.sound.toggleMute() }
+            steps.append(.init(icon: "speaker.slash.fill", tint: .pink, verb: "Muted", all: "the sound")) }
+        if m.useStopwatch { app.timer.startStopwatch(); steps.append(.init(icon: "stopwatch", tint: .cyan, verb: "Started", all: "the stopwatch")) }
+        else if m.timer > 0 { app.timer.start(minutes: Double(m.timer)); steps.append(.init(icon: "timer", tint: .cyan, verb: "Started", all: "a \(m.timer) min timer")) }
+        let scs = names(m.shortcut)
+        for sc in scs {
             let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/bin/shortcuts"); p.arguments = ["run", sc]; try? p.run()
+        }
+        if !scs.isEmpty { steps.append(.init(icon: "square.stack.3d.up.fill", tint: .indigo, verb: "Ran", all: scs.joined(separator: ", "))) }
+        if let f = m.feedback {
+            let title = (m.feedbackText ?? "").isEmpty ? m.name : m.feedbackText!
+            FocusOverlay.show(title: title, icon: m.icon, steps: f == "steps" ? steps : [], showApps: m.feedbackApps ?? false)
         }
     }
 
@@ -100,15 +122,18 @@ final class FocusModel: ObservableObject {
         active = nil
     }
 
-    static func minimizeAll() {
-        guard AXIsProcessTrusted() else { return }
+    @discardableResult static func minimizeAll() -> [NSRunningApplication] {
+        guard AXIsProcessTrusted() else { return [] }
+        var done: [NSRunningApplication] = []
         let me = ProcessInfo.processInfo.processIdentifier
         for a in NSWorkspace.shared.runningApplications where a.activationPolicy == .regular && a.processIdentifier != me {
             var v: CFTypeRef?
             guard AXUIElementCopyAttributeValue(AXUIElementCreateApplication(a.processIdentifier), kAXWindowsAttribute as CFString, &v) == .success,
                   let list = v as? [AXUIElement] else { continue }
             for w in list { AXUIElementSetAttributeValue(w, kAXMinimizedAttribute as CFString, kCFBooleanTrue) }
+            if !list.isEmpty { done.append(a) }
         }
+        return done
     }
 }
 
@@ -197,6 +222,22 @@ struct FocusEditor: View {
                     Picker("", selection: $mode.timer) {
                         Text("25 min").tag(25); Text("50 min").tag(50); Text("90 min").tag(90)
                     }.pickerStyle(.segmented).labelsHidden()
+                }
+                section("Feedback")
+                HStack(spacing: 8) {
+                    clockChoice("Off", "bell.slash", mode.feedback == nil) { mode.feedback = nil }
+                    clockChoice("Message", "text.bubble.fill", mode.feedback == "message") { mode.feedback = "message" }
+                    clockChoice("Message + steps", "list.bullet.rectangle.fill", mode.feedback == "steps") { mode.feedback = "steps" }
+                }
+                if mode.feedback != nil {
+                    TextField("Your message, e.g. Focus. Let's go, Melcolm.", text: Binding(get: { mode.feedbackText ?? "" }, set: { mode.feedbackText = $0 }))
+                        .textFieldStyle(.roundedBorder).font(.system(size: 13))
+                }
+                if mode.feedback == "steps" {
+                    HStack(spacing: 8) {
+                        clockChoice("Say \"all apps\"", "square.grid.2x2", !(mode.feedbackApps ?? false)) { mode.feedbackApps = false }
+                        clockChoice("Show each app", "app.badge.fill", mode.feedbackApps ?? false) { mode.feedbackApps = true }
+                    }
                 }
                 section("More")
                 ChipPicker(title: "Quit apps", add: "Add app", choices: Installed.apps, icon: Installed.icon, text: $mode.quitApps)
@@ -293,9 +334,12 @@ enum Installed {
         shortcutCache = list.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
         return shortcutCache!
     }
+    private static var icons: [String: NSImage] = [:]
     static func icon(_ name: String) -> NSImage? {
+        if let i = icons[name] { return i }
         guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: name) ?? NSWorkspace.shared.fullPath(forApplication: name).map({ URL(fileURLWithPath: $0) }) else { return nil }
-        return NSWorkspace.shared.icon(forFile: url.path)
+        let i = NSWorkspace.shared.icon(forFile: url.path); icons[name] = i
+        return i
     }
 }
 
@@ -308,6 +352,55 @@ struct ChipPicker: View {
     let icon: (String) -> NSImage?
     @Binding var text: String
 
+    @StateObject private var ui = PickUI()
+    private var open: Bool { ui.open }
+    private var query: String { ui.query }
+
+    /// The drop-down: a search box and every choice with its icon. Click to add; it stays open to add more.
+    var picker: some View {
+        let left = choices.filter { !items.contains($0) && (query.isEmpty || $0.localizedCaseInsensitiveContains(query)) }
+        return VStack(spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                TextField("Search", text: $ui.query).textFieldStyle(.plain).font(.system(size: 13))
+                if !query.isEmpty { Button { ui.query = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }.buttonStyle(.plain) }
+            }
+            .padding(.horizontal, 10).frame(height: 32)
+            .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(.white.opacity(0.08)))
+            ScrollView {
+                LazyVStack(spacing: 2) {
+                    if left.isEmpty { Text(query.isEmpty ? "Nothing more to add" : "No match").font(.system(size: 12)).foregroundStyle(.secondary).padding(.top, 20) }
+                    ForEach(left, id: \.self) { c in
+                        Button { set(items + [c]) } label: {
+                            HStack(spacing: 10) {
+                                chipIcon(c, size: 24)
+                                Text(c).font(.system(size: 13)).lineLimit(1)
+                                Spacer()
+                                Image(systemName: "plus.circle.fill").foregroundStyle(accent.opacity(0.8))
+                            }
+                            .padding(.horizontal, 8).frame(height: 34)
+                            .contentShape(Rectangle())
+                        }.buttonStyle(PickRowStyle())
+                    }
+                }
+            }
+            .frame(height: 300)
+        }
+        .padding(10).frame(width: 300)
+        .onDisappear { ui.query = "" }
+    }
+
+    @ViewBuilder func chipIcon(_ name: String, size: CGFloat) -> some View {
+        if let i = icon(name) { Image(nsImage: i).resizable().frame(width: size, height: size) }
+        else {
+            // Shortcuts have no public icon, so they get the Shortcuts look.
+            Image(systemName: "square.stack.3d.up.fill").font(.system(size: size * 0.5, weight: .semibold)).foregroundStyle(.white)
+                .frame(width: size, height: size)
+                .background(RoundedRectangle(cornerRadius: size * 0.26, style: .continuous)
+                    .fill(LinearGradient(colors: [Color(red: 1, green: 0.35, blue: 0.55), Color(red: 0.45, green: 0.35, blue: 1)], startPoint: .topLeading, endPoint: .bottomTrailing)))
+        }
+    }
+
     var items: [String] { text.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty } }
     func set(_ list: [String]) { text = list.joined(separator: ", ") }
 
@@ -317,8 +410,7 @@ struct ChipPicker: View {
             FlowLayout(spacing: 6) {
                 ForEach(items, id: \.self) { it in
                     HStack(spacing: 5) {
-                        if let i = icon(it) { Image(nsImage: i).resizable().frame(width: 16, height: 16) }
-                        else { Image(systemName: "square.stack.3d.up.fill").font(.system(size: 10)).foregroundStyle(accent) }
+                        chipIcon(it, size: 18)
                         Text(it).font(.system(size: 12, weight: .semibold)).lineLimit(1)
                         Button { set(items.filter { $0 != it }) } label: {
                             Image(systemName: "xmark").font(.system(size: 8, weight: .heavy)).foregroundStyle(.secondary)
@@ -328,14 +420,14 @@ struct ChipPicker: View {
                     .background(Capsule().fill(accent.opacity(0.12)))
                     .overlay(Capsule().strokeBorder(accent.opacity(0.8), lineWidth: 1.2))
                 }
-                Menu {
-                    let left = choices.filter { !items.contains($0) }
-                    if left.isEmpty { Text("Nothing more to add") }
-                    ForEach(left, id: \.self) { c in Button(c) { set(items + [c]) } }
-                } label: {
-                    Label(add, systemImage: "plus").font(.system(size: 12, weight: .semibold))
+                Button { ui.open.toggle() } label: {
+                    Label(add, systemImage: "plus").font(.system(size: 12, weight: .semibold)).foregroundStyle(accent)
+                        .padding(.horizontal, 9).frame(height: 26)
+                        .background(Capsule().strokeBorder(accent.opacity(0.5), style: StrokeStyle(lineWidth: 1, dash: [3, 3])))
+                        .contentShape(Capsule())
                 }
-                .menuStyle(.borderlessButton).fixedSize().frame(height: 26)
+                .buttonStyle(PressStyle())
+                .popover(isPresented: $ui.open, arrowEdge: .bottom) { picker }
             }
             .padding(8)
             .frame(maxWidth: .infinity, minHeight: 56, alignment: .topLeading)
@@ -366,5 +458,118 @@ struct FlowLayout: SwiftUI.Layout {
             v.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(s))
             x += s.width + spacing; row = max(row, s.height)
         }
+    }
+}
+
+/// A list row that lights up under the pointer.
+struct PickRowStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View { Row(configuration: configuration) }
+    struct Row: View {
+        let configuration: ButtonStyleConfiguration
+        @StateObject private var h = PickUI()
+        private var hot: Bool { h.open }
+        var body: some View {
+            configuration.label
+                .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(.white.opacity(configuration.isPressed ? 0.16 : hot ? 0.09 : 0)))
+                .onHover { h.open = $0 }
+        }
+    }
+}
+
+final class PickUI: ObservableObject {
+    @Published var open = false
+    @Published var query = ""
+}
+
+/// One thing a focus did, for the feedback overlay.
+struct FocusStep: Identifiable {
+    let id = UUID()
+    let icon: String
+    let tint: Color
+    let verb: String          // "Hid"
+    let all: String           // "all other apps"
+    var apps: [NSRunningApplication] = []
+    var names: [String] = []  // opened apps (not running yet, so only names)
+    func line(_ each: Bool) -> String {
+        let n = apps.compactMap(\.localizedName)
+        if each, !n.isEmpty { return "\(verb) \(n.count == 1 ? n[0] : "\(n.count) apps") for you" }
+        return "\(verb) \(all) for you"
+    }
+    var icons: [NSImage] { apps.compactMap(\.icon) + names.compactMap { Installed.icon($0) } }
+}
+
+/// A big, calm message in the middle of the screen when a focus starts: your words first,
+/// then (if you chose it) each thing it did, one by one. Click anywhere on it to close.
+enum FocusOverlay {
+    private static var panel: NSPanel?
+    static func show(title: String, icon: String, steps: [FocusStep], showApps: Bool) {
+        panel?.orderOut(nil)
+        guard let sc = NSScreen.main else { return }
+        let size = NSSize(width: 520, height: 108 + CGFloat(steps.count) * 48 + (showApps && steps.contains { !$0.icons.isEmpty } ? 34 : 0))
+        let p = NSPanel(contentRect: NSRect(x: sc.frame.midX - size.width / 2, y: sc.frame.midY - size.height / 2, width: size.width, height: size.height),
+                        styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        p.isOpaque = false; p.backgroundColor = .clear; p.hasShadow = true; p.level = .statusBar
+        p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
+        let m = OverlayModel()
+        p.contentView = NSHostingView(rootView: FocusOverlayView(title: title, icon: icon, steps: steps, showApps: showApps, m: m) { hide() })
+        p.alphaValue = 0; p.orderFrontRegardless(); panel = p
+        NSAnimationContext.runAnimationGroup { $0.duration = 0.25; p.animator().alphaValue = 1 }
+        // Steps appear one after another, then it fades away by itself.
+        for i in 0...steps.count {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35 + Double(i) * 0.45) { withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { m.shown = i } }
+        }
+        let stay = 2.6 + Double(steps.count) * 0.45 + (showApps ? 1 : 0)
+        DispatchQueue.main.asyncAfter(deadline: .now() + stay) { if panel === p { hide() } }
+    }
+    static func hide() {
+        guard let p = panel else { return }
+        panel = nil
+        NSAnimationContext.runAnimationGroup({ $0.duration = 0.35; p.animator().alphaValue = 0 }, completionHandler: { p.orderOut(nil) })
+    }
+}
+
+final class OverlayModel: ObservableObject { @Published var shown = -1 }
+
+struct FocusOverlayView: View {
+    let title: String
+    let icon: String
+    let steps: [FocusStep]
+    let showApps: Bool
+    @ObservedObject var m: OverlayModel
+    let close: () -> Void
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 14) {
+                Image(systemName: icon).font(.system(size: 26, weight: .bold)).foregroundStyle(.white)
+                    .frame(width: 56, height: 56).background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(accentGradient))
+                Text(title).font(.system(size: 30, weight: .heavy)).foregroundStyle(.white).lineLimit(2).minimumScaleFactor(0.6)
+            }
+            .opacity(m.shown >= 0 ? 1 : 0).offset(y: m.shown >= 0 ? 0 : 8)
+            ForEach(Array(steps.enumerated()), id: \.element.id) { i, st in
+                HStack(alignment: .top, spacing: 12) {
+                    Image(systemName: st.icon).font(.system(size: 15, weight: .bold)).foregroundStyle(.white)
+                        .frame(width: 34, height: 34).background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(st.tint.opacity(0.85)))
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(st.line(showApps)).font(.system(size: 16, weight: .semibold)).foregroundStyle(.white)
+                        if showApps, !st.icons.isEmpty {
+                            HStack(spacing: 4) {
+                                ForEach(Array(st.icons.prefix(12).enumerated()), id: \.offset) { _, img in Image(nsImage: img).resizable().frame(width: 26, height: 26) }
+                                if st.icons.count > 12 { Text("+\(st.icons.count - 12)").font(.system(size: 12, weight: .bold)).foregroundStyle(.secondary) }
+                            }
+                        }
+                    }
+                    Spacer()
+                    Image(systemName: "checkmark.circle.fill").font(.system(size: 18)).foregroundStyle(.green)
+                }
+                .opacity(m.shown > i ? 1 : 0).offset(x: m.shown > i ? 0 : -14)
+            }
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(RoundedRectangle(cornerRadius: 26, style: .continuous).fill(Color(white: 0.04).opacity(0.97))
+            .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).strokeBorder(accent.opacity(0.6), lineWidth: 1.5)))
+        .contentShape(Rectangle())
+        .onTapGesture(perform: close)
+        .preferredColorScheme(.dark)
     }
 }

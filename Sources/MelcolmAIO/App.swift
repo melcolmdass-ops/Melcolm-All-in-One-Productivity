@@ -85,6 +85,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if let text { i.peek(.init(text: text, icon: "macwindow.and.arrow.down"), for: 0) } else { i.endPeek() }
         }
         OptionDrag.shared.start()
+        // For testing: `-debugFocusOverlay YES` shows the focus feedback with what's running now.
+        if UserDefaults.standard.bool(forKey: "debugFocusOverlay") {
+            let apps = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }.prefix(6)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                FocusOverlay.show(title: "Focus. Let's go, Melcolm.", icon: "brain.head.profile", steps: [
+                    .init(icon: "eye.slash.fill", tint: .orange, verb: "Hid", all: "all other apps", apps: Array(apps)),
+                    .init(icon: "cup.and.saucer.fill", tint: .yellow, verb: "Keeping", all: "the screen awake"),
+                    .init(icon: "timer", tint: .cyan, verb: "Started", all: "a 50 min timer")], showApps: true)
+            }
+        }
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
             self?.rebuildIslands()
         }

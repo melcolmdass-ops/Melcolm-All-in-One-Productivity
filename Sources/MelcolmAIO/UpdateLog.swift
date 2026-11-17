@@ -24,6 +24,21 @@ enum UpdateLog {
 
     /// Newest first.
     static let all: [AppUpdate] = [
+        AppUpdate(version: "2.34", date: "November 16th, 2026", title: "Focus feedback",
+                  improvements: [],
+                  fixes: [],
+                  features: [
+                      "A focus can show feedback when it starts: your own message in the middle of the screen, or your message plus each thing it did, ticking in one by one (\"Hid all other apps for you\", \"Keeping the screen awake\").",
+                      "Choose \"all apps\" wording or show each app it hid, minimized or quit, with their icons.",
+                  ],
+                  icons: ["text.bubble.fill", "list.bullet.rectangle.fill", "checkmark.circle.fill"], tint: purple),
+        AppUpdate(version: "2.33", date: "November 16th, 2026", title: "Search with icons in focus pick lists",
+                  improvements: [
+                      "Adding apps or Shortcuts to a focus opens a list with a search box and each app's own icon. It stays open so you can add several.",
+                      "Every chip shows its app icon; Shortcuts get a Shortcuts-style icon.",
+                  ],
+                  fixes: [], features: [],
+                  icons: ["magnifyingglass", "square.grid.2x2.fill"], tint: purple),
         AppUpdate(version: "2.32", date: "November 16th, 2026", title: "Pick apps and Shortcuts from a list",
                   improvements: [
                       "Quit apps, Open apps and Run Shortcuts in a focus mode are now pick lists: choose from every app on your Mac or every Shortcut you have. Each one you add shows as its own outlined chip with its icon, and an ✕ to remove it.",
