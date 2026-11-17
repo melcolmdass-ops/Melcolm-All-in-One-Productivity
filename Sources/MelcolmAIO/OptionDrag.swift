@@ -106,7 +106,8 @@ final class OptionDrag: ObservableObject {
             showBadge(e.flags.contains(modifier), at: e.location)
             let target: (frame: NSRect, screen: CGDirectDisplayID, uuid: String?, model: SpacesModel)? = nil
             lastHit = nil; DispatchQueue.main.async { self.overBar = nil }
-            let zone = lastZone; lastZone = nil
+            // The spot under the pointer right now wins; the last one seen while dragging is the fallback.
+            let zone = zoneRect(at: e.location) ?? lastZone; lastZone = nil
             DispatchQueue.main.async { self.dropRing(into: zone?.rect); self.showZone(nil) }
             // Into the bar, or onto the top-middle "New Space" spot: always the LAST Space on that display.
             // (Inserting between apps would make macOS re-enter every app after it, one by one.)
@@ -133,12 +134,8 @@ final class OptionDrag: ObservableObject {
             } else if target == nil, let win, let snap = zone {
                 let zone = snap.rect
                 // Snapped to a zone: the copy glides into the spot while the window takes it.
-                mover.async {
-                    var o = zone.origin, sz = zone.size
-                    if let v = AXValueCreate(.cgPoint, &o) { AXUIElementSetAttributeValue(win, kAXPositionAttribute as CFString, v) }
-                    if let v = AXValueCreate(.cgSize, &sz) { AXUIElementSetAttributeValue(win, kAXSizeAttribute as CFString, v) }
-                    if let v = AXValueCreate(.cgPoint, &o) { AXUIElementSetAttributeValue(win, kAXPositionAttribute as CFString, v) }
-                }
+                let app = AXUIElementCreateApplication(pid)
+                mover.async { Self.setFrame(win, app: app, to: zone) }
                 DispatchQueue.main.async { self.flyGhost(to: zone) }
             } else if target == nil, win != nil {
                 pending = lastOrigin; pump()
@@ -150,6 +147,37 @@ final class OptionDrag: ObservableObject {
         default: break
         }
         return Unmanaged.passUnretained(e)
+    }
+
+    /// Puts a window exactly in a snap spot: moves AND resizes it. Chrome, Electron apps and others
+    /// turn on "enhanced user interface", which makes them ignore or undo size changes, so it's
+    /// switched off for the move and back on after. Checks the result and tries again if the app pushed back.
+    static func setFrame(_ win: AXUIElement, app: AXUIElement, to r: CGRect) {
+        AXUIElementSetMessagingTimeout(win, 1)
+        var enh: CFTypeRef?
+        let hadEnh = AXUIElementCopyAttributeValue(app, "AXEnhancedUserInterface" as CFString, &enh) == .success && (enh as? Bool) == true
+        if hadEnh { AXUIElementSetAttributeValue(app, "AXEnhancedUserInterface" as CFString, kCFBooleanFalse) }
+        func apply() {
+            var o = r.origin, sz = r.size
+            if let v = AXValueCreate(.cgPoint, &o) { AXUIElementSetAttributeValue(win, kAXPositionAttribute as CFString, v) }
+            if let v = AXValueCreate(.cgSize, &sz) { AXUIElementSetAttributeValue(win, kAXSizeAttribute as CFString, v) }
+            if let v = AXValueCreate(.cgPoint, &o) { AXUIElementSetAttributeValue(win, kAXPositionAttribute as CFString, v) }
+        }
+        func current() -> CGRect? {
+            var pv: CFTypeRef?, sv: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(win, kAXPositionAttribute as CFString, &pv) == .success,
+                  AXUIElementCopyAttributeValue(win, kAXSizeAttribute as CFString, &sv) == .success else { return nil }
+            var p = CGPoint.zero, s = CGSize.zero
+            AXValueGetValue(pv as! AXValue, .cgPoint, &p); AXValueGetValue(sv as! AXValue, .cgSize, &s)
+            return CGRect(origin: p, size: s)
+        }
+        for _ in 0..<4 {
+            apply()
+            Thread.sleep(forTimeInterval: 0.08)
+            guard let c = current() else { break }
+            if abs(c.minX - r.minX) < 4, abs(c.minY - r.minY) < 4, abs(c.width - r.width) < 4, abs(c.height - r.height) < 4 { break }
+        }
+        if hadEnh { AXUIElementSetAttributeValue(app, "AXEnhancedUserInterface" as CFString, kCFBooleanTrue) }
     }
 
     // MARK: fast window moves

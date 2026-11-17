@@ -132,7 +132,7 @@ struct TopBar: View {
                 .help("Open Melcolm (⌃⌥Space)")
                 }
                 .frame(height: max(20, state.barHeight - 4))
-                .background { NeonBox(color: BarColor.statusBox.color).flash(.statusBox) }
+                .background { BarBox(color: BarColor.statusBox.color).flash(.statusBox) }
             }
             .padding(state.notchWidth > 0 ? .leading : .trailing, state.notchWidth > 0 ? 18 : 10)
             .frame(maxWidth: .infinity, alignment: state.notchWidth > 0 ? .leading : .trailing)
@@ -186,7 +186,7 @@ struct SpacesStrip: View {
                 .frame(width: Layout.groupWidth(g, icon: icon, m: spaces), height: h, alignment: .leading)
                 .background(alignment: .leading) {
                     // The box stretches or shrinks with the apps sliding inside it while you drag.
-                    NeonBox(color: BarColor.displayBox.color, strength: drag.target == .desktop(g.id) ? 2.2 : drag.target.map { Self.display(of: $0) == g.id } == true ? 1.2 : 0.7)
+                    BarBox(color: BarColor.displayBox.color, strength: drag.target == .desktop(g.id) ? 2.2 : drag.target.map { Self.display(of: $0) == g.id } == true ? 1.2 : 0.7)
                         .frame(width: Layout.groupWidth(g, icon: icon, m: spaces) + drag.grow(g))
                         .flash(.displayBox)
                 }
@@ -395,7 +395,7 @@ struct SettingsTab: View {
                     }
                 }
             }
-            Text("Melcolm All-in-One Productivity · v2.26").font(.system(size: 10)).foregroundStyle(.tertiary)
+            Text("Melcolm All-in-One Productivity · v2.28").font(.system(size: 10)).foregroundStyle(.tertiary)
         }
         .font(.system(size: 12))
         .toggleStyle(.switch).controlSize(.small)

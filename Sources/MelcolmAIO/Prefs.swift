@@ -17,6 +17,7 @@ enum Prefs {
         "batteryHidden": "",        // song / output / timer pop-ups under the bar
         // Spaces
         "indicatorStyle": "glow",      // glow / box
+        "boxStyle": "soft",            // bar boxes: outlined / soft (faint fill) / minimal (nothing)
         "showNumbers": true,
         "showAppIcons": true,
         "optionDrag": true,            // hold a key and drag any window from anywhere; drop on the bar = own Space

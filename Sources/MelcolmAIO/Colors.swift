@@ -50,11 +50,21 @@ extension Color {
 
 struct ColorsPage: View {
     @AppStorage("colRev") var rev = 0       // views that draw the bar watch this, so a change shows at once
+    @AppStorage("boxStyle") var boxStyle = "soft"
     static let swatches = ["FFFFFF", "66A0FF", "40E0FF", "5CE08A", "FFD84D", "FF9F40", "FF5A6A", "C77DFF", "FF7ACB"]
 
     var body: some View {
         let _ = rev
         VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Box style").font(.system(size: 12.5, weight: .medium))
+                Picker("", selection: $boxStyle) {
+                    Text("Outlined").tag("outlined"); Text("Soft").tag("soft"); Text("Minimal").tag("minimal")
+                }.pickerStyle(.segmented).labelsHidden()
+                Text(boxStyle == "outlined" ? "A glowing outline around each box." : boxStyle == "soft" ? "A faint fill, no outline. Calm, still grouped." : "No boxes. Spacing and thin dividers keep things apart.")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+            }.padding(.vertical, 6)
+            Divider().opacity(0.3)
             ForEach(BarColor.shown, id: \.self) { c in
                 let cur = Prefs.d.string(forKey: c.rawValue) ?? ""
                 VStack(alignment: .leading, spacing: 6) {
@@ -177,6 +187,23 @@ extension View {
     func neon(_ c: Color, _ strength: CGFloat = 1) -> some View {
         self.shadow(color: c.opacity(min(1, 0.95 * strength)), radius: 1.2 * strength)
             .shadow(color: c.opacity(min(1, 0.6 * strength)), radius: 6 * strength)
+    }
+}
+
+/// A box on the bar, drawn in the chosen Box style: Outlined (neon edge), Soft (faint fill, no edge)
+/// or Minimal (nothing; spacing and the small dividers do the grouping). A drop/drag target still glows.
+struct BarBox: View {
+    let color: Color
+    var strength: CGFloat = 1
+    @AppStorage("boxStyle") var style = "soft"
+    var body: some View {
+        let r = RoundedRectangle(cornerRadius: 9, style: .continuous)
+        let hot = strength > 1   // something is being dragged onto it: always show it
+        switch hot ? "outlined" : style {
+        case "outlined": NeonBox(color: color, strength: strength)
+        case "minimal": Color.clear
+        default: r.fill(Color.white.opacity(0.07)).overlay(r.fill(color.opacity(0.05)))
+        }
     }
 }
 

@@ -24,6 +24,23 @@ enum UpdateLog {
 
     /// Newest first.
     static let all: [AppUpdate] = [
+        AppUpdate(version: "2.28", date: "November 16th, 2026", title: "Snap spots really resize",
+                  improvements: [],
+                  fixes: [
+                      "Dropping a window on a snap spot now makes it that size (left half is really half the screen, left third is a third), not just moves it there. Chrome and similar apps used to ignore the resize.",
+                      "The spot under the pointer when you let go is the one used, even if you let go quickly.",
+                  ],
+                  features: [],
+                  icons: ["rectangle.lefthalf.filled", "rectangle.split.3x1"], tint: blue),
+        AppUpdate(version: "2.27", date: "November 16th, 2026", title: "Box style: Outlined, Soft or Minimal",
+                  improvements: [
+                      "The bar is calmer by default: display boxes and the Play / Open box use a faint fill instead of a glowing outline (Soft).",
+                  ],
+                  fixes: [],
+                  features: [
+                      "New Box style on the Colours page: Outlined (the old look), Soft, or Minimal (no boxes at all). A box still lights up while you drag something onto it.",
+                  ],
+                  icons: ["square.dashed", "square.fill", "square"], tint: purple),
         AppUpdate(version: "2.26", date: "November 16th, 2026", title: "One colour for all box outlines",
                   improvements: [
                       "Colours is simpler: the display boxes, the notch and the Play / Open box are all outlines, so one row, Box outlines, colours all of them.",
