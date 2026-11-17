@@ -34,6 +34,7 @@ struct SettingsVisual: View {
         case .mouse: "Scrolling, hovering and clicking on the island."
         case .hover: "The strip that drops down when you rest on the island."
         case .panel: "Which pages are on Home, their order, and which show in Quick View."
+        case .focus: "Your focus modes and how a focus starts and ends."
         case .colors: "Pick the colours of the closed bar: outlines, boxes and highlights."
         case .utility: "Quick buttons at the bottom of Home; each opens its page as a pop-up."
         case .rules: "Things the app always does, everywhere. You can't switch these off."
@@ -131,6 +132,13 @@ struct SettingsVisual: View {
                 ForEach(["1", "2", "3"], id: \.self) { n in
                     Text(n).font(.system(size: 13, weight: .heavy, design: .rounded)).foregroundStyle(accent)
                         .frame(width: 30, height: 30).background(NeonBox(color: accent, radius: 8, strength: 0.6))
+                }
+            }
+        case .focus:
+            HStack(spacing: 10) {
+                ForEach(["brain.head.profile", "moon.fill", "book.fill"], id: \.self) { i in
+                    Image(systemName: i).font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
+                        .frame(width: 32, height: 32).background(RoundedRectangle(cornerRadius: 9).fill(i == "brain.head.profile" ? accent : Color(white: 0.2)))
                 }
             }
         case .colors:

@@ -313,10 +313,10 @@ struct Card<Content: View>: View {
 }
 
 struct SettingsTab: View {
-    enum Page: String, CaseIterable { case general = "General", commands = "Commands", bar = "Bar", display = "Display on bar", spaces = "Spaces", dragging = "Dragging", mouse = "Mouse", hover = "Hover bar", panel = "Pages", utility = "Utility Bar", colors = "Colors", rules = "Master Rules", updates = "Update Log" }
+    enum Page: String, CaseIterable { case general = "General", commands = "Commands", bar = "Bar", display = "Display on bar", spaces = "Spaces", dragging = "Dragging", mouse = "Mouse", hover = "Hover bar", panel = "Pages", utility = "Utility Bar", focus = "Focus", colors = "Colors", rules = "Master Rules", updates = "Update Log" }
     /// Top tabs, each with its own sub-tabs.
     static let groups: [(name: String, tabs: [Page])] = [
-        ("General", [.general, .commands]), ("Main Bar", [.bar, .panel, .display, .spaces, .mouse, .hover]), ("Dragging", [.dragging]), ("Utility Bar", [.utility]), ("Colors", [.colors]),
+        ("General", [.general, .commands]), ("Main Bar", [.bar, .panel, .display, .spaces, .mouse, .hover]), ("Dragging", [.dragging]), ("Utility Bar", [.utility]), ("Focus", [.focus]), ("Colors", [.colors]),
         ("Master Rules", [.rules]), ("Update Log", [.updates]),
     ]
     @AppStorage("settingsPage") var page = Page.general.rawValue
@@ -348,8 +348,10 @@ struct SettingsTab: View {
         VStack(spacing: 10) {
             let cur = Page(rawValue: page) ?? .general
             let group = Self.groups.first { $0.tabs.contains(cur) } ?? Self.groups[0]
+            // Two rows: the everyday tabs on top, then Colors, Master Rules and Update Log.
+            VStack(spacing: 4) { ForEach([Array(Self.groups.prefix(5)), Array(Self.groups.dropFirst(5))], id: \.first!.name) { row in
             HStack(spacing: 3) {
-                ForEach(Self.groups, id: \.name) { g in
+                ForEach(row, id: \.name) { g in
                     let on = g.name == group.name
                     Button { page = g.tabs[0].rawValue } label: {
                         // Always fits the panel: tabs shrink a little instead of running off the edges.
@@ -362,6 +364,7 @@ struct SettingsTab: View {
                 }
             }
             .frame(maxWidth: .infinity)
+            } }
             if group.tabs.count > 1 {
                 HStack(spacing: 14) {
                     ForEach(group.tabs, id: \.self) { t in
@@ -389,13 +392,14 @@ struct SettingsTab: View {
                     case .hover: hoverPage
                     case .commands: commandsPage
                     case .utility: utilityPage
+                    case .focus: FocusSettings()
                     case .colors: ColorsPage()
                     case .rules: MasterRulesPage()
                     case .updates: UpdateLogPage()
                     }
                 }
             }
-            Text("Melcolm All-in-One Productivity · v2.29").font(.system(size: 10)).foregroundStyle(.tertiary)
+            Text("Melcolm All-in-One Productivity · v2.31").font(.system(size: 10)).foregroundStyle(.tertiary)
         }
         .font(.system(size: 12))
         .toggleStyle(.switch).controlSize(.small)

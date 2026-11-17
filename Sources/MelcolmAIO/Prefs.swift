@@ -17,7 +17,10 @@ enum Prefs {
         "batteryHidden": "",        // song / output / timer pop-ups under the bar
         // Spaces
         "indicatorStyle": "glow",      // glow / box
-        "boxStyle": "soft",            // bar boxes: outlined / soft (faint fill) / minimal (nothing)
+        "boxStyle": "soft",
+        "focusEndWithTimer": true,     // a focus with a timer ends by itself when the timer is done
+        "focusStopClock": true,        // stopping a focus stops its stopwatch
+        "focusShowApps": true,         // stopping a focus shows the apps it hid            // bar boxes: outlined / soft (faint fill) / minimal (nothing)
         "showNumbers": true,
         "showAppIcons": true,
         "optionDrag": true,            // hold a key and drag any window from anywhere; drop on the bar = own Space

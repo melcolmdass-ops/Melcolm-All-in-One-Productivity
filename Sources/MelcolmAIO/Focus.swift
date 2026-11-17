@@ -16,6 +16,8 @@ struct FocusMode: Codable, Identifiable, Equatable {
     var dark = 0                 // 0 leave, 1 dark, 2 light
     var mute = false
     var timer = 0                // minutes, 0 = none
+    var clock: String? = nil     // "stopwatch" = count up instead of a timer (optional so old saves still load)
+    var useStopwatch: Bool { get { clock == "stopwatch" } set { clock = newValue ? "stopwatch" : nil } }
     var shortcut = ""            // a Shortcuts shortcut to run (e.g. one that turns on Do Not Disturb)
 
     static let icons = ["moon.fill", "brain.head.profile", "book.fill", "pencil", "video.fill", "briefcase.fill", "figure.run", "headphones"]
@@ -28,9 +30,8 @@ struct FocusMode: Codable, Identifiable, Equatable {
         if !openApps.isEmpty { p.append("open \(openApps)") }
         if arrange { p.append("arrange") }
         if keepAwake { p.append("keep awake") }
-        if dark == 1 { p.append("dark") } else if dark == 2 { p.append("light") }
         if mute { p.append("mute") }
-        if timer > 0 { p.append("\(timer) min timer") }
+        if useStopwatch { p.append("stopwatch") } else if timer > 0 { p.append("\(timer) min timer") }
         if !shortcut.isEmpty { p.append("run “\(shortcut)”") }
         return p.isEmpty ? "Does nothing yet. Click the pencil to choose." : p.joined(separator: " · ")
     }
@@ -82,9 +83,8 @@ final class FocusModel: ObservableObject {
         if !names(m.openApps).isEmpty { openedOutside() }
         if m.arrange { DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { _ = Tiler.autoArrange() } }
         if m.keepAwake && !app.system.awake { app.system.toggleAwake() }
-        if (m.dark == 1 && !app.system.dark) || (m.dark == 2 && app.system.dark) { app.system.toggleDark() }
         if m.mute && !app.sound.muted { app.sound.toggleMute() }
-        if m.timer > 0 { app.timer.start(minutes: Double(m.timer)) }
+        if m.useStopwatch { app.timer.startStopwatch() } else if m.timer > 0 { app.timer.start(minutes: Double(m.timer)) }
         if !m.shortcut.isEmpty {
             let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/bin/shortcuts"); p.arguments = ["run", m.shortcut]; try? p.run()
         }
@@ -95,7 +95,8 @@ final class FocusModel: ObservableObject {
         guard let app = NSApp.delegate as? AppDelegate, let m = modes.first(where: { $0.id == active }) else { active = nil; return }
         if m.keepAwake && app.system.awake { app.system.toggleAwake() }
         if m.mute && app.sound.muted { app.sound.toggleMute() }
-        if m.hideApps && !m.minimize { for a in NSWorkspace.shared.runningApplications where a.isHidden { a.unhide() } }
+        if m.useStopwatch, Prefs.bool("focusStopClock") { app.timer.pause() }
+        if Prefs.bool("focusShowApps"), m.hideApps && !m.minimize { for a in NSWorkspace.shared.runningApplications where a.isHidden { a.unhide() } }
         active = nil
     }
 
@@ -157,44 +158,88 @@ struct FocusPage: View {
     }
 }
 
-/// Every setting of one focus mode, as simple switches and boxes.
+/// Every setting of one focus mode: big, clear rows, each with its own picture.
 struct FocusEditor: View {
     @Binding var mode: FocusMode
     @EnvironmentObject var focus: FocusModel
 
     var body: some View {
         Card {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 12) {
                 HStack {
-                    TextField("Name", text: $mode.name).textFieldStyle(.roundedBorder)
+                    TextField("Name", text: $mode.name).textFieldStyle(.roundedBorder).font(.system(size: 14, weight: .semibold))
                     Button { focus.remove(mode.id) } label: { Image(systemName: "trash").foregroundStyle(.red) }
                         .buttonStyle(.plain).help("Delete this focus mode")
                 }
-                HStack(spacing: 6) {
+                section("Icon for this focus mode")
+                HStack(spacing: 8) {
                     ForEach(FocusMode.icons, id: \.self) { i in
                         Button { mode.icon = i } label: {
-                            Image(systemName: i).font(.system(size: 11)).frame(width: 24, height: 24)
-                                .background(Circle().fill(mode.icon == i ? AnyShapeStyle(accent) : AnyShapeStyle(.white.opacity(0.08))))
-                        }.buttonStyle(.plain)
+                            Image(systemName: i).font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
+                                .frame(width: 36, height: 36)
+                                .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(mode.icon == i ? AnyShapeStyle(accent) : AnyShapeStyle(.white.opacity(0.08))))
+                        }.buttonStyle(PressStyle())
                     }
                 }
-                Toggle("Hide other apps", isOn: $mode.hideApps)
-                Toggle("Minimize all windows", isOn: $mode.minimize)
-                Toggle("Auto-arrange windows", isOn: $mode.arrange)
-                Toggle("Keep the screen awake", isOn: $mode.keepAwake)
-                Toggle("Mute sound", isOn: $mode.mute)
-                Picker("Look", selection: $mode.dark) {
-                    Text("Leave").tag(0); Text("Dark").tag(1); Text("Light").tag(2)
-                }.pickerStyle(.segmented)
-                Picker("Timer", selection: $mode.timer) {
-                    Text("None").tag(0); Text("25 min").tag(25); Text("50 min").tag(50); Text("90 min").tag(90)
-                }.pickerStyle(.segmented)
+                section("When it starts")
+                option("eye.slash.fill", .orange, "Hide other apps", "Only what you need stays on screen", $mode.hideApps)
+                option("rectangle.compress.vertical", .purple, "Minimize all windows", "Sends every window to the Dock", $mode.minimize)
+                option("rectangle.split.2x2.fill", .blue, "Auto-arrange windows", "Lines up what's left side by side", $mode.arrange)
+                option("cup.and.saucer.fill", .yellow, "Keep the screen awake", "Your Mac won't sleep", $mode.keepAwake)
+                option("speaker.slash.fill", .pink, "Mute sound", "Silence until the focus ends", $mode.mute)
+                section("Clock")
+                HStack(spacing: 8) {
+                    clockChoice("None", "xmark", !mode.useStopwatch && mode.timer == 0) { mode.useStopwatch = false; mode.timer = 0 }
+                    clockChoice("Timer", "timer", !mode.useStopwatch && mode.timer > 0) { mode.useStopwatch = false; if mode.timer == 0 { mode.timer = 25 } }
+                    clockChoice("Stopwatch", "stopwatch", mode.useStopwatch) { mode.useStopwatch = true }
+                }
+                if !mode.useStopwatch && mode.timer > 0 {
+                    Picker("", selection: $mode.timer) {
+                        Text("25 min").tag(25); Text("50 min").tag(50); Text("90 min").tag(90)
+                    }.pickerStyle(.segmented).labelsHidden()
+                }
+                section("More")
                 field("Quit apps", "e.g. Messages, Mail", $mode.quitApps)
                 field("Open", "apps or links, e.g. Notes, youtube.com", $mode.openApps)
                 field("Run Shortcut", "name of a Shortcut, e.g. Do Not Disturb on", $mode.shortcut)
             }
-            .font(.system(size: 12)).toggleStyle(.switch).controlSize(.small).tint(accent)
+            .font(.system(size: 12)).toggleStyle(.switch).controlSize(.regular).tint(accent)
         }
+    }
+
+    func section(_ t: String) -> some View {
+        Text(t.uppercased()).font(.system(size: 10, weight: .heavy)).foregroundStyle(.secondary).padding(.top, 2)
+    }
+
+    /// One big switch row: a coloured picture, a title, one line on what it does.
+    func option(_ icon: String, _ c: Color, _ title: String, _ text: String, _ on: Binding<Bool>) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon).font(.system(size: 16, weight: .semibold)).foregroundStyle(.white)
+                .frame(width: 38, height: 38)
+                .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(c.opacity(on.wrappedValue ? 0.9 : 0.25)))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.system(size: 13.5, weight: .semibold))
+                Text(text).font(.system(size: 11)).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Toggle("", isOn: on).labelsHidden()
+        }
+        .padding(8)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(.white.opacity(on.wrappedValue ? 0.07 : 0.03)))
+        .contentShape(Rectangle())
+        .onTapGesture { on.wrappedValue.toggle() }
+    }
+
+    func clockChoice(_ title: String, _ icon: String, _ on: Bool, _ pick: @escaping () -> Void) -> some View {
+        Button(action: pick) {
+            VStack(spacing: 6) {
+                Image(systemName: icon).font(.system(size: 18, weight: .semibold))
+                Text(title).font(.system(size: 12, weight: .semibold))
+            }
+            .foregroundStyle(.white).frame(maxWidth: .infinity, minHeight: 64)
+            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(on ? AnyShapeStyle(accent) : AnyShapeStyle(.white.opacity(0.07))))
+            .contentShape(Rectangle())
+        }.buttonStyle(PressStyle())
     }
 
     func field(_ title: String, _ hint: String, _ text: Binding<String>) -> some View {
@@ -202,5 +247,28 @@ struct FocusEditor: View {
             Text(title).font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
             TextField(hint, text: text).textFieldStyle(.roundedBorder)
         }
+    }
+}
+
+/// Settings ▸ Focus: how every focus starts and ends, plus the focus modes themselves.
+struct FocusSettings: View {
+    @AppStorage("focusEndWithTimer") var endWithTimer = true
+    @AppStorage("focusShowApps") var showApps = true
+    @AppStorage("focusStopClock") var stopClock = true
+    @AppStorage("popFocus") var popFocus = true
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("When a focus ends").font(.system(size: 12.5, weight: .semibold))
+            Toggle("End the focus when its timer is done", isOn: $endWithTimer)
+            Toggle("Stop the stopwatch when the focus ends", isOn: $stopClock)
+            Toggle("Show the apps it hid", isOn: $showApps)
+            Toggle("Pop-up under the bar when a focus starts or stops", isOn: $popFocus)
+            Divider().opacity(0.3).padding(.vertical, 4)
+            Text("Focus modes").font(.system(size: 12.5, weight: .semibold))
+            Text("Click the pencil to change what a mode does.").font(.system(size: 11)).foregroundStyle(.secondary)
+            FocusPage()
+        }
+        .toggleStyle(.switch).controlSize(.small).tint(accent)
     }
 }

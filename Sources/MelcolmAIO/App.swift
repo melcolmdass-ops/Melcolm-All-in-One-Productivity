@@ -109,6 +109,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             islands.forEach { $0.peek(.init(text: "Sound now on \(name)", icon: name.localizedCaseInsensitiveContains("airpods") ? "airpodspro" : "speaker.wave.2.fill")) }
         }
         timer.onFinish = { [weak self] in
+            // A focus with a timer ends by itself when the time is up.
+            if let self, Prefs.bool("focusEndWithTimer"), let id = focus.active, (focus.modes.first { $0.id == id }?.timer ?? 0) > 0 { focus.stop() }
             guard Prefs.bool("liveActivities"), Prefs.bool("popTimer") else { return }
             self?.islands.forEach { $0.peek(.init(text: "Timer done", icon: "bell.fill")) }
         }

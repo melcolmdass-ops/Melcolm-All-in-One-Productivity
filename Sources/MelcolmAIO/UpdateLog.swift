@@ -24,6 +24,26 @@ enum UpdateLog {
 
     /// Newest first.
     static let all: [AppUpdate] = [
+        AppUpdate(version: "2.31", date: "November 16th, 2026", title: "Cleaner focus modes, timer or stopwatch",
+                  improvements: [
+                      "Editing a focus mode is bigger and clearer: every option has its own picture and one line saying what it does.",
+                      "Pick the icon for each focus mode from large buttons.",
+                      "Removed the Dark / Light choice from focus modes to keep them simple.",
+                  ],
+                  fixes: [],
+                  features: [
+                      "A focus can run a Timer or a Stopwatch (or neither).",
+                  ],
+                  icons: ["stopwatch", "timer", "brain.head.profile"], tint: purple),
+        AppUpdate(version: "2.30", date: "November 16th, 2026", title: "Focus in Settings, tabs on two rows",
+                  improvements: [
+                      "Settings tabs sit on two rows: General, Main Bar, Dragging, Utility Bar and Focus on top; Colors, Master Rules and Update Log below.",
+                  ],
+                  fixes: [],
+                  features: [
+                      "New Focus tab in Settings: edit your focus modes and choose how a focus ends (when its timer is done, show hidden apps, pop-up on/off).",
+                  ],
+                  icons: ["brain.head.profile", "gearshape.fill"], tint: purple),
         AppUpdate(version: "2.29", date: "November 16th, 2026", title: "Brighter drag circle",
                   improvements: [
                       "The circle around the pointer while you drag is bigger and brighter, with a dashed outer ring like the snap spots and a dark edge so it shows on white pages too.",
