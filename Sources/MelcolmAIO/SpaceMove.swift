@@ -75,13 +75,25 @@ final class SpaceDragModel: ObservableObject {
         let k0 = m.displays.first.map { "box-\($0.id)" } ?? ""
         let p = CGPoint(x: p.x - ((f(k0)?.minX ?? 0) - (h(k0)?.minX ?? 0)), y: p.y)
         var t: SpaceDrop?
+        // Every display's box is a target on any bar. The number is the "display" spot; the rest of the box,
+        // and a little room past its right edge (a display with no full-screen apps has almost no box
+        // beyond its number), is the "space" spot. The closest box wins where they overlap.
+        var best: (g: DisplayGroup, d: CGFloat)?
         for g in m.displays {
-            guard let box = h("box-\(g.id)"), p.x >= box.minX - 6, p.x <= box.maxX + 6,
-                  p.y >= box.minY - 40, p.y <= box.maxY + 40 else { continue }
-            if let n = h("num-\(g.id)"), p.x <= n.maxX + 2 { t = .desktop(g.id); break }
-            let others = Layout.fullscreens(g).filter { $0.id != dragging }
-            let k = others.filter { s in (h("app-\(s.id)")?.midX ?? .infinity) < p.x }.count
-            t = .slot(g.id, k); break
+            guard let box = h("box-\(g.id)"), p.y >= box.minY - 40, p.y <= box.maxY + 40 else { continue }
+            let right = box.maxX + (Layout.fullscreens(g).filter { $0.id != dragging }.isEmpty ? 22 : 10)
+            guard p.x >= box.minX - 6, p.x <= right else { continue }
+            let d = abs(p.x - box.midX)
+            if best == nil || d < best!.d { best = (g, d) }
+        }
+        if let g = best?.g, let box = h("box-\(g.id)") {
+            // Only the number itself (not the box around it) means "leave full screen onto this desktop".
+            if let n = h("num-\(g.id)"), p.x >= box.minX - 6, p.x <= n.maxX + 1 { t = .desktop(g.id) }
+            else {
+                let others = Layout.fullscreens(g).filter { $0.id != dragging }
+                let k = others.filter { s in (h("app-\(s.id)")?.midX ?? .infinity) < p.x }.count
+                t = .slot(g.id, k)
+            }
         }
         if t != target { withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) { target = t }; hint(t, m) }
     }
