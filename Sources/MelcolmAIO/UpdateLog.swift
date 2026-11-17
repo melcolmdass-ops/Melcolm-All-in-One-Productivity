@@ -24,6 +24,19 @@ enum UpdateLog {
 
     /// Newest first.
     static let all: [AppUpdate] = [
+        AppUpdate(version: "2.35", date: "November 16th, 2026", title: "Focus flows",
+                  improvements: [
+                      "Focus modes are now focus flows: press Run and it does its steps once, like a shortcut. No more Start and Stop.",
+                      "Every step sits in its own box with a drag handle. Drag to choose the order; the flow runs in exactly that order (hide first, then minimize, and so on).",
+                      "Removed Auto-arrange windows from focus.",
+                  ],
+                  fixes: [
+                      "With Hide other apps and Minimize all windows both on, apps now get hidden, not just minimized.",
+                  ],
+                  features: [
+                      "When a flow finishes, a short \"… flow completed\" pop-up shows at the bottom middle of the screen (switch it off in Settings ▸ Focus).",
+                  ],
+                  icons: ["line.3.horizontal", "checkmark.circle.fill", "brain.head.profile"], tint: purple),
         AppUpdate(version: "2.34", date: "November 16th, 2026", title: "Focus feedback",
                   improvements: [],
                   fixes: [],

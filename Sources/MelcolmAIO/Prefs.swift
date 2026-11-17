@@ -18,7 +18,7 @@ enum Prefs {
         // Spaces
         "indicatorStyle": "glow",      // glow / box
         "boxStyle": "soft",
-        "focusEndWithTimer": true,     // a focus with a timer ends by itself when the timer is done
+        "focusDonePopup": true,        // "… flow completed" pop-up when a focus flow finishes
         "focusStopClock": true,        // stopping a focus stops its stopwatch
         "focusShowApps": true,         // stopping a focus shows the apps it hid            // bar boxes: outlined / soft (faint fill) / minimal (nothing)
         "showNumbers": true,

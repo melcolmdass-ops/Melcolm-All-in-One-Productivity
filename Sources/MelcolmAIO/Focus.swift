@@ -21,6 +21,10 @@ struct FocusMode: Codable, Identifiable, Equatable {
     var feedback: String? = nil       // nil = off, "message" = your message, "steps" = your message + what it did
     var feedbackText: String? = nil   // your message, e.g. "Focus"
     var feedbackApps: Bool? = nil     // list the apps (with icons) under each step, not just "all apps"
+    var order: [String]? = nil       // the order the steps run in (drag to change)
+    static let allSteps = ["quit", "hide", "minimize", "open", "awake", "mute", "clock", "shortcuts", "feedback"]
+    /// Steps in run order (any step added in a later version goes on the end).
+    var steps: [String] { let o = (order ?? []).filter { Self.allSteps.contains($0) }; return o + Self.allSteps.filter { !o.contains($0) } }
     var useStopwatch: Bool { get { clock == "stopwatch" } set { clock = newValue ? "stopwatch" : nil } }
     var shortcut = ""            // a Shortcuts shortcut to run (e.g. one that turns on Do Not Disturb)
 
@@ -32,7 +36,6 @@ struct FocusMode: Codable, Identifiable, Equatable {
         if minimize { p.append("minimize all") } else if hideApps { p.append("hide apps") }
         if !quitApps.isEmpty { p.append("quit \(quitApps)") }
         if !openApps.isEmpty { p.append("open \(openApps)") }
-        if arrange { p.append("arrange") }
         if keepAwake { p.append("keep awake") }
         if mute { p.append("mute") }
         if useStopwatch { p.append("stopwatch") } else if timer > 0 { p.append("\(timer) min timer") }
@@ -63,53 +66,73 @@ final class FocusModel: ObservableObject {
                 set: { n in if let i = self.modes.firstIndex(where: { $0.id == id }) { self.modes[i] = n } })
     }
 
+    /// Runs a focus flow once, step by step in your order, like a shortcut. Then says it's done.
     func start(_ m: FocusMode) {
-        guard let app = NSApp.delegate as? AppDelegate else { return }
+        guard let app = NSApp.delegate as? AppDelegate, active == nil else { return }
         active = m.id
         let me = ProcessInfo.processInfo.processIdentifier
         let names = { (s: String) in s.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty } }
-        var steps: [FocusStep] = []
-        let quit = names(m.quitApps).map { $0.lowercased() }
-        var quitList: [NSRunningApplication] = []
-        for a in NSWorkspace.shared.runningApplications where a.activationPolicy == .regular && a.processIdentifier != me {
-            if quit.contains((a.localizedName ?? "").lowercased()) { quitList.append(a); a.terminate() }
-        }
-        if !quitList.isEmpty { steps.append(.init(icon: "xmark.app.fill", tint: .red, verb: "Quit", all: "the apps you picked", apps: quitList)) }
-        if m.minimize {
-            let list = Self.minimizeAll()
-            steps.append(.init(icon: "rectangle.compress.vertical", tint: .purple, verb: "Minimized", all: "all windows", apps: list))
-        } else if m.hideApps {
-            var list: [NSRunningApplication] = []
-            for a in NSWorkspace.shared.runningApplications where a.activationPolicy == .regular && a.processIdentifier != me
-                && a.bundleIdentifier != "com.apple.finder" && !a.isHidden { list.append(a); a.hide() }
-            steps.append(.init(icon: "eye.slash.fill", tint: .orange, verb: "Hid", all: "all other apps", apps: list))
-        }
-        let opens = names(m.openApps)
-        for item in opens {
-            if item.contains("."), !item.hasSuffix(".app"), let url = URL(string: item.hasPrefix("http") ? item : "https://\(item)") {
-                NSWorkspace.shared.open(url)
-            } else {
-                let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/bin/open"); p.arguments = ["-a", item]; try? p.run()
+        var done: [FocusStep] = []
+        let others = { NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular && $0.processIdentifier != me && $0.bundleIdentifier != "com.apple.finder" } }
+        func step(_ key: String) -> Bool {   // true = it did something
+            switch key {
+            case "quit":
+                let q = names(m.quitApps).map { $0.lowercased() }
+                let list = others().filter { q.contains(($0.localizedName ?? "").lowercased()) }
+                list.forEach { $0.terminate() }
+                if !list.isEmpty { done.append(.init(icon: "xmark.app.fill", tint: .red, verb: "Quit", all: "the apps you picked", apps: list)) }
+                return !list.isEmpty
+            case "hide" where m.hideApps:
+                let list = others().filter { !$0.isHidden }
+                list.forEach { $0.hide() }
+                done.append(.init(icon: "eye.slash.fill", tint: .orange, verb: "Hid", all: "all other apps", apps: list)); return true
+            case "minimize" where m.minimize:
+                let list = Self.minimizeAll()
+                done.append(.init(icon: "rectangle.compress.vertical", tint: .purple, verb: "Minimized", all: "all windows", apps: list)); return true
+            case "open":
+                let opens = names(m.openApps)
+                for item in opens {
+                    if item.contains("."), !item.hasSuffix(".app"), let url = URL(string: item.hasPrefix("http") ? item : "https://\(item)") { NSWorkspace.shared.open(url) }
+                    else { let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/bin/open"); p.arguments = ["-a", item]; try? p.run() }
+                }
+                if !opens.isEmpty { openedOutside(); done.append(.init(icon: "arrow.up.forward.app.fill", tint: .green, verb: "Opened", all: opens.joined(separator: ", "), names: opens)) }
+                return !opens.isEmpty
+            case "awake" where m.keepAwake:
+                if !app.system.awake { app.system.toggleAwake() }
+                done.append(.init(icon: "cup.and.saucer.fill", tint: .yellow, verb: "Keeping", all: "the screen awake")); return true
+            case "mute" where m.mute:
+                if !app.sound.muted { app.sound.toggleMute() }
+                done.append(.init(icon: "speaker.slash.fill", tint: .pink, verb: "Muted", all: "the sound")); return true
+            case "clock":
+                if m.useStopwatch { app.timer.startStopwatch(); done.append(.init(icon: "stopwatch", tint: .cyan, verb: "Started", all: "the stopwatch")); return true }
+                if m.timer > 0 { app.timer.start(minutes: Double(m.timer)); done.append(.init(icon: "timer", tint: .cyan, verb: "Started", all: "a \(m.timer) min timer")); return true }
+                return false
+            case "shortcuts":
+                let scs = names(m.shortcut)
+                for sc in scs { let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/bin/shortcuts"); p.arguments = ["run", sc]; try? p.run() }
+                if !scs.isEmpty { done.append(.init(icon: "square.stack.3d.up.fill", tint: .indigo, verb: "Ran", all: scs.joined(separator: ", "))) }
+                return !scs.isEmpty
+            case "feedback":
+                guard let f = m.feedback else { return false }
+                let title = (m.feedbackText ?? "").isEmpty ? m.name : m.feedbackText!
+                FocusOverlay.show(title: title, icon: m.icon, steps: f == "steps" ? done : [], showApps: m.feedbackApps ?? false)
+                return true
+            default: return false
             }
         }
-        if !opens.isEmpty { openedOutside(); steps.append(.init(icon: "arrow.up.forward.app.fill", tint: .green, verb: "Opened", all: opens.joined(separator: ", "), names: opens)) }
-        if m.arrange { DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { _ = Tiler.autoArrange() }
-            steps.append(.init(icon: "rectangle.split.2x2.fill", tint: .blue, verb: "Arranged", all: "your windows")) }
-        if m.keepAwake { if !app.system.awake { app.system.toggleAwake() }
-            steps.append(.init(icon: "cup.and.saucer.fill", tint: .yellow, verb: "Keeping", all: "the screen awake")) }
-        if m.mute { if !app.sound.muted { app.sound.toggleMute() }
-            steps.append(.init(icon: "speaker.slash.fill", tint: .pink, verb: "Muted", all: "the sound")) }
-        if m.useStopwatch { app.timer.startStopwatch(); steps.append(.init(icon: "stopwatch", tint: .cyan, verb: "Started", all: "the stopwatch")) }
-        else if m.timer > 0 { app.timer.start(minutes: Double(m.timer)); steps.append(.init(icon: "timer", tint: .cyan, verb: "Started", all: "a \(m.timer) min timer")) }
-        let scs = names(m.shortcut)
-        for sc in scs {
-            let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/bin/shortcuts"); p.arguments = ["run", sc]; try? p.run()
+        // One step at a time, a moment apart, so each finishes before the next (hide, then minimize…).
+        var queue = m.steps
+        func next() {
+            guard !queue.isEmpty else {
+                active = nil
+                if Prefs.bool("focusDonePopup") { FocusDone.show("\(m.name) flow completed", icon: m.icon) }
+                return
+            }
+            let k = queue.removeFirst()
+            let did = step(k)
+            DispatchQueue.main.asyncAfter(deadline: .now() + (did ? 0.4 : 0)) { next() }
         }
-        if !scs.isEmpty { steps.append(.init(icon: "square.stack.3d.up.fill", tint: .indigo, verb: "Ran", all: scs.joined(separator: ", "))) }
-        if let f = m.feedback {
-            let title = (m.feedbackText ?? "").isEmpty ? m.name : m.feedbackText!
-            FocusOverlay.show(title: title, icon: m.icon, steps: f == "steps" ? steps : [], showApps: m.feedbackApps ?? false)
-        }
+        next()
     }
 
     /// Ends the focus: lets the screen sleep again, brings sound back and shows hidden apps.
@@ -149,7 +172,7 @@ struct FocusPage: View {
             }
             if !light {
                 Button { focus.add() } label: {
-                    Label("New focus mode", systemImage: "plus").font(.system(size: 12, weight: .semibold))
+                    Label("New focus flow", systemImage: "plus").font(.system(size: 12, weight: .semibold))
                         .frame(maxWidth: .infinity, minHeight: 32)
                         .background(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(.white.opacity(0.15), style: StrokeStyle(lineWidth: 1, dash: [4])))
                         .contentShape(Rectangle())
@@ -168,7 +191,7 @@ struct FocusPage: View {
                     .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(on ? AnyShapeStyle(accent) : AnyShapeStyle(.white.opacity(0.12))))
                 VStack(alignment: .leading, spacing: 2) {
                     Text(m.name).font(.system(size: 13.5, weight: .bold))
-                    Text(on ? "On · \(m.summary)" : m.summary).font(.system(size: 10.5)).foregroundStyle(.secondary).lineLimit(2)
+                    Text(m.summary).font(.system(size: 10.5)).foregroundStyle(.secondary).lineLimit(2)
                 }
                 Spacer()
                 if !light {
@@ -177,7 +200,7 @@ struct FocusPage: View {
                             .frame(width: 26, height: 26).background(Circle().fill(.white.opacity(0.08)))
                     }.buttonStyle(PressStyle()).help(focus.editing == m.id ? "Done" : "Edit")
                 }
-                Pill(on ? "Stop" : "Start", filled: !on) { on ? focus.stop() : focus.start(m) }
+                Pill(on ? "Running…" : "Run", filled: !on) { if !on { focus.start(m) } }
             }
         }
     }
@@ -187,6 +210,75 @@ struct FocusPage: View {
 struct FocusEditor: View {
     @Binding var mode: FocusMode
     @EnvironmentObject var focus: FocusModel
+    @StateObject private var drag = StepDrag()
+
+    /// One step in its own polished box, with a drag handle on the left.
+    func block(_ k: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "line.3.horizontal").font(.system(size: 12, weight: .bold)).foregroundStyle(.secondary)
+                .frame(width: 20, height: 38).contentShape(Rectangle())
+                .onDrag { drag.dragging = k; return NSItemProvider(object: k as NSString) }
+                .help("Drag to change the order")
+            VStack(alignment: .leading, spacing: 8) { content(k) }.frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(.white.opacity(0.05)))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(.white.opacity(0.1), lineWidth: 1))
+    }
+
+    @ViewBuilder func content(_ k: String) -> some View {
+        switch k {
+        case "hide": option("eye.slash.fill", .orange, "Hide other apps", "Only what you need stays on screen", $mode.hideApps)
+        case "minimize": option("rectangle.compress.vertical", .purple, "Minimize all windows", "Sends every window to the Dock", $mode.minimize)
+        case "awake": option("cup.and.saucer.fill", .yellow, "Keep the screen awake", "Your Mac won't sleep", $mode.keepAwake)
+        case "mute": option("speaker.slash.fill", .pink, "Mute sound", "Turns the sound off", $mode.mute)
+        case "clock":
+            head("clock.fill", .cyan, "Clock")
+            HStack(spacing: 8) {
+                clockChoice("None", "xmark", !mode.useStopwatch && mode.timer == 0) { mode.useStopwatch = false; mode.timer = 0 }
+                clockChoice("Timer", "timer", !mode.useStopwatch && mode.timer > 0) { mode.useStopwatch = false; if mode.timer == 0 { mode.timer = 25 } }
+                clockChoice("Stopwatch", "stopwatch", mode.useStopwatch) { mode.useStopwatch = true }
+            }
+            if !mode.useStopwatch && mode.timer > 0 {
+                Picker("", selection: $mode.timer) { Text("25 min").tag(25); Text("50 min").tag(50); Text("90 min").tag(90) }.pickerStyle(.segmented).labelsHidden()
+            }
+        case "feedback":
+            head("text.bubble.fill", .mint, "Feedback")
+            HStack(spacing: 8) {
+                clockChoice("Off", "bell.slash", mode.feedback == nil) { mode.feedback = nil }
+                clockChoice("Message", "text.bubble.fill", mode.feedback == "message") { mode.feedback = "message" }
+                clockChoice("Message + steps", "list.bullet.rectangle.fill", mode.feedback == "steps") { mode.feedback = "steps" }
+            }
+            if mode.feedback != nil {
+                TextField("Your message, e.g. Focus. Let's go, Melcolm.", text: Binding(get: { mode.feedbackText ?? "" }, set: { mode.feedbackText = $0 }))
+                    .textFieldStyle(.roundedBorder).font(.system(size: 13))
+            }
+            if mode.feedback == "steps" {
+                HStack(spacing: 8) {
+                    clockChoice("Say \"all apps\"", "square.grid.2x2", !(mode.feedbackApps ?? false)) { mode.feedbackApps = false }
+                    clockChoice("Show each app", "app.badge.fill", mode.feedbackApps ?? false) { mode.feedbackApps = true }
+                }
+            }
+        case "quit":
+            head("xmark.app.fill", .red, "Quit apps")
+            ChipPicker(title: "", add: "Add app", choices: Installed.apps, icon: Installed.icon, text: $mode.quitApps)
+        case "open":
+            head("arrow.up.forward.app.fill", .green, "Open apps")
+            ChipPicker(title: "", add: "Add app", choices: Installed.apps, icon: Installed.icon, text: $mode.openApps)
+        case "shortcuts":
+            head("square.stack.3d.up.fill", .indigo, "Run Shortcuts")
+            ChipPicker(title: "", add: "Add shortcut", choices: Installed.shortcuts, icon: { _ in nil }, text: $mode.shortcut)
+        default: EmptyView()
+        }
+    }
+
+    func head(_ icon: String, _ c: Color, _ t: String) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon).font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
+                .frame(width: 32, height: 32).background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(c.opacity(0.85)))
+            Text(t).font(.system(size: 13.5, weight: .semibold))
+        }
+    }
 
     var body: some View {
         Card {
@@ -206,43 +298,12 @@ struct FocusEditor: View {
                         }.buttonStyle(PressStyle())
                     }
                 }
-                section("When it starts")
-                option("eye.slash.fill", .orange, "Hide other apps", "Only what you need stays on screen", $mode.hideApps)
-                option("rectangle.compress.vertical", .purple, "Minimize all windows", "Sends every window to the Dock", $mode.minimize)
-                option("rectangle.split.2x2.fill", .blue, "Auto-arrange windows", "Lines up what's left side by side", $mode.arrange)
-                option("cup.and.saucer.fill", .yellow, "Keep the screen awake", "Your Mac won't sleep", $mode.keepAwake)
-                option("speaker.slash.fill", .pink, "Mute sound", "Silence until the focus ends", $mode.mute)
-                section("Clock")
-                HStack(spacing: 8) {
-                    clockChoice("None", "xmark", !mode.useStopwatch && mode.timer == 0) { mode.useStopwatch = false; mode.timer = 0 }
-                    clockChoice("Timer", "timer", !mode.useStopwatch && mode.timer > 0) { mode.useStopwatch = false; if mode.timer == 0 { mode.timer = 25 } }
-                    clockChoice("Stopwatch", "stopwatch", mode.useStopwatch) { mode.useStopwatch = true }
+                section("Steps · drag ⠿ to change the order")
+                ForEach(mode.steps, id: \.self) { k in
+                    block(k)
+                        .opacity(drag.dragging == k ? 0.4 : 1)
+                        .onDrop(of: [.text], delegate: StepDrop(key: k, mode: $mode, drag: drag))
                 }
-                if !mode.useStopwatch && mode.timer > 0 {
-                    Picker("", selection: $mode.timer) {
-                        Text("25 min").tag(25); Text("50 min").tag(50); Text("90 min").tag(90)
-                    }.pickerStyle(.segmented).labelsHidden()
-                }
-                section("Feedback")
-                HStack(spacing: 8) {
-                    clockChoice("Off", "bell.slash", mode.feedback == nil) { mode.feedback = nil }
-                    clockChoice("Message", "text.bubble.fill", mode.feedback == "message") { mode.feedback = "message" }
-                    clockChoice("Message + steps", "list.bullet.rectangle.fill", mode.feedback == "steps") { mode.feedback = "steps" }
-                }
-                if mode.feedback != nil {
-                    TextField("Your message, e.g. Focus. Let's go, Melcolm.", text: Binding(get: { mode.feedbackText ?? "" }, set: { mode.feedbackText = $0 }))
-                        .textFieldStyle(.roundedBorder).font(.system(size: 13))
-                }
-                if mode.feedback == "steps" {
-                    HStack(spacing: 8) {
-                        clockChoice("Say \"all apps\"", "square.grid.2x2", !(mode.feedbackApps ?? false)) { mode.feedbackApps = false }
-                        clockChoice("Show each app", "app.badge.fill", mode.feedbackApps ?? false) { mode.feedbackApps = true }
-                    }
-                }
-                section("More")
-                ChipPicker(title: "Quit apps", add: "Add app", choices: Installed.apps, icon: Installed.icon, text: $mode.quitApps)
-                ChipPicker(title: "Open apps", add: "Add app", choices: Installed.apps, icon: Installed.icon, text: $mode.openApps)
-                ChipPicker(title: "Run Shortcuts", add: "Add shortcut", choices: Installed.shortcuts, icon: { _ in nil }, text: $mode.shortcut)
             }
             .font(.system(size: 12)).toggleStyle(.switch).controlSize(.regular).tint(accent)
         }
@@ -265,8 +326,6 @@ struct FocusEditor: View {
             Spacer()
             Toggle("", isOn: on).labelsHidden()
         }
-        .padding(8)
-        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(.white.opacity(on.wrappedValue ? 0.07 : 0.03)))
         .contentShape(Rectangle())
         .onTapGesture { on.wrappedValue.toggle() }
     }
@@ -293,21 +352,14 @@ struct FocusEditor: View {
 
 /// Settings ▸ Focus: how every focus starts and ends, plus the focus modes themselves.
 struct FocusSettings: View {
-    @AppStorage("focusEndWithTimer") var endWithTimer = true
-    @AppStorage("focusShowApps") var showApps = true
-    @AppStorage("focusStopClock") var stopClock = true
-    @AppStorage("popFocus") var popFocus = true
+    @AppStorage("focusDonePopup") var donePopup = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("When a focus ends").font(.system(size: 12.5, weight: .semibold))
-            Toggle("End the focus when its timer is done", isOn: $endWithTimer)
-            Toggle("Stop the stopwatch when the focus ends", isOn: $stopClock)
-            Toggle("Show the apps it hid", isOn: $showApps)
-            Toggle("Pop-up under the bar when a focus starts or stops", isOn: $popFocus)
+            Toggle("\"Flow completed\" pop-up at the bottom of the screen", isOn: $donePopup)
             Divider().opacity(0.3).padding(.vertical, 4)
-            Text("Focus modes").font(.system(size: 12.5, weight: .semibold))
-            Text("Click the pencil to change what a mode does.").font(.system(size: 11)).foregroundStyle(.secondary)
+            Text("Focus flows").font(.system(size: 12.5, weight: .semibold))
+            Text("Each one runs its steps in order, once, like a shortcut. Click the pencil to change them.").font(.system(size: 11)).foregroundStyle(.secondary)
             FocusPage()
         }
         .toggleStyle(.switch).controlSize(.small).tint(accent)
@@ -406,7 +458,7 @@ struct ChipPicker: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text(title).font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
+            if !title.isEmpty { Text(title).font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary) }
             FlowLayout(spacing: 6) {
                 ForEach(items, id: \.self) { it in
                     HStack(spacing: 5) {
@@ -571,5 +623,54 @@ struct FocusOverlayView: View {
         .contentShape(Rectangle())
         .onTapGesture(perform: close)
         .preferredColorScheme(.dark)
+    }
+}
+
+final class StepDrag: ObservableObject { @Published var dragging: String? }
+
+/// Dragging one step over another moves it into that place, live.
+struct StepDrop: DropDelegate {
+    let key: String
+    @Binding var mode: FocusMode
+    let drag: StepDrag
+    func dropEntered(info: DropInfo) {
+        guard let from = drag.dragging, from != key else { return }
+        var o = mode.steps
+        guard let i = o.firstIndex(of: from), let j = o.firstIndex(of: key) else { return }
+        o.move(fromOffsets: IndexSet(integer: i), toOffset: j > i ? j + 1 : j)
+        withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) { mode.order = o }
+    }
+    func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
+    func performDrop(info: DropInfo) -> Bool { drag.dragging = nil; return true }
+}
+
+/// "Deep Work flow completed": a short pop-up at the bottom middle of the screen.
+enum FocusDone {
+    private static var panel: NSPanel?
+    static func show(_ text: String, icon: String) {
+        panel?.orderOut(nil)
+        guard let sc = NSScreen.main else { return }
+        let size = NSSize(width: 380, height: 64)
+        let p = NSPanel(contentRect: NSRect(x: sc.visibleFrame.midX - size.width / 2, y: sc.visibleFrame.minY + 60, width: size.width, height: size.height),
+                        styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        p.isOpaque = false; p.backgroundColor = .clear; p.hasShadow = true; p.level = .statusBar; p.ignoresMouseEvents = true
+        p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
+        p.contentView = NSHostingView(rootView:
+            HStack(spacing: 12) {
+                Image(systemName: "checkmark.circle.fill").font(.system(size: 24)).foregroundStyle(.green)
+                Text(text).font(.system(size: 16, weight: .bold)).foregroundStyle(.white).lineLimit(1).minimumScaleFactor(0.7)
+                Spacer(minLength: 0)
+                Image(systemName: icon).font(.system(size: 16, weight: .semibold)).foregroundStyle(.white.opacity(0.7))
+            }
+            .padding(.horizontal, 20).frame(width: size.width, height: size.height)
+            .background(Capsule().fill(Color(white: 0.06).opacity(0.97)).overlay(Capsule().strokeBorder(Color.green.opacity(0.6), lineWidth: 1.5)))
+            .preferredColorScheme(.dark))
+        p.alphaValue = 0; p.orderFrontRegardless(); panel = p
+        NSAnimationContext.runAnimationGroup { $0.duration = 0.25; p.animator().alphaValue = 1 }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+            guard panel === p else { return }
+            NSAnimationContext.runAnimationGroup({ $0.duration = 0.35; p.animator().alphaValue = 0 }, completionHandler: { p.orderOut(nil) })
+            panel = nil
+        }
     }
 }

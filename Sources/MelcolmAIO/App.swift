@@ -93,6 +93,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     .init(icon: "eye.slash.fill", tint: .orange, verb: "Hid", all: "all other apps", apps: Array(apps)),
                     .init(icon: "cup.and.saucer.fill", tint: .yellow, verb: "Keeping", all: "the screen awake"),
                     .init(icon: "timer", tint: .cyan, verb: "Started", all: "a 50 min timer")], showApps: true)
+                FocusDone.show("Deep Work flow completed", icon: "brain.head.profile")
             }
         }
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
@@ -120,7 +121,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         timer.onFinish = { [weak self] in
             // A focus with a timer ends by itself when the time is up.
-            if let self, Prefs.bool("focusEndWithTimer"), let id = focus.active, (focus.modes.first { $0.id == id }?.timer ?? 0) > 0 { focus.stop() }
             guard Prefs.bool("liveActivities"), Prefs.bool("popTimer") else { return }
             self?.islands.forEach { $0.peek(.init(text: "Timer done", icon: "bell.fill")) }
         }
@@ -143,8 +143,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Focus started / ended.
         focus.$active.removeDuplicates().dropFirst().receive(on: RunLoop.main).sink { [weak self] id in
             guard let self, Prefs.bool("liveActivities"), Prefs.bool("popFocus") else { return }
-            let m = focus.modes.first { $0.id == id }
-            islands.forEach { $0.peek(.init(text: m.map { "\($0.name) on" } ?? "Focus off", icon: m?.icon ?? "moon")) }
+            guard let m = focus.modes.first(where: { $0.id == id }) else { return }   // flows end with their own "completed" pop-up
+            islands.forEach { $0.peek(.init(text: "Running \(m.name)…", icon: m.icon)) }
         }.store(in: &bag)
 
         // Keyboard control while a panel is open from ⌃⌥Space.
