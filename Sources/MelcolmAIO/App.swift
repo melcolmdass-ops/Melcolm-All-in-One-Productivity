@@ -389,10 +389,16 @@ final class Island: NSObject {
             .receive(on: RunLoop.main)
             .sink { [weak self] n in
                 guard let self, let p = panel else { return }
-                if n.name.rawValue != "tick" || !p.isOnActiveSpace || !p.isVisible {
-                    p.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
+                // Only step in when the bar is really missing. Re-applying the window settings or
+                // re-ordering it on every swipe made it blink out and back in.
+                let isTick = n.name.rawValue == "tick"
+                let fix = { [weak p] in
+                    guard let p, !p.isOnActiveSpace || !p.isVisible else { return }
+                    let all: NSWindow.CollectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
+                    if p.collectionBehavior != all { p.collectionBehavior = all }
                     p.orderFrontRegardless()
                 }
+                if isTick { fix() } else { DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: fix) }
             }
             .store(in: &bag)
         // Menus are built a moment after an app comes forward; look again then.

@@ -24,6 +24,13 @@ enum UpdateLog {
 
     /// Newest first.
     static let all: [AppUpdate] = [
+        AppUpdate(version: "2.40", date: "November 16th, 2026", title: "The bar stays put when you swipe",
+                  improvements: [],
+                  fixes: [
+                      "Swiping between Spaces on the MacBook no longer makes the bar disappear and come back. The app now leaves it alone unless it is truly missing from the screen.",
+                  ],
+                  features: [],
+                  icons: ["rectangle.on.rectangle", "hand.draw.fill"], tint: green),
         AppUpdate(version: "2.39", date: "November 16th, 2026", title: "See the whole workflow",
                   improvements: [],
                   fixes: [],
