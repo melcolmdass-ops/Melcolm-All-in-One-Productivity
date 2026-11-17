@@ -51,7 +51,11 @@ struct ColorsPage: View {
             ForEach(BarColor.allCases, id: \.self) { c in
                 let cur = Prefs.d.string(forKey: c.rawValue) ?? ""
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(c.title).font(.system(size: 12.5, weight: .medium))
+                    HStack(alignment: .center) {
+                        Text(c.title).font(.system(size: 12.5, weight: .medium))
+                        Spacer(minLength: 8)
+                        MiniBar(part: c)
+                    }
                     HStack(spacing: 7) {
                         ForEach(Self.swatches, id: \.self) { h in
                             Button { set(c, h) } label: {
@@ -78,6 +82,55 @@ struct ColorsPage: View {
     func set(_ c: BarColor, _ hex: String) {
         if hex.isEmpty { Prefs.d.removeObject(forKey: c.rawValue) } else { Prefs.d.set(hex, forKey: c.rawValue) }
         rev += 1
+    }
+}
+
+/// A small drawing of the bar for the Colours page. The part this row colours is drawn in its
+/// live colour (so picking a colour changes it right here); every other part is faded back.
+struct MiniBar: View {
+    let part: BarColor
+    func col(_ p: BarColor) -> Color { p.color.opacity(p == part ? 1 : 0.22) }
+    func glow(_ p: BarColor) -> CGFloat { p == part ? 1 : 0 }
+    var body: some View {
+        let island = UnevenRoundedRectangle(bottomLeadingRadius: 9, bottomTrailingRadius: 9, style: .continuous)
+        HStack(spacing: 6) {
+            // Display boxes: number + a full-screen app, the current one lit by the Space highlight.
+            ForEach(1...2, id: \.self) { n in
+                HStack(spacing: 3) {
+                    Text("\(n)").font(.system(size: 11, weight: .heavy, design: .rounded)).foregroundStyle(col(.number))
+                        .neon(BarColor.number.color, glow(.number) * 0.5)
+                        .frame(width: 14, height: 16)
+                        .background(RoundedRectangle(cornerRadius: 4).fill(n == 1 ? col(.space).opacity(part == .space ? 0.3 : 0.1) : .clear)
+                            .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(n == 1 ? col(.space) : .clear, lineWidth: 1.2))
+                            .neon(BarColor.space.color, n == 1 ? glow(.space) * 0.8 : 0))
+                    RoundedRectangle(cornerRadius: 3).fill(.white.opacity(0.35)).frame(width: 12, height: 12)
+                }
+                .padding(.horizontal, 4).frame(height: 20)
+                .background(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(col(.displayBox), lineWidth: 1.2)
+                    .neon(BarColor.displayBox.color, glow(.displayBox) * 0.8))
+            }
+            // The notch.
+            UnevenRoundedRectangle(bottomLeadingRadius: 6, bottomTrailingRadius: 6, style: .continuous)
+                .fill(Color.black).frame(width: 38, height: 18)
+                .overlay(UnevenRoundedRectangle(bottomLeadingRadius: 6, bottomTrailingRadius: 6, style: .continuous)
+                    .strokeBorder(col(.notch), lineWidth: 1.2))
+                .neon(BarColor.notch.color, glow(.notch) * 0.8)
+            // Play / Open box with the music note and wave inside.
+            HStack(spacing: 3) {
+                Image(systemName: "music.note").font(.system(size: 10, weight: .bold))
+                HStack(spacing: 1.5) { ForEach([5.0, 9, 6, 11, 7], id: \.self) { h in Capsule().frame(width: 2, height: h) } }
+                Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold)).foregroundStyle(.white.opacity(0.4))
+            }
+            .foregroundStyle(col(.status))
+            .padding(.horizontal, 5).frame(height: 20)
+            .background(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(col(.statusBox), lineWidth: 1.2)
+                .neon(BarColor.statusBox.color, glow(.statusBox) * 0.8))
+        }
+        .padding(.horizontal, 8).frame(height: 28)
+        .background(island.fill(Color.black))
+        .overlay(island.strokeBorder(col(.outline), lineWidth: 1.4).neon(BarColor.outline.color, glow(.outline) * 0.6))
+        .allowsHitTesting(false)
+        .help("Where \(part.title.lowercased()) shows on the bar")
     }
 }
 

@@ -80,6 +80,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let i = self?.islands.first(where: { $0.screenID == screen }) ?? self?.islands.first else { return }
             i.peek(.init(text: "\(name) → new Space", icon: "plus.rectangle.on.rectangle"), for: 2.2)
         }
+        SpaceDragModel.shared.onHint = { [weak self] screen, text in
+            guard let i = self?.islands.first(where: { $0.screenID == screen }) ?? self?.islands.first else { return }
+            if let text { i.peek(.init(text: text, icon: "macwindow.and.arrow.down"), for: 0) } else { i.endPeek() }
+        }
         OptionDrag.shared.start()
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
             self?.rebuildIslands()

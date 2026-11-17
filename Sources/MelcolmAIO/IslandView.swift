@@ -233,9 +233,9 @@ struct SpacesStrip: View {
                 // the desktop cell swells wide, fills bright and glows hard so it's obvious.
                 if drag.target == .desktop(g.id) {
                     let r = RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    r.fill(LinearGradient(colors: [BarColor.space.color.opacity(0.95), BarColor.space.color.opacity(0.55)], startPoint: .top, endPoint: .bottom))
-                        .overlay(r.strokeBorder(Color.white, lineWidth: 2))
-                        .neon(BarColor.space.color, 1.6)
+                    r.fill(BarColor.space.color.opacity(0.3))
+                        .overlay(r.strokeBorder(Color.white, style: StrokeStyle(lineWidth: 2, dash: [4, 3])))
+                        .neon(BarColor.space.color, 1.1)
                         .scaleEffect(x: 1.7, y: 1.0)
                         .transition(.scale(scale: 0.4).combined(with: .opacity))
                 }
@@ -390,7 +390,7 @@ struct SettingsTab: View {
                     }
                 }
             }
-            Text("Melcolm All-in-One Productivity · v2.22").font(.system(size: 10)).foregroundStyle(.tertiary)
+            Text("Melcolm All-in-One Productivity · v2.24").font(.system(size: 10)).foregroundStyle(.tertiary)
         }
         .font(.system(size: 12))
         .toggleStyle(.switch).controlSize(.small)

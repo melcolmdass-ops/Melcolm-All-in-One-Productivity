@@ -24,6 +24,19 @@ enum UpdateLog {
 
     /// Newest first.
     static let all: [AppUpdate] = [
+        AppUpdate(version: "2.24", date: "November 16th, 2026", title: "See what each colour changes",
+                  improvements: [], fixes: [],
+                  features: [
+                      "Every row on the Colours page has a small picture of the bar. The part that row colours is lit in your chosen colour and the rest fades back, so you can see what you're changing as you pick.",
+                  ],
+                  icons: ["paintpalette.fill", "rectangle.topthird.inset.filled"], tint: purple),
+        AppUpdate(version: "2.23", date: "November 16th, 2026", title: "Clearer drop onto a desktop",
+                  improvements: [
+                      "Dragging an app over a desktop number now says in words what will happen, under the bar: \"Let go: Claude leaves full screen onto Desktop 1\".",
+                      "The desktop number gets a dashed white outline and a soft glow instead of a blinding block, so the number stays easy to read.",
+                  ],
+                  fixes: [], features: [],
+                  icons: ["macwindow.and.arrow.down", "1.square"], tint: cyan),
         AppUpdate(version: "2.22", date: "November 16th, 2026", title: "Wi-Fi + Bluetooth pill, drag fixes",
                   improvements: [
                       "Dropping an app onto a desktop number on the bar now makes that number swell, fill bright and glow, so you can clearly see where it's going.",

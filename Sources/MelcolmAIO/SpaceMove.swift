@@ -27,6 +27,13 @@ final class SpaceDragModel: ObservableObject {
 
     /// Each bar (one per display) keeps its own cell frames, keyed "<bar display id>:<key>".
     var bar: CGDirectDisplayID = 0
+    /// Shows (text) or clears (nil) a plain-words hint under the bar the drag is on.
+    var onHint: (CGDirectDisplayID, String?) -> Void = { _, _ in }
+    private func hint(_ t: SpaceDrop?, _ m: SpacesModel) {
+        guard let id = dragging, case .desktop(let d)? = t, let g = m.displays.first(where: { $0.id == d }) else { onHint(bar, nil); return }
+        let name = SpaceMover.fullInfo(space: id).flatMap { NSRunningApplication(processIdentifier: $0.pid)?.localizedName } ?? "This app"
+        onHint(bar, "Let go: \(name) leaves full screen onto Desktop \(g.number)")
+    }
     func f(_ k: String) -> CGRect? { frames["\(bar):\(k)"] }
     func h(_ k: String) -> CGRect? { home["\(bar):\(k)"] }
 
@@ -63,6 +70,10 @@ final class SpaceDragModel: ObservableObject {
     /// Works out the drop spot under the pointer (x only: the bar is one row).
     func update(_ p: CGPoint, offset o: CGSize, model m: SpacesModel) {
         offset = o
+        // The hint under the bar can widen the bar window, which shifts everything inside it;
+        // measure that shift from the first display box (boxes never slide) and undo it.
+        let k0 = m.displays.first.map { "box-\($0.id)" } ?? ""
+        let p = CGPoint(x: p.x - ((f(k0)?.minX ?? 0) - (h(k0)?.minX ?? 0)), y: p.y)
         var t: SpaceDrop?
         for g in m.displays {
             guard let box = h("box-\(g.id)"), p.x >= box.minX - 6, p.x <= box.maxX + 6,
@@ -72,7 +83,7 @@ final class SpaceDragModel: ObservableObject {
             let k = others.filter { s in (h("app-\(s.id)")?.midX ?? .infinity) < p.x }.count
             t = .slot(g.id, k); break
         }
-        if t != target { withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) { target = t } }
+        if t != target { withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) { target = t }; hint(t, m) }
     }
 
     /// One spring for the whole drop: the bar takes its new order and the dragged app glides
@@ -81,6 +92,7 @@ final class SpaceDragModel: ObservableObject {
 
     func end(model m: SpacesModel) {
         NSCursor.pop()
+        onHint(bar, nil)
         droppedAt = Date()
         var move: (Int, SpaceDrop)?
         if let id = dragging, let t = target,
