@@ -24,6 +24,16 @@ enum UpdateLog {
 
     /// Newest first.
     static let all: [AppUpdate] = [
+        AppUpdate(version: "2.32", date: "November 16th, 2026", title: "Pick apps and Shortcuts from a list",
+                  improvements: [
+                      "Quit apps, Open apps and Run Shortcuts in a focus mode are now pick lists: choose from every app on your Mac or every Shortcut you have. Each one you add shows as its own outlined chip with its icon, and an ✕ to remove it.",
+                      "Those boxes are twice as tall.",
+                  ],
+                  fixes: [],
+                  features: [
+                      "A focus mode can run more than one Shortcut.",
+                  ],
+                  icons: ["square.grid.2x2.fill", "square.stack.3d.up.fill"], tint: purple),
         AppUpdate(version: "2.31", date: "November 16th, 2026", title: "Cleaner focus modes, timer or stopwatch",
                   improvements: [
                       "Editing a focus mode is bigger and clearer: every option has its own picture and one line saying what it does.",

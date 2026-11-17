@@ -85,8 +85,8 @@ final class FocusModel: ObservableObject {
         if m.keepAwake && !app.system.awake { app.system.toggleAwake() }
         if m.mute && !app.sound.muted { app.sound.toggleMute() }
         if m.useStopwatch { app.timer.startStopwatch() } else if m.timer > 0 { app.timer.start(minutes: Double(m.timer)) }
-        if !m.shortcut.isEmpty {
-            let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/bin/shortcuts"); p.arguments = ["run", m.shortcut]; try? p.run()
+        for sc in names(m.shortcut) {
+            let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/bin/shortcuts"); p.arguments = ["run", sc]; try? p.run()
         }
     }
 
@@ -199,9 +199,9 @@ struct FocusEditor: View {
                     }.pickerStyle(.segmented).labelsHidden()
                 }
                 section("More")
-                field("Quit apps", "e.g. Messages, Mail", $mode.quitApps)
-                field("Open", "apps or links, e.g. Notes, youtube.com", $mode.openApps)
-                field("Run Shortcut", "name of a Shortcut, e.g. Do Not Disturb on", $mode.shortcut)
+                ChipPicker(title: "Quit apps", add: "Add app", choices: Installed.apps, icon: Installed.icon, text: $mode.quitApps)
+                ChipPicker(title: "Open apps", add: "Add app", choices: Installed.apps, icon: Installed.icon, text: $mode.openApps)
+                ChipPicker(title: "Run Shortcuts", add: "Add shortcut", choices: Installed.shortcuts, icon: { _ in nil }, text: $mode.shortcut)
             }
             .font(.system(size: 12)).toggleStyle(.switch).controlSize(.regular).tint(accent)
         }
@@ -270,5 +270,101 @@ struct FocusSettings: View {
             FocusPage()
         }
         .toggleStyle(.switch).controlSize(.small).tint(accent)
+    }
+}
+
+/// The apps on this Mac and your Shortcuts, read once, for the pick lists.
+enum Installed {
+    static let apps: [String] = {
+        let fm = FileManager.default
+        let dirs = ["/Applications", "/System/Applications", "/System/Applications/Utilities", NSHomeDirectory() + "/Applications"]
+        var out = Set<String>()
+        for d in dirs { for f in (try? fm.contentsOfDirectory(atPath: d)) ?? [] where f.hasSuffix(".app") { out.insert(String(f.dropLast(4))) } }
+        return out.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }()
+    private static var shortcutCache: [String]?
+    static var shortcuts: [String] {
+        if let c = shortcutCache { return c }
+        let p = Process(), pipe = Pipe()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/shortcuts"); p.arguments = ["list"]; p.standardOutput = pipe
+        try? p.run(); p.waitUntilExit()
+        let list = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+            .split(separator: "\n").map(String.init).filter { !$0.isEmpty } ?? []
+        shortcutCache = list.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+        return shortcutCache!
+    }
+    static func icon(_ name: String) -> NSImage? {
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: name) ?? NSWorkspace.shared.fullPath(forApplication: name).map({ URL(fileURLWithPath: $0) }) else { return nil }
+        return NSWorkspace.shared.icon(forFile: url.path)
+    }
+}
+
+/// A tall box of picked items, each in its own outlined chip (with an ✕), and a drop-down to add more.
+/// Saved as comma-separated text, so older focus modes keep working.
+struct ChipPicker: View {
+    let title: String
+    let add: String
+    let choices: [String]
+    let icon: (String) -> NSImage?
+    @Binding var text: String
+
+    var items: [String] { text.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty } }
+    func set(_ list: [String]) { text = list.joined(separator: ", ") }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(title).font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
+            FlowLayout(spacing: 6) {
+                ForEach(items, id: \.self) { it in
+                    HStack(spacing: 5) {
+                        if let i = icon(it) { Image(nsImage: i).resizable().frame(width: 16, height: 16) }
+                        else { Image(systemName: "square.stack.3d.up.fill").font(.system(size: 10)).foregroundStyle(accent) }
+                        Text(it).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+                        Button { set(items.filter { $0 != it }) } label: {
+                            Image(systemName: "xmark").font(.system(size: 8, weight: .heavy)).foregroundStyle(.secondary)
+                        }.buttonStyle(.plain).help("Remove")
+                    }
+                    .padding(.horizontal, 8).frame(height: 26)
+                    .background(Capsule().fill(accent.opacity(0.12)))
+                    .overlay(Capsule().strokeBorder(accent.opacity(0.8), lineWidth: 1.2))
+                }
+                Menu {
+                    let left = choices.filter { !items.contains($0) }
+                    if left.isEmpty { Text("Nothing more to add") }
+                    ForEach(left, id: \.self) { c in Button(c) { set(items + [c]) } }
+                } label: {
+                    Label(add, systemImage: "plus").font(.system(size: 12, weight: .semibold))
+                }
+                .menuStyle(.borderlessButton).fixedSize().frame(height: 26)
+            }
+            .padding(8)
+            .frame(maxWidth: .infinity, minHeight: 56, alignment: .topLeading)
+            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(.white.opacity(0.05)))
+            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(.white.opacity(0.12), lineWidth: 1))
+        }
+    }
+}
+
+/// Lays chips out left to right and wraps onto new lines.
+struct FlowLayout: SwiftUI.Layout {
+    var spacing: CGFloat = 6
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let w = proposal.width ?? 300
+        var x: CGFloat = 0, y: CGFloat = 0, row: CGFloat = 0
+        for v in subviews {
+            let s = v.sizeThatFits(.unspecified)
+            if x > 0, x + s.width > w { x = 0; y += row + spacing; row = 0 }
+            x += s.width + spacing; row = max(row, s.height)
+        }
+        return CGSize(width: w, height: y + row)
+    }
+    func placeSubviews(in b: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = b.minX, y = b.minY, row: CGFloat = 0
+        for v in subviews {
+            let s = v.sizeThatFits(.unspecified)
+            if x > b.minX, x + s.width > b.maxX { x = b.minX; y += row + spacing; row = 0 }
+            v.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(s))
+            x += s.width + spacing; row = max(row, s.height)
+        }
     }
 }
