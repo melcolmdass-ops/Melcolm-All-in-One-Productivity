@@ -24,6 +24,12 @@ enum UpdateLog {
 
     /// Newest first.
     static let all: [AppUpdate] = [
+        AppUpdate(version: "2.29", date: "November 16th, 2026", title: "Brighter drag circle",
+                  improvements: [
+                      "The circle around the pointer while you drag is bigger and brighter, with a dashed outer ring like the snap spots and a dark edge so it shows on white pages too.",
+                  ],
+                  fixes: [], features: [],
+                  icons: ["circle.dashed", "smallcircle.filled.circle"], tint: cyan),
         AppUpdate(version: "2.28", date: "November 16th, 2026", title: "Snap spots really resize",
                   improvements: [],
                   fixes: [

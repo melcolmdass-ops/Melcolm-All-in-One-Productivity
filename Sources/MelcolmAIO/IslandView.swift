@@ -395,7 +395,7 @@ struct SettingsTab: View {
                     }
                 }
             }
-            Text("Melcolm All-in-One Productivity · v2.28").font(.system(size: 10)).foregroundStyle(.tertiary)
+            Text("Melcolm All-in-One Productivity · v2.29").font(.system(size: 10)).foregroundStyle(.tertiary)
         }
         .font(.system(size: 12))
         .toggleStyle(.switch).controlSize(.small)

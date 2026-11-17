@@ -93,7 +93,8 @@ final class OptionDrag: ObservableObject {
             lastOrigin = o
             lock.lock(); let g = ghostID; lock.unlock()
             if g != 0 { var go = CGPoint(x: o.x - 30, y: o.y - 30); _ = CGSMoveWindow(cid, g, &go) }
-            if ringID != 0 { var ro = CGPoint(x: p.x - Self.ringSize / 2, y: p.y - Self.ringSize / 2); _ = CGSMoveWindow(cid, ringID, &ro) }   // until the copy appears, the window stays put (no jump)
+            lock.lock(); let rid = ringID; lock.unlock()
+            if rid != 0 { var ro = CGPoint(x: p.x - Self.ringSize / 2, y: p.y - Self.ringSize / 2); _ = CGSMoveWindow(cid, rid, &ro) }   // until the copy appears, the window stays put (no jump)
             // The bar is not a drop spot: New Space only lives in its circle (no second "New Space" on the bar).
             let hit: CGDirectDisplayID? = nil
             let z = zoneRect(at: p)
@@ -334,7 +335,7 @@ final class OptionDrag: ObservableObject {
     }
     // MARK: the circle around the pointer while dragging
 
-    static let ringSize: CGFloat = 46
+    static let ringSize: CGFloat = 72
     private let ringModel = RingModel()
     private var ringID: UInt32 = 0
     private lazy var ring: NSPanel = {
@@ -558,15 +559,21 @@ final class RingModel: ObservableObject {
 struct RingView: View {
     @ObservedObject var m: RingModel
     var body: some View {
-        let c = m.tint ?? .white
+        let over = m.tint != nil
+        let c = m.tint ?? Color(red: 0.55, green: 0.85, blue: 1.0)
         ZStack {
-            Circle().fill(c.opacity(m.tint == nil ? 0.08 : 0.35))
-            Circle().strokeBorder(c.opacity(0.95), lineWidth: m.tint == nil ? 2 : 3)
-            Circle().fill(c).frame(width: 5, height: 5)
+            // Outer dashed ring, like the snap circles: easy to spot on any background.
+            Circle().strokeBorder(c, style: StrokeStyle(lineWidth: over ? 3 : 2.5, lineCap: .round, dash: [7, 5]))
+                .shadow(color: c, radius: over ? 8 : 5)
+            // Bright solid ring inside it, with a dark edge so it reads on white pages too.
+            Circle().strokeBorder(Color.black.opacity(0.55), lineWidth: 4.5).padding(12)
+            Circle().strokeBorder(Color.white, lineWidth: 2.5).padding(13)
+                .shadow(color: c, radius: 6)
+            Circle().fill(c.opacity(over ? 0.45 : 0.18)).padding(14)
+            Circle().fill(Color.white).frame(width: 6, height: 6).shadow(color: c, radius: 3)
         }
-        .shadow(color: (m.tint ?? .black).opacity(0.8), radius: m.tint == nil ? 3 : 10)
-        .scaleEffect(m.dropping ? 0.25 : m.tint == nil ? 0.8 : 1)
-        .animation(.spring(response: 0.18, dampingFraction: 0.7), value: m.tint == nil)
+        .scaleEffect(m.dropping ? 0.25 : over ? 1.08 : 0.92)
+        .animation(.spring(response: 0.18, dampingFraction: 0.7), value: over)
         .padding(4)
     }
 }
