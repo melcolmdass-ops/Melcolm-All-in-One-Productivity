@@ -278,15 +278,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func reloadHotkeys() {
+        // Master Rule: while typing in one of our text boxes, only the open/close hotkey works.
+        let g = { (f: @escaping () -> Void) -> () -> Void in { if !Island.typing(in: NSApp.keyWindow) { f() } } }
         Hotkeys.reload(actions: [
             "toggle": { [weak self] in self?.activeIsland?.toggle() },
-            "play": { [weak self] in self?.playing.playPause() },
-            "next": { [weak self] in self?.playing.next() },
-            "prev": { [weak self] in self?.playing.previous() },
-            "volUp": { [weak self] in self?.sound.nudge(0.06) },
-            "volDown": { [weak self] in self?.sound.nudge(-0.06) },
-            "mute": { [weak self] in self?.sound.toggleMute() },
-        ], jump: { [weak self] n in self?.activeIsland?.spaces.jump(toNumber: n) })
+            "play": g { [weak self] in self?.playing.playPause() },
+            "next": g { [weak self] in self?.playing.next() },
+            "prev": g { [weak self] in self?.playing.previous() },
+            "volUp": g { [weak self] in self?.sound.nudge(0.06) },
+            "volDown": g { [weak self] in self?.sound.nudge(-0.06) },
+            "mute": g { [weak self] in self?.sound.toggleMute() },
+        ], jump: { [weak self] n in if !Island.typing(in: NSApp.keyWindow) { self?.activeIsland?.spaces.jump(toNumber: n) } })
     }
 }
 
@@ -543,6 +545,9 @@ final class Island: NSObject {
     }
 
     func handleKey(_ e: NSEvent) -> Bool {
+        // MASTER RULE: while you're typing in a text box, keys type. No shortcut fires (space doesn't
+        // play music, numbers don't switch Spaces). Only the open/close hotkey still works (it's global).
+        if Self.typing(in: e.window ?? panel) { return false }
         switch e.keyCode {
         case 53: if state.page != .home { state.page = .home } else { setExpanded(false) }; return true   // esc: back, then close
         case 49: playing.playPause(); return true                       // space
@@ -555,6 +560,13 @@ final class Island: NSObject {
             if e.charactersIgnoringModifiers == "," { state.page = state.page == .settings ? .home : .settings; return true }
             return false
         }
+    }
+
+    /// True when the keyboard is in a text box (a text field's editor or any text view).
+    static func typing(in w: NSWindow?) -> Bool {
+        guard let r = w?.firstResponder else { return false }
+        if let tv = r as? NSTextView { return tv.isEditable || tv.isFieldEditor }
+        return r is NSTextField || r is NSSearchField
     }
 
     func hover(_ inside: Bool) {

@@ -24,6 +24,13 @@ enum UpdateLog {
 
     /// Newest first.
     static let all: [AppUpdate] = [
+        AppUpdate(version: "2.38", date: "November 16th, 2026", title: "Typing is just typing",
+                  improvements: [],
+                  fixes: [
+                      "Pressing space while typing a name (or anything in a text box) no longer plays or pauses music. No shortcut fires while you type, except opening and closing the panel. Added as a Master Rule.",
+                  ],
+                  features: [],
+                  icons: ["character.cursor.ibeam", "keyboard"], tint: green),
         AppUpdate(version: "2.37", date: "November 16th, 2026", title: "Focus Workflows crash fix",
                   improvements: [],
                   fixes: [
@@ -587,6 +594,8 @@ struct MasterRule: Identifiable {
     var id: String { title }
     let icon: String, title: String, detail: String
     static let all: [MasterRule] = [
+        MasterRule(icon: "character.cursor.ibeam", title: "Typing never fires a shortcut",
+                   detail: "While you're typing in a text box (naming a focus workflow, a search box, a message), every key just types. Space won't play or pause music, numbers won't switch Spaces, arrows won't change the volume. The only shortcut that still works is the one that opens and closes the panel, whatever keys you set it to."),
         MasterRule(icon: "arrow.up.forward.app.fill", title: "Opening something outside closes the panel",
                    detail: "Click the artwork, a link, a settings button, a shortcut or anything that opens another app, and the panel closes while that thing opens."),
         MasterRule(icon: "cursorarrow.rays", title: "Whatever you rest on lights up",
