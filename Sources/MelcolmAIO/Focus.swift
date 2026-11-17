@@ -288,6 +288,7 @@ struct FocusEditor: View {
                     Button { focus.remove(mode.id) } label: { Image(systemName: "trash").foregroundStyle(.red) }
                         .buttonStyle(.plain).help("Delete this focus mode")
                 }
+                overview
                 section("Icon for this focus mode")
                 HStack(spacing: 8) {
                     ForEach(FocusMode.icons, id: \.self) { i in
@@ -307,6 +308,60 @@ struct FocusEditor: View {
             }
             .font(.system(size: 12)).toggleStyle(.switch).controlSize(.regular).tint(accent)
         }
+    }
+
+    /// What each step does, in run order: (icon, colour, title, detail) — only steps that are switched on.
+    func summary(_ k: String) -> (String, Color, String, String)? {
+        func list(_ s: String) -> String { s.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }.joined(separator: ", ") }
+        switch k {
+        case "quit": let l = list(mode.quitApps); return l.isEmpty ? nil : ("xmark.app.fill", .red, "Quit", l)
+        case "hide": return mode.hideApps ? ("eye.slash.fill", .orange, "Hide", "other apps") : nil
+        case "minimize": return mode.minimize ? ("rectangle.compress.vertical", .purple, "Minimize", "all windows") : nil
+        case "open": let l = list(mode.openApps); return l.isEmpty ? nil : ("arrow.up.forward.app.fill", .green, "Open", l)
+        case "awake": return mode.keepAwake ? ("cup.and.saucer.fill", .yellow, "Stay awake", "screen on") : nil
+        case "mute": return mode.mute ? ("speaker.slash.fill", .pink, "Mute", "sound off") : nil
+        case "clock":
+            if mode.useStopwatch { return ("stopwatch", .cyan, "Stopwatch", "counts up") }
+            return mode.timer > 0 ? ("timer", .cyan, "Timer", "\(mode.timer) min") : nil
+        case "shortcuts": let l = list(mode.shortcut); return l.isEmpty ? nil : ("square.stack.3d.up.fill", .indigo, "Shortcut", l)
+        case "feedback":
+            guard let f = mode.feedback else { return nil }
+            return ("text.bubble.fill", .mint, "Message", f == "steps" ? "+ each step" : "on screen")
+        default: return nil
+        }
+    }
+
+    /// The whole workflow at a glance, top to bottom: one small polished box per step.
+    var overview: some View {
+        let items = mode.steps.compactMap { k in summary(k).map { (k, $0) } }
+        return VStack(alignment: .leading, spacing: 8) {
+            section("Your workflow · top to bottom")
+            if items.isEmpty {
+                Text("Nothing yet. Switch a step on below.").font(.system(size: 11.5)).foregroundStyle(.secondary)
+            } else {
+                VStack(spacing: 5) {
+                    ForEach(Array(items.enumerated()), id: \.element.0) { n, it in
+                        HStack(spacing: 9) {
+                            Text("\(n + 1)").font(.system(size: 10, weight: .heavy, design: .rounded)).foregroundStyle(.secondary).frame(width: 14)
+                            Image(systemName: it.1.0).font(.system(size: 11, weight: .semibold)).foregroundStyle(.white)
+                                .frame(width: 24, height: 24).background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(it.1.1.opacity(0.9)))
+                            Text(it.1.2).font(.system(size: 12, weight: .semibold))
+                            Text(it.1.3).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, 8).padding(.vertical, 5)
+                        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(.white.opacity(0.06)))
+                        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(.white.opacity(0.1), lineWidth: 1))
+                        if n < items.count - 1 {
+                            Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold)).foregroundStyle(.secondary.opacity(0.6))
+                        }
+                    }
+                }
+            }
+        }
+        .padding(10).frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(.black.opacity(0.18)))
+        .animation(.easeOut(duration: 0.2), value: mode.steps)
     }
 
     func section(_ t: String) -> some View {

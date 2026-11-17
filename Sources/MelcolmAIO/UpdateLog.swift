@@ -24,6 +24,13 @@ enum UpdateLog {
 
     /// Newest first.
     static let all: [AppUpdate] = [
+        AppUpdate(version: "2.39", date: "November 16th, 2026", title: "See the whole workflow",
+                  improvements: [],
+                  fixes: [],
+                  features: [
+                      "When you edit a focus workflow, a small box at the top shows every step that will run, top to bottom, each in its own neat little box with its icon. It updates as you switch steps on and off or drag them into a new order.",
+                  ],
+                  icons: ["list.number", "rectangle.stack.fill"], tint: cyan),
         AppUpdate(version: "2.38", date: "November 16th, 2026", title: "Typing is just typing",
                   improvements: [],
                   fixes: [

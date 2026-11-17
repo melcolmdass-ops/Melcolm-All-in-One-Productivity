@@ -1,18 +1,32 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-  <key>CFBundleName</key><string>Melcolm All-in-One</string>
-  <key>CFBundleDisplayName</key><string>Melcolm All-in-One Productivity</string>
-  <key>CFBundleIdentifier</key><string>com.melcolm.allinone</string>
-  <key>CFBundleExecutable</key><string>MelcolmAIO</string>
-  <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>2.38</string>
-  <key>CFBundleVersion</key><string>38</string>
-  <key>LSMinimumSystemVersion</key><string>14.0</string>
-  <key>LSUIElement</key><true/>
-  <key>NSBluetoothAlwaysUsageDescription</key><string>Shows whether Bluetooth is on.</string>
-  <key>NSAppleEventsUsageDescription</key><string>Shows what's playing in Spotify and Music.</string>
-  <key>NSLocationWhenInUseUsageDescription</key><string>macOS needs this to show your Wi-Fi network name.</string>
+<plist version="1.0">
+<dict>
+	<key>CFBundleDisplayName</key>
+	<string>Melcolm All-in-One Productivity</string>
+	<key>CFBundleExecutable</key>
+	<string>MelcolmAIO</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.melcolm.allinone</string>
+	<key>CFBundleName</key>
+	<string>Melcolm All-in-One</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>2.39</string>
+	<key>CFBundleVersion</key>
+	<string>39</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.0</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Shows what's playing in Spotify and Music.</string>
 	<key>NSAudioCaptureUsageDescription</key>
 	<string>Melcolm listens to the sound your Mac plays so the music wave in the bar can move with the beat. Nothing is recorded or saved.</string>
-</dict></plist>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Shows whether Bluetooth is on.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>macOS needs this to show your Wi-Fi network name.</string>
+</dict>
+</plist>
