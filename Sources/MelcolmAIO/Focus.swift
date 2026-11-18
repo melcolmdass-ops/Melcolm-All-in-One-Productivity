@@ -618,7 +618,7 @@ enum FocusOverlay {
         let size = NSSize(width: 520, height: 108 + CGFloat(steps.count) * 48 + (showApps && steps.contains { !$0.icons.isEmpty } ? 34 : 0))
         let p = NSPanel(contentRect: NSRect(x: sc.frame.midX - size.width / 2, y: sc.frame.midY - size.height / 2, width: size.width, height: size.height),
                         styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-        p.isOpaque = false; p.backgroundColor = .clear; p.hasShadow = true; p.level = .statusBar
+        p.isOpaque = false; p.backgroundColor = .clear; p.hasShadow = true; p.level = .statusBar + 2   // above the island, even when it is open
         p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
         let m = OverlayModel()
         p.contentView = NSHostingView(rootView: FocusOverlayView(title: title, icon: icon, steps: steps, showApps: showApps, m: m) { hide() })
@@ -711,7 +711,7 @@ enum FocusDone {
         let size = NSSize(width: 380, height: 64)
         let p = NSPanel(contentRect: NSRect(x: sc.visibleFrame.midX - size.width / 2, y: sc.visibleFrame.minY + 60, width: size.width, height: size.height),
                         styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-        p.isOpaque = false; p.backgroundColor = .clear; p.hasShadow = true; p.level = .statusBar; p.ignoresMouseEvents = true
+        p.isOpaque = false; p.backgroundColor = .clear; p.hasShadow = true; p.level = .statusBar + 2   // above the island, even when it is open
         p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
         p.contentView = NSHostingView(rootView:
             HStack(spacing: 12) {
@@ -722,13 +722,15 @@ enum FocusDone {
             }
             .padding(.horizontal, 20).frame(width: size.width, height: size.height)
             .background(Capsule().fill(Color(white: 0.06).opacity(0.97)).overlay(Capsule().strokeBorder(Color.green.opacity(0.6), lineWidth: 1.5)))
+            .contentShape(Capsule()).onTapGesture { hide() }   // click to close early
             .preferredColorScheme(.dark))
         p.alphaValue = 0; p.orderFrontRegardless(); panel = p
         NSAnimationContext.runAnimationGroup { $0.duration = 0.25; p.animator().alphaValue = 1 }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-            guard panel === p else { return }
-            NSAnimationContext.runAnimationGroup({ $0.duration = 0.35; p.animator().alphaValue = 0 }, completionHandler: { p.orderOut(nil) })
-            panel = nil
-        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { if panel === p { hide() } }
+    }
+    static func hide() {
+        guard let p = panel else { return }
+        panel = nil
+        NSAnimationContext.runAnimationGroup({ $0.duration = 0.35; p.animator().alphaValue = 0 }, completionHandler: { p.orderOut(nil) })
     }
 }

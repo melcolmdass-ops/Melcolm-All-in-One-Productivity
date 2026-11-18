@@ -27,6 +27,7 @@ enum UpdateLog {
         AppUpdate(version: "2.41", date: "November 17th, 2026", title: "Double-tap keys, Space hotkeys, Notifications",
                   improvements: [],
                   fixes: [
+                      "The focus workflow message and the completed pop-up now sit above the bar even when it is open. Click either one to close it early.",
                       "Dragging a full-screen app onto any display's space area now lands it in that display's Spaces. Only the number itself means \"go to this desktop\".",
                   ],
                   features: [
