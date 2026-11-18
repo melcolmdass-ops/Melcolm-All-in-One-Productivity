@@ -19,6 +19,43 @@ final class NotificationsModel: ObservableObject {
     @Published var needsAccess = false
     @Published var loaded = false
     private var timer: Timer?
+    /// Everything delivered before this moment is hidden here ("Clear all").
+    private var clearedAt: Date { Date(timeIntervalSinceReferenceDate: Prefs.d.double(forKey: "notifClearedAt")) }
+
+    /// Hides everything in this list, and also asks Notification Center to dismiss what it is still showing.
+    func clearAll() {
+        Prefs.d.set(Date().timeIntervalSinceReferenceDate, forKey: "notifClearedAt")
+        items = []
+        DispatchQueue.global(qos: .userInitiated).async { Self.dismissOnScreen() }
+    }
+
+    /// Presses "Clear All" / "Close" on the banners and stacks Notification Center is showing (needs Accessibility).
+    private static func dismissOnScreen() {
+        guard AXIsProcessTrusted(),
+              let nc = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.notificationcenterui").first else { return }
+        let app = AXUIElementCreateApplication(nc.processIdentifier)
+        AXUIElementSetMessagingTimeout(app, 1)
+        func walk(_ e: AXUIElement, _ depth: Int) -> Bool {
+            var names: CFArray?
+            AXUIElementCopyActionNames(e, &names)
+            if let n = (names as? [String])?.first(where: { $0.contains("Clear All") }) ?? (names as? [String])?.first(where: { $0.contains("Close") }) {
+                AXUIElementPerformAction(e, n as CFString); return true
+            }
+            guard depth < 10 else { return false }
+            var kids: CFTypeRef?
+            AXUIElementCopyAttributeValue(e, kAXChildrenAttribute as CFString, &kids)
+            var any = false
+            for k in (kids as? [AXUIElement]) ?? [] { if walk(k, depth + 1) { any = true } }
+            return any
+        }
+        for _ in 0 ..< 8 {   // each press can reveal the next banner
+            var wins: CFTypeRef?
+            AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &wins)
+            let hit = ((wins as? [AXUIElement]) ?? []).map { walk($0, 0) }.contains(true)
+            if !hit { break }
+            Thread.sleep(forTimeInterval: 0.35)
+        }
+    }
     private var names: [String: String] = [:]
 
     /// Where macOS keeps the file (it moved in macOS 15).
@@ -48,13 +85,19 @@ final class NotificationsModel: ObservableObject {
                 self.loaded = true
                 switch r {
                 case .noAccess: self.needsAccess = true
-                case .ok(let l): self.needsAccess = false; if l != self.items { self.items = l }
+                case .ok(let l): self.needsAccess = false; let l = l.filter { $0.date > self.clearedAt }; if l != self.items { self.items = l }
                 }
             }
         }
     }
 
     private enum Result { case noAccess; case ok([Item]) }
+
+    private func log(_ m: String) {
+        let line = "\(Date()) \(m)\n"
+        if let h = FileHandle(forWritingAtPath: "/tmp/melcolm-notif.log") { h.seekToEndOfFile(); h.write(Data(line.utf8)); h.closeFile() }
+        else { try? line.write(toFile: "/tmp/melcolm-notif.log", atomically: true, encoding: .utf8) }
+    }
 
     private func read() -> Result {
         let fm = FileManager.default
@@ -66,11 +109,12 @@ final class NotificationsModel: ObservableObject {
         defer { try? fm.removeItem(atPath: tmp) }
         var copied = false
         for suffix in ["", "-wal", "-shm"] {
-            if (try? fm.copyItem(atPath: src + suffix, toPath: tmp + "/db" + suffix)) != nil, suffix.isEmpty { copied = true }
+            do { try fm.copyItem(atPath: src + suffix, toPath: tmp + "/db" + suffix); if suffix.isEmpty { copied = true } }
+            catch { log("copy \(suffix) failed: \(error)") }
         }
         guard copied else { return .noAccess }
         var db: OpaquePointer?
-        guard sqlite3_open_v2(tmp + "/db", &db, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK else { sqlite3_close(db); return .noAccess }
+        guard sqlite3_open_v2(tmp + "/db", &db, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK else { log("open failed"); sqlite3_close(db); return .noAccess }
         defer { sqlite3_close(db) }
         var apps: [Int64: String] = [:]
         var st: OpaquePointer?
@@ -79,7 +123,12 @@ final class NotificationsModel: ObservableObject {
         }
         sqlite3_finalize(st)
         var out: [Item] = []
-        guard sqlite3_prepare_v2(db, "SELECT rec_id, app_id, data, delivered_date FROM record ORDER BY delivered_date DESC LIMIT 60", -1, &st, nil) == SQLITE_OK else { return .ok([]) }
+        guard sqlite3_prepare_v2(db, "SELECT rec_id, app_id, data, delivered_date FROM record ORDER BY delivered_date DESC LIMIT 60", -1, &st, nil) == SQLITE_OK else {
+            log("query failed: \(String(cString: sqlite3_errmsg(db)))")
+            var t: OpaquePointer?; var names: [String] = []
+            if sqlite3_prepare_v2(db, "SELECT name FROM sqlite_master", -1, &t, nil) == SQLITE_OK { while sqlite3_step(t) == SQLITE_ROW { names.append(String(cString: sqlite3_column_text(t, 0))) } }
+            sqlite3_finalize(t); log("tables: \(names)")
+            return .ok([]) }
         defer { sqlite3_finalize(st) }
         while sqlite3_step(st) == SQLITE_ROW {
             let id = sqlite3_column_int64(st, 0)
@@ -140,6 +189,15 @@ struct NotificationsPage: View {
             } else if model.items.isEmpty {
                 Text(model.loaded ? "No notifications" : "Loading…").font(.system(size: 12)).foregroundStyle(.secondary).padding(.top, 20)
             } else {
+                HStack {
+                    Text("\(model.items.count) notification\(model.items.count == 1 ? "" : "s")").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
+                    Spacer()
+                    Button { withAnimation(.snappy(duration: 0.25)) { model.clearAll() } } label: {
+                        HStack(spacing: 4) { Image(systemName: "xmark.circle.fill"); Text("Clear all") }
+                            .font(.system(size: 11, weight: .bold)).foregroundStyle(.white)
+                            .padding(.horizontal, 10).frame(height: 24).background(Capsule().fill(.white.opacity(0.14)))
+                    }.buttonStyle(PressStyle())
+                }
                 ForEach(model.items) { n in
                     Button { NotificationsModel.open(n.bundle) } label: {
                         HStack(alignment: .top, spacing: 10) {
