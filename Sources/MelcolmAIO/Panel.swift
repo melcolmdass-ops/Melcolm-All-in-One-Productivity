@@ -3,7 +3,7 @@ import SwiftUI
 
 /// Every page the panel can show. `home` is the grid of buttons; the rest open from it.
 enum PanelPage: String, CaseIterable {
-    case home, nowPlaying, sound, brightness, network, batteries, awake, dark, timer, layouts, focus, settings
+    case home, nowPlaying, sound, brightness, network, batteries, awake, dark, timer, layouts, focus, notifications, settings
 
     /// Every page in your chosen order (Settings ▸ Pages, drag to reorder).
     static var listed: [PanelPage] {
@@ -27,14 +27,14 @@ enum PanelPage: String, CaseIterable {
         switch self {
         case .home: "Melcolm"; case .nowPlaying: "Now Playing"; case .sound: "Sound & Microphone"; case .brightness: "Brightness"
         case .network: "Wi-Fi & Bluetooth"; case .batteries: "Batteries"; case .awake: "Keep Awake"; case .dark: "Dark Mode"
-        case .timer: "Clock"; case .layouts: "Layouts"; case .focus: "Focus Workflows"; case .settings: "Settings"
+        case .timer: "Clock"; case .layouts: "Layouts"; case .focus: "Focus Workflows"; case .notifications: "Notifications"; case .settings: "Settings"
         }
     }
     var icon: String {
         switch self {
         case .home: "house"; case .nowPlaying: "music.note"; case .sound: "speaker.wave.2.fill"; case .brightness: "sun.max.fill"
         case .network: "wifi"; case .batteries: "battery.75percent"; case .awake: "cup.and.saucer.fill"
-        case .dark: "circle.lefthalf.filled"; case .timer: "timer"; case .layouts: "rectangle.split.2x2.fill"; case .focus: "moon.fill"; case .settings: "gearshape.fill"
+        case .dark: "circle.lefthalf.filled"; case .timer: "timer"; case .layouts: "rectangle.split.2x2.fill"; case .focus: "moon.fill"; case .notifications: "bell.badge.fill"; case .settings: "gearshape.fill"
         }
     }
 }
@@ -54,6 +54,7 @@ extension PanelPage {
         case .timer: return [c(0.32, 0.92, 0.58), c(0.20, 0.74, 0.82)]
         case .layouts: return [c(0.26, 0.82, 0.82), c(0.30, 0.55, 1.0)]
         case .focus: return [c(0.62, 0.40, 1.0), c(0.36, 0.30, 0.95)]
+        case .notifications: return [c(1.0, 0.36, 0.40), c(1.0, 0.58, 0.30)]
         default: return [accent, accent2]
         }
     }
@@ -105,6 +106,7 @@ struct PanelView: View {
         case .timer: TimerPage()
         case .layouts: LayoutsPage()
         case .focus: FocusPage()
+        case .notifications: NotificationsPage()
         case .settings: SettingsTab()
         case .home: EmptyView()
         }
@@ -207,6 +209,7 @@ struct HomePage: View {
         case .dark: return (system.dark ? "Dark" : "Light", system.dark)
         case .timer: return (timer.isActive ? timer.display : "Ready", timer.isActive)
         case .layouts: return ("Snap windows", true)
+        case .notifications: return ("See your Mac's alerts", true)
         case .focus: return (focus.active.flatMap { id in focus.modes.first { $0.id == id }?.name } ?? "Off", focus.active != nil)
         default: return ("", false)
         }

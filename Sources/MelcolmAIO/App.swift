@@ -278,6 +278,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func reloadHotkeys() {
+        DoubleTap.shared.commandIDs = Hotkeys.commands.map(\.id)
+        DoubleTap.shared.start()
         // Master Rule: while typing in one of our text boxes, only the open/close hotkey works.
         let g = { (f: @escaping () -> Void) -> () -> Void in { if !Island.typing(in: NSApp.keyWindow) { f() } } }
         Hotkeys.reload(actions: [
@@ -288,6 +290,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             "volUp": g { [weak self] in self?.sound.nudge(0.06) },
             "volDown": g { [weak self] in self?.sound.nudge(-0.06) },
             "mute": g { [weak self] in self?.sound.toggleMute() },
+            "spaceNext": g { [weak self] in self?.activeIsland?.spaces.step(1) },
+            "spacePrev": g { [weak self] in self?.activeIsland?.spaces.step(-1) },
         ], jump: { [weak self] n in if !Island.typing(in: NSApp.keyWindow) { self?.activeIsland?.spaces.jump(toNumber: n) } })
     }
 }

@@ -844,10 +844,12 @@ struct CommandRow: View {
     let c: Hotkeys.Command; let mods: String
     @AppStorage var key: String
     @AppStorage var on: Bool
+    @AppStorage var dbl: String
     init(c: Hotkeys.Command, mods: String) {
         self.c = c; self.mods = mods
         _key = AppStorage(wrappedValue: c.key, "cmd.\(c.id).key")
         _on = AppStorage(wrappedValue: c.on, Hotkeys.onKey(c.id))
+        _dbl = AppStorage(wrappedValue: "Off", DoubleTap.prefKey(c.id))
     }
     var body: some View {
         VStack(spacing: 0) {
@@ -859,6 +861,14 @@ struct CommandRow: View {
                     .labelsHidden().frame(width: 74)
                 Toggle("", isOn: $on).labelsHidden()
             }.frame(minHeight: 30)
+            HStack(spacing: 8) {
+                Text("or double-tap").font(.system(size: 11)).foregroundStyle(.secondary)
+                Spacer()
+                Picker("", selection: $dbl) {
+                    Text("Off").tag("Off")
+                    ForEach(DoubleTap.keys, id: \.label) { Text($0.label).tag($0.label) }
+                }.labelsHidden().frame(width: 110)
+            }.frame(minHeight: 26)
             Hairline().padding(.top, 6)
         }
     }

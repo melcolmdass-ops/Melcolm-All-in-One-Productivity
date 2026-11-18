@@ -24,6 +24,17 @@ enum UpdateLog {
 
     /// Newest first.
     static let all: [AppUpdate] = [
+        AppUpdate(version: "2.41", date: "November 17th, 2026", title: "Double-tap keys, Space hotkeys, Notifications",
+                  improvements: [],
+                  fixes: [
+                      "Dragging a full-screen app onto any display's space area now lands it in that display's Spaces. Only the number itself means \"go to this desktop\".",
+                  ],
+                  features: [
+                      "Commands: every command can now also run when you double-tap a key (Left or Right ⌘, ⌥, ⌃, ⇧ or fn), including open or close the bar.",
+                      "New commands: Next Space and Previous Space, with your own key.",
+                      "New Notifications page shows your Mac's notifications. macOS needs Full Disk Access for this, and the page has a button to open it.",
+                  ],
+                  icons: ["keyboard", "bell.badge.fill", "rectangle.on.rectangle"], tint: pink),
         AppUpdate(version: "2.40", date: "November 16th, 2026", title: "The bar stays put when you swipe",
                   improvements: [],
                   fixes: [

@@ -117,7 +117,7 @@ enum Hotkeys {
         ("Space", 49), ("←", 123), ("→", 124), ("↑", 126), ("↓", 125),
         ("A", 0), ("B", 11), ("C", 8), ("D", 2), ("E", 14), ("F", 3), ("G", 5), ("H", 4), ("I", 34), ("J", 38), ("K", 40),
         ("L", 37), ("M", 46), ("N", 45), ("O", 31), ("P", 35), ("Q", 12), ("R", 15), ("S", 1), ("T", 17), ("U", 32),
-        ("V", 9), ("W", 13), ("X", 7), ("Y", 16), ("Z", 6),
+        ("V", 9), ("W", 13), ("X", 7), ("Y", 16), ("Z", 6), ("[", 33), ("]", 30),
     ]
     struct Command: Identifiable { let id: String; let title: String; let key: String; let on: Bool }
     /// Every command: its name, the key it starts with, and whether it starts switched on.
@@ -129,6 +129,8 @@ enum Hotkeys {
         .init(id: "volUp", title: "Volume up", key: "↑", on: false),
         .init(id: "volDown", title: "Volume down", key: "↓", on: false),
         .init(id: "mute", title: "Mute", key: "M", on: false),
+        .init(id: "spaceNext", title: "Next Space", key: "→", on: false),
+        .init(id: "spacePrev", title: "Previous Space", key: "←", on: false),
     ]
     static let modifierChoices: [(id: String, label: String, flags: Int)] = [
         ("ctrlOpt", "⌃⌥", controlKey | optionKey), ("ctrlCmd", "⌃⌘", controlKey | cmdKey),
@@ -148,6 +150,7 @@ enum Hotkeys {
             }, 1, &spec, nil, nil)
             installed = true
         }
+        DoubleTap.shared.actions = actions
         refs.forEach { UnregisterEventHotKey($0) }
         refs = []; hotkeyActions = [:]
         let choice = Prefs.d.string(forKey: "cmdMods") ?? "ctrlOpt"
