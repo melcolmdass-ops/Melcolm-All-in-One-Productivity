@@ -7,7 +7,7 @@ enum PanelPage: String, CaseIterable {
 
     /// Every page in your chosen order (Settings ▸ Pages, drag to reorder).
     static var listed: [PanelPage] {
-        let all = allCases.filter { $0 != .home && $0 != .settings }
+        let all = allCases.filter { $0 != .home && $0 != .settings && $0 != .notifications }   // Notifications is its own tab
         var l = (Prefs.d.string(forKey: "pageOrder") ?? "").split(separator: ",").compactMap { PanelPage(rawValue: String($0)) }.filter(all.contains)
         for p in all where !l.contains(p) { l.append(p) }
         return l
@@ -64,13 +64,20 @@ extension PanelPage {
 struct PanelView: View {
     @EnvironmentObject var state: IslandState
     @AppStorage("settingsPage") var settingsPage = "General"
+    @ObservedObject var notes = NotificationsModel.shared
 
     var body: some View {
-        VStack(spacing: 6) {
-        if state.page == .home && !state.byHover { spaceHint }
+        VStack(spacing: 8) {
+        if state.page == .home || state.page == .notifications {
+            tabs
+            if !state.byHover { spaceHint }
+        }
         ZStack(alignment: .top) {
             if state.page == .home {
                 HomePage().transition(.opacity.combined(with: .scale(scale: 0.98)))
+            } else if state.page == .notifications {
+                ScrollView(showsIndicators: false) { NotificationsPage().frame(maxWidth: .infinity) }
+                    .transition(.opacity.combined(with: .move(edge: .trailing)))
             } else {
                 VStack(spacing: 12) {
                     HStack {
@@ -94,6 +101,32 @@ struct PanelView: View {
         }
         .padding(.horizontal, 18).padding(.top, 10).padding(.bottom, 16)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .onAppear { notes.start() }
+        .onDisappear { notes.stop() }
+    }
+
+    /// Home | Notifications. More tabs can be added here later.
+    var tabs: some View {
+        HStack(spacing: 6) {
+            tab("Home", "house.fill", .home)
+            tab("Notifications", "bell.fill", .notifications, badge: notes.items.count)
+            Spacer(minLength: 0)
+        }
+    }
+    func tab(_ title: String, _ icon: String, _ page: PanelPage, badge: Int = 0) -> some View {
+        let on = state.page == page
+        return Button { state.page = page } label: {
+            HStack(spacing: 6) {
+                Image(systemName: icon).font(.system(size: 11, weight: .bold))
+                Text(title).font(.system(size: 12, weight: .bold))
+                if badge > 0 { Text("\(badge)").font(.system(size: 10, weight: .heavy)).padding(.horizontal, 6).frame(height: 16).background(Capsule().fill(.white.opacity(0.2))) }
+            }
+            .foregroundStyle(on ? .white : .white.opacity(0.55))
+            .padding(.horizontal, 12).frame(height: 28)
+            .background(Capsule().fill(on ? AnyShapeStyle(accent.opacity(0.28)) : AnyShapeStyle(.white.opacity(0.06))))
+            .overlay(Capsule().strokeBorder(on ? accent : .clear, lineWidth: 1.2))
+            .contentShape(Capsule())
+        }.buttonStyle(PressStyle())
     }
 
     /// A short reminder under the bar (only when you open it yourself, not on hover): the arrows change Space and wrap around.
@@ -122,7 +155,9 @@ struct PanelView: View {
                     .foregroundStyle(accent)
             }.buttonStyle(.plain)
         }
-        .padding(.horizontal, 2).frame(height: 20)
+        .padding(.horizontal, 10).frame(height: 28)
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(accent.opacity(0.08))
+            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(accent.opacity(0.55), lineWidth: 1)))
         .transition(.opacity)
     }
 

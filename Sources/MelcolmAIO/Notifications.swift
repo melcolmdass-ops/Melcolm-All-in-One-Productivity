@@ -2,8 +2,8 @@ import AppKit
 import SQLite3
 import SwiftUI
 
-/// Your Mac's notifications, read from the Notification Center database.
-/// macOS has no public way to list them, so this reads that file, which needs Full Disk Access.
+/// Your Mac's notifications, read from the Notification Center database (needs Full Disk Access),
+/// and filtered by the Mac's own Notification settings so only apps that are turned on show up.
 final class NotificationsModel: ObservableObject {
     struct Item: Identifiable, Equatable {
         let id: Int64
@@ -14,13 +14,42 @@ final class NotificationsModel: ObservableObject {
         let body: String
         let date: Date
     }
+    struct Group: Identifiable, Equatable {
+        let bundle: String
+        let app: String
+        let items: [Item]
+        var id: String { bundle }
+    }
+
+    static let shared = NotificationsModel()
 
     @Published var items: [Item] = []
     @Published var needsAccess = false
     @Published var loaded = false
+    @Published var expanded = Set<String>()     // apps showing all their notifications
     private var timer: Timer?
+    private var names: [String: String] = [:]
+    private var watchers = 0
+
+    /// Newest app first, each app's notifications newest first.
+    var groups: [Group] {
+        var order: [String] = []
+        var by: [String: [Item]] = [:]
+        for i in items { if by[i.bundle] == nil { order.append(i.bundle) }; by[i.bundle, default: []].append(i) }
+        return order.map { Group(bundle: $0, app: by[$0]![0].app, items: by[$0]!) }
+    }
+
+    // MARK: Clearing
+
     /// Everything delivered before this moment is hidden here ("Clear all").
     private var clearedAt: Date { Date(timeIntervalSinceReferenceDate: Prefs.d.double(forKey: "notifClearedAt")) }
+    private var clearedApp: [String: Double] { (Prefs.d.dictionary(forKey: "notifClearedApp") as? [String: Double]) ?? [:] }
+
+    func clear(app bundle: String) {
+        var d = clearedApp; d[bundle] = Date().timeIntervalSinceReferenceDate
+        Prefs.d.set(d, forKey: "notifClearedApp")
+        items.removeAll { $0.bundle == bundle }
+    }
 
     /// Hides everything in this list, and also asks Notification Center to dismiss what it is still showing.
     func clearAll() {
@@ -56,12 +85,11 @@ final class NotificationsModel: ObservableObject {
             Thread.sleep(forTimeInterval: 0.35)
         }
     }
-    private var names: [String: String] = [:]
 
-    /// Where macOS keeps the file (it moved in macOS 15).
+    // MARK: Reading
+
     private var candidates: [String] {
-        let home = NSHomeDirectory()
-        var l = ["\(home)/Library/Group Containers/group.com.apple.usernoted/db2/db"]
+        var l = ["\(NSHomeDirectory())/Library/Group Containers/group.com.apple.usernoted/db2/db"]
         if let d = Self.darwinUserDir() { l.append("\(d)com.apple.notificationcenter/db2/db") }
         return l
     }
@@ -71,12 +99,17 @@ final class NotificationsModel: ObservableObject {
         return String(cString: buf)
     }
 
+    /// Keep reading while a notifications view is on screen.
     func start() {
+        watchers += 1
         reload()
-        timer?.invalidate()
+        guard timer == nil else { return }
         timer = Timer.scheduledTimer(withTimeInterval: 4, repeats: true) { [weak self] _ in self?.reload() }
     }
-    func stop() { timer?.invalidate(); timer = nil }
+    func stop() {
+        watchers = max(0, watchers - 1)
+        if watchers == 0 { timer?.invalidate(); timer = nil }
+    }
 
     func reload() {
         DispatchQueue.global(qos: .utility).async {
@@ -85,7 +118,11 @@ final class NotificationsModel: ObservableObject {
                 self.loaded = true
                 switch r {
                 case .noAccess: self.needsAccess = true
-                case .ok(let l): self.needsAccess = false; let l = l.filter { $0.date > self.clearedAt }; if l != self.items { self.items = l }
+                case .ok(let l):
+                    self.needsAccess = false
+                    let all = self.clearedApp
+                    let l = l.filter { $0.date > self.clearedAt && $0.date > Date(timeIntervalSinceReferenceDate: all[$0.bundle] ?? 0) }
+                    if l != self.items { self.items = l }
                 }
             }
         }
@@ -93,10 +130,19 @@ final class NotificationsModel: ObservableObject {
 
     private enum Result { case noAccess; case ok([Item]) }
 
-    private func log(_ m: String) {
-        let line = "\(Date()) \(m)\n"
-        if let h = FileHandle(forWritingAtPath: "/tmp/melcolm-notif.log") { h.seekToEndOfFile(); h.write(Data(line.utf8)); h.closeFile() }
-        else { try? line.write(toFile: "/tmp/melcolm-notif.log", atomically: true, encoding: .utf8) }
+    /// Apps you turned notifications off for in System Settings ▸ Notifications (lower-case bundle ids).
+    /// "auth" is the permission mask: 4 = alerts. 0, or badge/sound only, means the app can't show notifications.
+    private func turnedOff() -> Set<String> {
+        let pl = NSHomeDirectory() + "/Library/Group Containers/group.com.apple.usernoted/Library/Preferences/group.com.apple.usernoted.plist"
+        guard let d = FileManager.default.contents(atPath: pl),
+              let o = try? PropertyListSerialization.propertyList(from: d, options: [], format: nil) as? [String: Any],
+              let apps = o["apps"] as? [[String: Any]] else { return [] }
+        var off = Set<String>()
+        for a in apps {
+            guard let id = a["bundle-id"] as? String, let auth = a["auth"] as? Int else { continue }
+            if auth & 4 == 0 { off.insert(id.lowercased()) }
+        }
+        return off
     }
 
     private func read() -> Result {
@@ -109,12 +155,11 @@ final class NotificationsModel: ObservableObject {
         defer { try? fm.removeItem(atPath: tmp) }
         var copied = false
         for suffix in ["", "-wal", "-shm"] {
-            do { try fm.copyItem(atPath: src + suffix, toPath: tmp + "/db" + suffix); if suffix.isEmpty { copied = true } }
-            catch { log("copy \(suffix) failed: \(error)") }
+            if (try? fm.copyItem(atPath: src + suffix, toPath: tmp + "/db" + suffix)) != nil, suffix.isEmpty { copied = true }
         }
         guard copied else { return .noAccess }
         var db: OpaquePointer?
-        guard sqlite3_open_v2(tmp + "/db", &db, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK else { log("open failed"); sqlite3_close(db); return .noAccess }
+        guard sqlite3_open_v2(tmp + "/db", &db, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK else { sqlite3_close(db); return .noAccess }
         defer { sqlite3_close(db) }
         var apps: [Int64: String] = [:]
         var st: OpaquePointer?
@@ -122,25 +167,20 @@ final class NotificationsModel: ObservableObject {
             while sqlite3_step(st) == SQLITE_ROW { apps[sqlite3_column_int64(st, 0)] = String(cString: sqlite3_column_text(st, 1)) }
         }
         sqlite3_finalize(st)
+        let off = turnedOff()
         var out: [Item] = []
-        guard sqlite3_prepare_v2(db, "SELECT rec_id, app_id, data, delivered_date FROM record ORDER BY delivered_date DESC LIMIT 60", -1, &st, nil) == SQLITE_OK else {
-            log("query failed: \(String(cString: sqlite3_errmsg(db)))")
-            var t: OpaquePointer?; var names: [String] = []
-            if sqlite3_prepare_v2(db, "SELECT name FROM sqlite_master", -1, &t, nil) == SQLITE_OK { while sqlite3_step(t) == SQLITE_ROW { names.append(String(cString: sqlite3_column_text(t, 0))) } }
-            sqlite3_finalize(t); log("tables: \(names)")
-            return .ok([]) }
+        guard sqlite3_prepare_v2(db, "SELECT rec_id, app_id, data, delivered_date FROM record ORDER BY delivered_date DESC LIMIT 200", -1, &st, nil) == SQLITE_OK else { return .ok([]) }
         defer { sqlite3_finalize(st) }
         while sqlite3_step(st) == SQLITE_ROW {
             let id = sqlite3_column_int64(st, 0)
             let bundle = apps[sqlite3_column_int64(st, 1)] ?? ""
+            if off.contains(bundle.lowercased()) { continue }
             let secs = sqlite3_column_double(st, 3)
             guard let p = sqlite3_column_blob(st, 2) else { continue }
             let data = Data(bytes: p, count: Int(sqlite3_column_bytes(st, 2)))
             guard let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Any] else { continue }
             let req = plist["req"] as? [String: Any] ?? [:]
-            let title = (req["titl"] as? String) ?? ""
-            let sub = (req["subt"] as? String) ?? ""
-            let body = (req["body"] as? String) ?? ""
+            let title = (req["titl"] as? String) ?? "", sub = (req["subt"] as? String) ?? "", body = (req["body"] as? String) ?? ""
             if title.isEmpty && sub.isEmpty && body.isEmpty { continue }
             out.append(Item(id: id, bundle: bundle, app: appName(bundle), title: title, subtitle: sub, body: body,
                             date: Date(timeIntervalSinceReferenceDate: secs)))
@@ -150,22 +190,27 @@ final class NotificationsModel: ObservableObject {
 
     private func appName(_ bundle: String) -> String {
         if let n = names[bundle] { return n }
-        var n = bundle.split(separator: ".").last.map(String.init)?.capitalized ?? bundle
-        if let u = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundle) { n = FileManager.default.displayName(atPath: u.path).replacingOccurrences(of: ".app", with: "") }
+        let id = bundle.split(separator: ":").last.map(String.init) ?? bundle
+        var n = id.split(separator: ".").last.map(String.init)?.capitalized ?? id
+        if let u = NSWorkspace.shared.urlForApplication(withBundleIdentifier: id) { n = FileManager.default.displayName(atPath: u.path).replacingOccurrences(of: ".app", with: "") }
         names[bundle] = n
         return n
     }
 
     static func icon(_ bundle: String) -> NSImage? {
-        NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundle).map { NSWorkspace.shared.icon(forFile: $0.path) }
+        let id = bundle.split(separator: ":").last.map(String.init) ?? bundle
+        return NSWorkspace.shared.urlForApplication(withBundleIdentifier: id).map { NSWorkspace.shared.icon(forFile: $0.path) }
     }
     static func open(_ bundle: String) {
-        if let u = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundle) { NSWorkspace.shared.open(u); openedOutside() }
+        let id = bundle.split(separator: ":").last.map(String.init) ?? bundle
+        if let u = NSWorkspace.shared.urlForApplication(withBundleIdentifier: id) { NSWorkspace.shared.open(u); openedOutside() }
     }
 }
 
+/// The Notifications tab: grouped by app, only apps that are on in System Settings ▸ Notifications.
 struct NotificationsPage: View {
-    @StateObject private var model = NotificationsModel()
+    @ObservedObject private var model = NotificationsModel.shared
+    private let preview = 3
 
     var body: some View {
         VStack(spacing: 10) {
@@ -177,7 +222,7 @@ struct NotificationsPage: View {
                                 .frame(width: 38, height: 38).background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(accent))
                             VStack(alignment: .leading, spacing: 3) {
                                 Text("Allow notifications").font(.system(size: 14, weight: .bold))
-                                Text("macOS keeps notifications private. To show them here, add Melcolm All-in-One under Full Disk Access, then come back.")
+                                Text("macOS keeps notifications private. To show them here, add Melcolm All-in-One under Full Disk Access, then quit and reopen the app.")
                                     .font(.system(size: 11.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                             }
                         }
@@ -186,46 +231,78 @@ struct NotificationsPage: View {
                         }
                     }.padding(.vertical, 4)
                 }
-            } else if model.items.isEmpty {
-                Text(model.loaded ? "No notifications" : "Loading…").font(.system(size: 12)).foregroundStyle(.secondary).padding(.top, 20)
             } else {
-                HStack {
-                    Text("\(model.items.count) notification\(model.items.count == 1 ? "" : "s")").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    Text(model.items.isEmpty ? "Matches your Mac's Notification settings" : "\(model.items.count) from \(model.groups.count) app\(model.groups.count == 1 ? "" : "s")")
+                        .font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
                     Spacer()
-                    Button { withAnimation(.snappy(duration: 0.25)) { model.clearAll() } } label: {
-                        HStack(spacing: 4) { Image(systemName: "xmark.circle.fill"); Text("Clear all") }
-                            .font(.system(size: 11, weight: .bold)).foregroundStyle(.white)
-                            .padding(.horizontal, 10).frame(height: 24).background(Capsule().fill(.white.opacity(0.14)))
-                    }.buttonStyle(PressStyle())
+                    Button { SystemModel.open("com.apple.Notifications-Settings.extension") } label: {
+                        Image(systemName: "gearshape").font(.system(size: 11, weight: .semibold)).frame(width: 24, height: 24)
+                            .background(Circle().fill(.white.opacity(0.1)))
+                    }.buttonStyle(PressStyle()).help("Notification settings")
+                    if !model.items.isEmpty {
+                        Button { withAnimation(.snappy(duration: 0.25)) { model.clearAll() } } label: {
+                            HStack(spacing: 4) { Image(systemName: "xmark.circle.fill"); Text("Clear all") }
+                                .font(.system(size: 11, weight: .bold)).foregroundStyle(.white)
+                                .padding(.horizontal, 10).frame(height: 24).background(Capsule().fill(.white.opacity(0.14)))
+                        }.buttonStyle(PressStyle())
+                    }
                 }
-                ForEach(model.items) { n in
-                    Button { NotificationsModel.open(n.bundle) } label: {
-                        HStack(alignment: .top, spacing: 10) {
-                            Group {
-                                if let i = NotificationsModel.icon(n.bundle) { Image(nsImage: i).resizable() }
-                                else { Image(systemName: "bell.fill").foregroundStyle(accent) }
-                            }.frame(width: 30, height: 30)
-                            VStack(alignment: .leading, spacing: 2) {
-                                HStack {
-                                    Text(n.app.uppercased()).font(.system(size: 9.5, weight: .heavy)).kerning(0.6).foregroundStyle(.secondary)
-                                    Spacer()
-                                    Text(n.date, style: .relative).font(.system(size: 10)).foregroundStyle(.tertiary)
-                                }
-                                if !n.title.isEmpty { Text(n.title).font(.system(size: 12.5, weight: .bold)).lineLimit(1) }
-                                if !n.subtitle.isEmpty { Text(n.subtitle).font(.system(size: 11.5, weight: .semibold)).lineLimit(1) }
-                                if !n.body.isEmpty { Text(n.body).font(.system(size: 11.5)).foregroundStyle(.white.opacity(0.75)).lineLimit(3) }
-                            }
-                            Spacer(minLength: 0)
-                        }
-                        .padding(10).frame(maxWidth: .infinity, alignment: .leading)
-                        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color(white: 0.105))
-                            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(.white.opacity(0.08), lineWidth: 1)))
-                        .contentShape(Rectangle())
-                    }.buttonStyle(PressStyle())
+                if model.items.isEmpty {
+                    Text(model.loaded ? "No notifications" : "Loading…").font(.system(size: 12)).foregroundStyle(.secondary).padding(.top, 24)
                 }
+                ForEach(model.groups) { g in group(g) }
             }
         }
         .onAppear { model.start() }
         .onDisappear { model.stop() }
+    }
+
+    func group(_ g: NotificationsModel.Group) -> some View {
+        let open = model.expanded.contains(g.bundle)
+        let shown = open ? g.items : Array(g.items.prefix(preview))
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                Button { NotificationsModel.open(g.bundle) } label: {
+                    HStack(spacing: 8) {
+                        Group {
+                            if let i = NotificationsModel.icon(g.bundle) { Image(nsImage: i).resizable() }
+                            else { Image(systemName: "bell.fill").foregroundStyle(accent) }
+                        }.frame(width: 22, height: 22)
+                        Text(g.app.uppercased()).font(.system(size: 10.5, weight: .heavy)).kerning(0.6)
+                        Text("\(g.items.count)").font(.system(size: 10, weight: .bold)).padding(.horizontal, 6).frame(height: 16)
+                            .background(Capsule().fill(.white.opacity(0.14)))
+                    }.contentShape(Rectangle())
+                }.buttonStyle(.plain).help("Open \(g.app)")
+                Spacer()
+                Button { withAnimation(.snappy(duration: 0.25)) { model.clear(app: g.bundle) } } label: {
+                    Image(systemName: "xmark").font(.system(size: 9, weight: .bold)).frame(width: 20, height: 20)
+                        .background(Circle().fill(.white.opacity(0.1)))
+                }.buttonStyle(PressStyle()).help("Clear \(g.app)")
+            }
+            .padding(.horizontal, 12).padding(.top, 10).padding(.bottom, 6)
+            ForEach(shown) { n in
+                Hairline().padding(.horizontal, 12)
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(n.title.isEmpty ? (n.subtitle.isEmpty ? n.body : n.subtitle) : n.title).font(.system(size: 12.5, weight: .bold)).lineLimit(1)
+                        Spacer(minLength: 6)
+                        Text(n.date, style: .relative).font(.system(size: 10)).foregroundStyle(.tertiary).lineLimit(1)
+                    }
+                    if !n.title.isEmpty, !n.subtitle.isEmpty { Text(n.subtitle).font(.system(size: 11.5, weight: .semibold)).lineLimit(1) }
+                    if !n.title.isEmpty || !n.subtitle.isEmpty, !n.body.isEmpty {
+                        Text(n.body).font(.system(size: 11.5)).foregroundStyle(.white.opacity(0.72)).lineLimit(2)
+                    }
+                }.padding(.horizontal, 12).padding(.vertical, 7).frame(maxWidth: .infinity, alignment: .leading)
+            }
+            if g.items.count > preview {
+                Button { withAnimation(.snappy(duration: 0.25)) { if open { model.expanded.remove(g.bundle) } else { model.expanded.insert(g.bundle) } } } label: {
+                    Text(open ? "Show less" : "Show \(g.items.count - preview) more").font(.system(size: 11, weight: .semibold)).foregroundStyle(accent)
+                        .frame(maxWidth: .infinity).padding(.vertical, 8)
+                }.buttonStyle(.plain)
+            } else { Color.clear.frame(height: 4) }
+        }
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color(white: 0.105))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(.white.opacity(0.08), lineWidth: 1)))
     }
 }
