@@ -555,6 +555,16 @@ final class Island: NSObject {
         }
     }
 
+    /// Arrow keys change Space. Landing on a full-screen app hands the keyboard to that app, so the bar takes it back
+    /// once macOS has finished switching; that is what lets you keep pressing.
+    func stepSpace(_ delta: Int) {
+        spaces.step(delta, wrap: true)
+        for t in [0.5, 0.9, 1.4] { DispatchQueue.main.asyncAfter(deadline: .now() + t) { [weak self] in
+            guard let self, state.expanded, !panel.isKeyWindow else { return }
+            panel.makeKey()
+        } }
+    }
+
     func handleKey(_ e: NSEvent) -> Bool {
         // MASTER RULE: while you're typing in a text box, keys type. No shortcut fires (space doesn't
         // play music, numbers don't switch Spaces). Only the open/close hotkey still works (it's global).
@@ -564,8 +574,8 @@ final class Island: NSObject {
         case 49: playing.playPause(); return true                       // space
         case 126: sound.nudge(0.06); return true                        // up
         case 125: sound.nudge(-0.06); return true                       // down
-        case 123: spaces.step(-1, wrap: true); return true                          // left
-        case 124: spaces.step(1, wrap: true); return true                           // right
+        case 123: stepSpace(-1); return true                          // left
+        case 124: stepSpace(1); return true                           // right
         default:
             if let c = e.charactersIgnoringModifiers, let n = Int(c), n > 0 { spaces.jump(toNumber: n); return true }
             if e.charactersIgnoringModifiers == "," { state.page = state.page == .settings ? .home : .settings; return true }

@@ -110,9 +110,9 @@ struct PanelView: View {
         let dbl = ["spacePrev", "spaceNext"].compactMap { Prefs.d.string(forKey: DoubleTap.prefKey($0)) }.filter { $0 != "Off" }
         return HStack(spacing: 6) {
             key("←"); key("→")
-            Text("switch Space · wraps around").font(.system(size: 10.5, weight: .medium)).foregroundStyle(.secondary)
+            Text("switch Space · wraps · only while the bar is open").font(.system(size: 10.5, weight: .medium)).foregroundStyle(.secondary).lineLimit(1)
             if let a = hotkey("spacePrev", "←"), let b = hotkey("spaceNext", "→") {
-                Text("· anywhere: \(a) \(b)").font(.system(size: 10.5)).foregroundStyle(.tertiary)
+                Text("· anywhere: \(a) \(b)").font(.system(size: 10.5)).foregroundStyle(.tertiary).lineLimit(1)
             } else if !dbl.isEmpty {
                 Text("· anywhere: double-tap \(dbl.joined(separator: " / "))").font(.system(size: 10.5)).foregroundStyle(.tertiary)
             }
