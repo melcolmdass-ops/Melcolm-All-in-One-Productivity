@@ -85,6 +85,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let i = self?.islands.first(where: { $0.screenID == screen }) ?? self?.islands.first else { return }
             if let text { i.peek(.init(text: text, icon: "macwindow.and.arrow.down"), for: 0) } else { i.endPeek() }
         }
+        ArrowKeys.shared.wants = { [weak self] in
+            guard let self, let i = self.islands.first(where: { $0.state.expanded }) else { return false }
+            return !Island.typing(in: NSApp.keyWindow) && i.state.page != .settings
+        }
+        ArrowKeys.shared.step = { [weak self] d in self?.islands.first(where: { $0.state.expanded })?.stepSpace(d) }
+        ArrowKeys.shared.start()
         OptionDrag.shared.start()
         Installed.loadShortcuts()
         // For testing: `-debugFocusOverlay YES` shows the focus feedback with what's running now.
@@ -559,7 +565,7 @@ final class Island: NSObject {
     /// once macOS has finished switching; that is what lets you keep pressing.
     func stepSpace(_ delta: Int) {
         spaces.step(delta, wrap: true)
-        for t in [0.5, 0.9, 1.4] { DispatchQueue.main.asyncAfter(deadline: .now() + t) { [weak self] in
+        for t in [0.12, 0.4, 0.9] { DispatchQueue.main.asyncAfter(deadline: .now() + t) { [weak self] in
             guard let self, state.expanded, !panel.isKeyWindow else { return }
             panel.makeKey()
         } }

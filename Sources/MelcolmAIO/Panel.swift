@@ -69,8 +69,8 @@ struct PanelView: View {
     var body: some View {
         VStack(spacing: 8) {
         if state.page == .home || state.page == .notifications {
-            tabs
             if !state.byHover { spaceHint }
+            tabs
         }
         ZStack(alignment: .top) {
             if state.page == .home {
