@@ -75,10 +75,10 @@ struct PanelView: View {
         }
         ZStack(alignment: .top) {
             if state.page == .home {
-                HomePage().transition(.opacity.combined(with: .scale(scale: 0.98)))
+                HomePage().transition(.opacity)
             } else if state.page == .notifications {
                 ScrollView(showsIndicators: false) { NotificationsPage().frame(maxWidth: .infinity) }
-                    .transition(.opacity.combined(with: .move(edge: .trailing)))
+                    .transition(.opacity)
             } else {
                 VStack(spacing: 12) {
                     HStack {
@@ -98,7 +98,7 @@ struct PanelView: View {
                 .transition(.opacity.combined(with: .move(edge: .trailing)))
             }
         }
-        .animation(.snappy(duration: 0.25), value: state.page)
+        .animation(.easeInOut(duration: 0.2), value: state.page)
         }
         .padding(.horizontal, 18).padding(.top, 10).padding(.bottom, 16)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)

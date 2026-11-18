@@ -29,6 +29,7 @@ enum UpdateLog {
                   fixes: [
                       "The focus workflow message and the completed pop-up now sit above the bar even when it is open. Click either one to close it early.",
                       "The open panel no longer covers an app's menus (Chrome's, for example) and keeps the same size when you switch apps: it only grows when something new has to fit. New Master Rule: The bar only resizes when it has to.",
+                      "Smoother, no blinking: when switching apps moves the displays across the notch the bar now glides instead of jumping, a menu reading that fails no longer flips the layout back and forth, the bar is no longer re-ordered in the middle of a Space switch, and Home to Notifications fades.",
                       "Dragging a full-screen app onto any display's space area now lands it in that display's Spaces. Only the number itself means \"go to this desktop\".",
                   ],
                   features: [

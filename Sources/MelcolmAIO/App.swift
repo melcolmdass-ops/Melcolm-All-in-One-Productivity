@@ -410,11 +410,16 @@ final class Island: NSObject {
                 // Only step in when the bar is really missing. Re-applying the window settings or
                 // re-ordering it on every swipe made it blink out and back in.
                 let isTick = n.name.rawValue == "tick"
+                let missing = { (p: NSPanel) in !p.isOnActiveSpace || !p.isVisible }
                 let fix = { [weak p] in
-                    guard let p, !p.isOnActiveSpace || !p.isVisible else { return }
-                    let all: NSWindow.CollectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
-                    if p.collectionBehavior != all { p.collectionBehavior = all }
-                    p.orderFrontRegardless()
+                    guard let p, missing(p) else { return }
+                    // Mid-switch macOS briefly says the bar is off this Space; only act if it is still gone a moment later.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak p] in
+                        guard let p, missing(p) else { return }
+                        let all: NSWindow.CollectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
+                        if p.collectionBehavior != all { p.collectionBehavior = all }
+                        p.orderFrontRegardless()
+                    }
                 }
                 if isTick { fix() } else { DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: fix) }
             }
@@ -422,7 +427,7 @@ final class Island: NSObject {
         // Menus are built a moment after an app comes forward; look again then.
         NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didActivateApplicationNotification)
             .delay(for: .milliseconds(350), scheduler: RunLoop.main)
-            .sink { [weak self] _ in self?.relayout() }
+            .sink { [weak self] _ in self?.relayout(); DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { self?.relayout() } }
             .store(in: &bag)
     }
 
@@ -458,6 +463,7 @@ final class Island: NSObject {
         let h = Prefs.d.string(forKey: "heightMode") == "custom" ? CGFloat(Prefs.d.double(forKey: "customHeight")) : screenBar
         icon = Layout.icon(forBar: h)
         let groups = spaces.displays.map { Layout.groupWidth($0, icon: ic, m: spaces) }
+        var flipped = false
         func strip(_ g: ArraySlice<CGFloat>) -> CGFloat { g.reduce(0, +) + CGFloat(max(0, g.count - 1)) * Layout.chipGap }
         if state.notchWidth > 0, let screen {
             // Display 1 left of the notch, the others right of it; both sides equally wide so it stays centred.
@@ -473,10 +479,14 @@ final class Island: NSObject {
             if k > 0,
                let menuEnd = MenuBar.rightEdge(on: screen),
                screen.frame.midX - state.notchWidth / 2 - wings(k).0 < menuEnd + 6 { k = 0; blocked = true }
-            if state.menusInTheWay != blocked { state.menusInTheWay = blocked }
-            if state.leftDisplays != k { state.leftDisplays = k }
             let (l, r) = wings(k)
-            set(&state.leftWing, l); set(&state.rightWing, r)
+            // Moving the displays across the notch glides instead of jumping.
+            flipped = state.leftDisplays != k || state.menusInTheWay != blocked
+            withAnimation(flipped ? .easeInOut(duration: 0.28) : nil) {
+                if state.menusInTheWay != blocked { state.menusInTheWay = blocked }
+                if state.leftDisplays != k { state.leftDisplays = k }
+                set(&state.leftWing, l); set(&state.rightWing, r)
+            }
         } else {
             if state.leftDisplays != groups.count { state.leftDisplays = groups.count }
             set(&state.leftWing, 24 + strip(groups[...]) + 18); set(&state.rightWing, 24 + status + 18)
@@ -487,7 +497,12 @@ final class Island: NSObject {
         // Give the hover bar room to breathe, without moving the top bar.
         set(&state.peekExtra, state.peek != nil && baseW < minPeek ? (minPeek - baseW) / 2 : 0)
         let f = frame(expanded: state.expanded)
-        if !state.expanded, f != panel.frame {
+        if !state.expanded, f != panel.frame, flipped {
+            NSAnimationContext.runAnimationGroup { c in
+                c.duration = 0.28; c.allowsImplicitAnimation = true
+                panel.animator().setFrame(f, display: true)
+            }
+        } else if !state.expanded, f != panel.frame {
             NSAnimationContext.runAnimationGroup { c in
                 c.duration = 0; c.allowsImplicitAnimation = false
                 panel.setFrame(f, display: false)
@@ -719,7 +734,11 @@ enum MenuBar {
         let pid = (NSWorkspace.shared.menuBarOwningApplication ?? NSWorkspace.shared.frontmostApplication)?.processIdentifier ?? 0
         let reach: CGFloat?
         if let c = cache, c.pid == pid, Date().timeIntervalSince(c.at) < 2 { reach = c.reach }
-        else { reach = read(); cache = (pid, reach, Date()) }
+        else {
+            // A read that fails (the app is busy) keeps the last answer for this app, so the bar doesn't flip back and forth.
+            reach = read() ?? (cache?.pid == pid ? cache?.reach : nil)
+            cache = (pid, reach, Date())
+        }
         return reach.map { screen.frame.minX + $0 }
     }
     /// The right end of the last menu, measured from the left edge of the screen it is on.
