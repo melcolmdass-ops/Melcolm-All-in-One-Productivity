@@ -34,6 +34,7 @@ enum UpdateLog {
                       "When you open the bar yourself (not on hover), a short line under the bar reminds you that ← → switch Spaces, with a Change keys link to Commands.",
                       "Switching Spaces with the arrows or the Next/Previous commands now wraps around: past the last Space you land on the first.",
                       "Settings ▸ Colors is now Colors & Display with two tabs. Display holds the Box style (Outlined, Soft, Minimal) and an on/off tick for the Space reminder, each with a picture.",
+                      "Commands: each command now has a small picture and ONE trigger in a single dropdown: a hotkey, a double-tap, or Off (never both). Rows keep the same height.",
                       "New commands: Next Space and Previous Space, with your own key.",
                       "Notifications is now its own tab next to Home (Home | Notifications), grouped by app, newest app first, with Show more per app. Only apps that are turned on in System Settings ▸ Notifications appear. It needs Full Disk Access (quit and reopen the app after allowing it).",
                       "Notifications has Clear all (empties the list and dismisses the banners still showing) and a clear button on each app.",

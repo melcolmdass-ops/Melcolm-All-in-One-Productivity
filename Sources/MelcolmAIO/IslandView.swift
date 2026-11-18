@@ -869,7 +869,7 @@ struct CommandRow: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                Text(c.title).font(.system(size: 12.5, weight: .medium)).lineLimit(1).frame(width: 120, alignment: .leading)
+                Text(c.title).font(.system(size: 12.5, weight: .medium)).lineLimit(1).minimumScaleFactor(0.85).frame(width: 160, alignment: .leading)
                 Spacer(minLength: 0)
                 CommandPicture(id: c.id)
                 Spacer(minLength: 0)
@@ -879,7 +879,7 @@ struct CommandRow: View {
                     ForEach(Hotkeys.keys, id: \.label) { Text("\(mods) \($0.label)").tag("key:\($0.label)") }
                     Divider()
                     ForEach(DoubleTap.keys, id: \.label) { Text("Double-tap \($0.label)").tag("dbl:\($0.label)") }
-                }.labelsHidden().frame(width: 150)
+                }.labelsHidden().frame(width: 140)
             }.frame(minHeight: 30)
             Hairline().padding(.top, 6)
         }
