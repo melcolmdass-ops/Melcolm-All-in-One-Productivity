@@ -117,7 +117,7 @@ enum Hotkeys {
         ("Space", 49), ("←", 123), ("→", 124), ("↑", 126), ("↓", 125),
         ("A", 0), ("B", 11), ("C", 8), ("D", 2), ("E", 14), ("F", 3), ("G", 5), ("H", 4), ("I", 34), ("J", 38), ("K", 40),
         ("L", 37), ("M", 46), ("N", 45), ("O", 31), ("P", 35), ("Q", 12), ("R", 15), ("S", 1), ("T", 17), ("U", 32),
-        ("V", 9), ("W", 13), ("X", 7), ("Y", 16), ("Z", 6), ("[", 33), ("]", 30),
+        ("V", 9), ("W", 13), ("X", 7), ("Y", 16), ("Z", 6), ("[", 33), ("]", 30), (",", 43),
     ]
     struct Command: Identifiable { let id: String; let title: String; let key: String; let on: Bool }
     /// Every command: its name, the key it starts with, and whether it starts switched on.
@@ -131,12 +131,57 @@ enum Hotkeys {
         .init(id: "mute", title: "Mute", key: "M", on: false),
         .init(id: "spaceNext", title: "Next Space", key: "→", on: false),
         .init(id: "spacePrev", title: "Previous Space", key: "←", on: false),
+        .init(id: "settings", title: "Open Settings", key: ",", on: false),
     ]
     static let modifierChoices: [(id: String, label: String, flags: Int)] = [
         ("ctrlOpt", "⌃⌥", controlKey | optionKey), ("ctrlCmd", "⌃⌘", controlKey | cmdKey),
         ("optCmd", "⌥⌘", optionKey | cmdKey), ("ctrlShift", "⌃⇧", controlKey | shiftKey),
     ]
     static func onKey(_ id: String) -> String { id == "toggle" ? "hotkeyToggle" : "cmd.\(id).on" }
+
+    /// A hotkey you recorded yourself: key code, modifier flags (Carbon) and the text to show, e.g. "49|6144|⌃⌥Space".
+    struct Custom: Equatable {
+        let code: UInt32, mods: UInt32, label: String
+        var stored: String { "\(code)|\(mods)|\(label)" }
+        init(code: UInt32, mods: UInt32, label: String) { self.code = code; self.mods = mods; self.label = label }
+        init?(_ s: String?) {
+            let p = (s ?? "").split(separator: "|", maxSplits: 2, omittingEmptySubsequences: false).map(String.init)
+            guard p.count == 3, let c = UInt32(p[0]), let m = UInt32(p[1]) else { return nil }
+            self.init(code: c, mods: m, label: p[2])
+        }
+    }
+    static func hkKey(_ id: String) -> String { "cmd.\(id).hk" }
+    static func custom(_ id: String) -> Custom? { Custom(Prefs.d.string(forKey: hkKey(id))) }
+    /// Text for a recorded key: modifiers in the usual ⌃⌥⇧⌘ order, then the key.
+    static func label(code: UInt32, flags: NSEvent.ModifierFlags, chars: String?) -> String {
+        var s = ""
+        if flags.contains(.control) { s += "⌃" }; if flags.contains(.option) { s += "⌥" }
+        if flags.contains(.shift) { s += "⇧" }; if flags.contains(.command) { s += "⌘" }
+        if let k = keys.first(where: { $0.code == code }) { return s + k.label }
+        let extra: [UInt32: String] = [36: "Return", 48: "Tab", 51: "Delete", 24: "=", 27: "-", 39: "'", 41: ";", 42: "\\", 44: "/", 47: ".", 50: "`"]
+        if let e = extra[code] { return s + e }
+        if let n = fnKeys[code] { return s + "F\(n)" }
+        return s + (chars?.uppercased() ?? "Key \(code)")
+    }
+    private static let fnKeys: [UInt32: Int] = [122: 1, 120: 2, 99: 3, 118: 4, 96: 5, 97: 6, 98: 7, 100: 8, 101: 9, 109: 10, 103: 11, 111: 12, 105: 13, 107: 14, 113: 15, 106: 16, 64: 17, 79: 18, 80: 19, 90: 20]
+    static func carbon(_ f: NSEvent.ModifierFlags) -> UInt32 {
+        var m = 0
+        if f.contains(.control) { m |= controlKey }; if f.contains(.option) { m |= optionKey }
+        if f.contains(.shift) { m |= shiftKey }; if f.contains(.command) { m |= cmdKey }
+        return UInt32(m)
+    }
+    /// Old versions used one shared modifier set plus a key. Turn those into recorded hotkeys once.
+    static func migrate() {
+        let mods = UInt32(modifierChoices.first { $0.id == (Prefs.d.string(forKey: "cmdMods") ?? "ctrlOpt") }?.flags ?? (controlKey | optionKey))
+        let name = modifierChoices.first { $0.id == (Prefs.d.string(forKey: "cmdMods") ?? "ctrlOpt") }?.label ?? "⌃⌥"
+        for c in commands where Prefs.d.string(forKey: hkKey(c.id)) == nil {
+            guard Prefs.bool(onKey(c.id)), (Prefs.d.string(forKey: DoubleTap.prefKey(c.id)) ?? "Off") == "Off" else { continue }
+            let label = Prefs.d.string(forKey: "cmd.\(c.id).key") ?? c.key
+            if let code = keys.first(where: { $0.label == label })?.code {
+                Prefs.d.set(Custom(code: code, mods: mods, label: name + label).stored, forKey: hkKey(c.id))
+            }
+        }
+    }
 
     static func reload(actions: [String: () -> Void], jump: @escaping (Int) -> Void) {
         if !installed {
@@ -153,19 +198,18 @@ enum Hotkeys {
         DoubleTap.shared.actions = actions
         refs.forEach { UnregisterEventHotKey($0) }
         refs = []; hotkeyActions = [:]
-        let choice = Prefs.d.string(forKey: "cmdMods") ?? "ctrlOpt"
-        let mods = UInt32(modifierChoices.first { $0.id == choice }?.flags ?? (controlKey | optionKey))
-        func add(_ id: UInt32, _ code: UInt32, _ action: @escaping () -> Void) {
+        migrate()
+        let numberMods = UInt32(controlKey | optionKey)
+        func add(_ id: UInt32, _ code: UInt32, _ mods: UInt32, _ action: @escaping () -> Void) {
             var ref: EventHotKeyRef?
             if RegisterEventHotKey(code, mods, EventHotKeyID(signature: OSType(0x4D4C434D), id: id), GetApplicationEventTarget(), 0, &ref) == noErr, let ref {
                 refs.append(ref); hotkeyActions[id] = action
             }
         }
         for (i, c) in commands.enumerated() where Prefs.bool(onKey(c.id)) && (Prefs.d.string(forKey: DoubleTap.prefKey(c.id)) ?? "Off") == "Off" {
-            let label = Prefs.d.string(forKey: "cmd.\(c.id).key") ?? c.key
-            if let code = keys.first(where: { $0.label == label })?.code, let act = actions[c.id] { add(UInt32(100 + i), code, act) }
+            if let h = custom(c.id), let act = actions[c.id] { add(UInt32(100 + i), h.code, h.mods, act) }
         }
-        if Prefs.bool("hotkeyNumbers") { for (i, c) in digitCodes.enumerated() { add(UInt32(i + 1), c) { jump(i + 1) } } }
+        if Prefs.bool("hotkeyNumbers") { for (i, c) in digitCodes.enumerated() { add(UInt32(i + 1), c, numberMods) { jump(i + 1) } } }
     }
 }
 

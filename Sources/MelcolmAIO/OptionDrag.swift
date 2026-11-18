@@ -132,6 +132,11 @@ final class OptionDrag: ObservableObject {
                     self.fadeGhost(.settle, after: 0)
                     NSRunningApplication(processIdentifier: p)?.hide()
                 }
+            } else if target == nil, win != nil, zone?.id == "split" {
+                // Split view: the window goes back where it was dropped, then a pop-up asks which app joins it.
+                let (p, w, d) = (pid, wid, zone?.display ?? 0)
+                pending = lastOrigin; pump()
+                DispatchQueue.main.async { self.fadeGhost(.settle, after: 0.22); SplitView.ask(pid: p, wid: w, display: d) }
             } else if target == nil, let win, let snap = zone {
                 let zone = snap.rect
                 // Snapped to a zone: the copy glides into the spot while the window takes it.
@@ -264,6 +269,11 @@ final class OptionDrag: ObservableObject {
             let c = zone.center(in: v.size), r = DragZone.radius + 30
             return Snap(rect: CGRect(x: v.minX + c.x - r, y: v.minY + c.y - r, width: 2 * r, height: 2 * r).integral,
                         title: "Hide", id: "hide", zone: zone.rawValue, display: s.id)
+        }
+        if lay[i] == "split" {
+            let c = zone.center(in: v.size), r = DragZone.radius + 30
+            return Snap(rect: CGRect(x: v.minX + c.x - r, y: v.minY + c.y - r, width: 2 * r, height: 2 * r).integral,
+                        title: "Split view", id: "split", zone: zone.rawValue, display: s.id)
         }
         guard let wl = WindowLayout.all.first(where: { $0.id == lay[i] }) else { return nil }
         return Snap(rect: CGRect(x: v.minX + v.width * wl.x, y: v.minY + v.height * wl.y, width: v.width * wl.w, height: v.height * wl.h).integral, title: wl.title, id: wl.id, zone: zone.rawValue, display: s.id)
@@ -584,7 +594,7 @@ final class DotsModel: ObservableObject {
     var layouts: [String: String] = [:]
 }
 
-/// The 8 spots drawn on the real screen while the drag key is held: each one a dashed circle
+/// The 10 spots drawn on the real screen while the drag key is held: each one a dashed circle
 /// (the exact area that snaps), a dot and its name.
 struct DotsView: View {
     @ObservedObject var m: DotsModel
@@ -596,7 +606,7 @@ struct DotsView: View {
                 let lay = m.layouts[z.rawValue] ?? "none"
                 if isSpace || lay != "none" {
                     let on = m.active == z.rawValue && m.screen == screen
-                    let title = isSpace ? "New Space" : lay == "hide" ? "Hide" : WindowLayout.all.first { $0.id == lay }?.title ?? ""
+                    let title = isSpace ? "New Space" : lay == "hide" ? "Hide" : lay == "split" ? "Split view" : WindowLayout.all.first { $0.id == lay }?.title ?? ""
                     let tint = isSpace ? Color(red: 0.25, green: 0.88, blue: 1.0) : accent
                     let d = DragZone.radius * 2
                     ZStack {
@@ -655,6 +665,11 @@ struct ZoneView: View {
                     .padding(.horizontal, 16).padding(.vertical, 9)
                     .background(Capsule().fill(Color.black.opacity(0.75)))
                     .overlay(Capsule().strokeBorder(accent, lineWidth: 1.5))
+            } else if m.id == "split" {
+                Label("Split view", systemImage: "rectangle.split.2x1.fill").font(.system(size: 15, weight: .bold)).foregroundStyle(.white)
+                    .padding(.horizontal, 16).padding(.vertical, 9)
+                    .background(Capsule().fill(Color.black.opacity(0.75)))
+                    .overlay(Capsule().strokeBorder(accent, lineWidth: 1.5))
             } else if let l = WindowLayout.all.first(where: { $0.id == m.id }) {
                 HStack(spacing: 8) {
                     Image(nsImage: l.picture)
@@ -670,19 +685,19 @@ struct ZoneView: View {
     }
 }
 
-/// The eight snap spots around the screen's edge.
+/// The ten snap spots around the screen's edge.
 enum DragZone: String, CaseIterable {
-    case topLeft, top, topRight, right, bottomRight, bottom, bottomLeft, left
+    case topLeft, topLeftMid, top, topRightMid, topRight, right, bottomRight, bottom, bottomLeft, left
     static let all = allCases
     var title: String {
         switch self {
-        case .topLeft: "Top left"; case .top: "Top middle"; case .topRight: "Top right"; case .right: "Right middle"
+        case .topLeft: "Top left"; case .topLeftMid: "Top left-middle"; case .top: "Top middle"; case .topRightMid: "Top right-middle"; case .topRight: "Top right"; case .right: "Right middle"
         case .bottomRight: "Bottom right"; case .bottom: "Bottom middle"; case .bottomLeft: "Bottom left"; case .left: "Left middle"
         }
     }
     var defaultLayout: String {
         switch self {
-        case .topLeft: "tl"; case .top: "full"; case .topRight: "tr"; case .right: "right"
+        case .topLeft: "tl"; case .topLeftMid: "none"; case .top: "full"; case .topRightMid: "none"; case .topRight: "tr"; case .right: "right"
         case .bottomRight: "br"; case .bottom: "bottom"; case .bottomLeft: "bl"; case .left: "left"
         }
     }
@@ -696,7 +711,7 @@ enum DragZone: String, CaseIterable {
     /// Where the picker sits on the settings picture (0…1).
     var spot: UnitPoint {
         switch self {
-        case .topLeft: .topLeading; case .top: .top; case .topRight: .topTrailing; case .right: .trailing
+        case .topLeft: .topLeading; case .topLeftMid: UnitPoint(x: 0.25, y: 0); case .top: .top; case .topRightMid: UnitPoint(x: 0.75, y: 0); case .topRight: .topTrailing; case .right: .trailing
         case .bottomRight: .bottomTrailing; case .bottom: .bottom; case .bottomLeft: .bottomLeading; case .left: .leading
         }
     }
@@ -720,20 +735,32 @@ struct DragZonesCard: View {
                         .frame(width: 30, height: 30).background(NeonBox(color: accent, radius: 8, strength: 0.5))
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Snap to the edges").font(.system(size: 13, weight: .heavy))
-                        Text("Drag a window into one of the dashed circles. A blue box shows where it'll go; let go and it snaps there. Outside the circles it just moves. Only on a desktop, never inside a full-screen app.")
+                        Text("Drag a window into one of the ten dashed circles. A blue box shows where it'll go; let go and it snaps there. Outside the circles it just moves. Only on a desktop, never inside a full-screen app.")
                             .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     }
                     Spacer(minLength: 0)
                     Toggle("", isOn: $on).labelsHidden()
                 }
                 Group {
+                    HStack(spacing: 8) {
+                        Image(systemName: "hand.tap.fill").font(.system(size: 15, weight: .bold))
+                        Text("Click a dot to choose what that spot does").font(.system(size: 12.5, weight: .heavy))
+                        Spacer(minLength: 0)
+                    }
+                    .foregroundStyle(accent).padding(.horizontal, 12).frame(height: 34)
+                    .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(accent.opacity(0.14))
+                        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(accent, lineWidth: 1.2)))
                     screen
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.down").font(.system(size: 11, weight: .bold)).foregroundStyle(accent)
+                        Text("Then pick it below").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
+                    }
                     VStack(alignment: .leading, spacing: 8) {
                         HStack(spacing: 6) {
                             Text("Drop at").foregroundStyle(.secondary)
                             Text(sel.title).fontWeight(.heavy).foregroundStyle(accent)
                             Text("→").foregroundStyle(.secondary)
-                            Text(sel == .top ? "New Space" : layout(sel) == "hide" ? "Hide the app" : WindowLayout.all.first { $0.id == layout(sel) }?.title ?? "Nothing").fontWeight(.heavy)
+                            Text(sel == .top ? "New Space" : layout(sel) == "hide" ? "Hide the app" : layout(sel) == "split" ? "Split view" : WindowLayout.all.first { $0.id == layout(sel) }?.title ?? "Nothing").fontWeight(.heavy)
                             if sel == .top { Image(systemName: "lock.fill").foregroundStyle(.secondary) }
                         }.font(.system(size: 12))
                         if sel == .top {
@@ -742,6 +769,7 @@ struct DragZonesCard: View {
                         } else { LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 4), spacing: 6) {
                             chip("none", "None", nil)
                             chip("hide", "Hide", nil)
+                            chip("split", "Split view", nil)
                             ForEach(WindowLayout.all) { l in chip(l.id, l.title, l) }
                         } }
                     }
@@ -771,6 +799,14 @@ struct DragZonesCard: View {
                         .background(Capsule().fill(Color(red: 0.25, green: 0.88, blue: 1.0).opacity(0.35)))
                         .overlay(Capsule().strokeBorder(Color(red: 0.25, green: 0.88, blue: 1.0), lineWidth: 1.5))
                         .position(x: W / 2, y: area.minY + 52)
+                } else if layout(sel) == "split" {
+                    HStack(spacing: 6) {
+                        ForEach(0..<2, id: \.self) { i in
+                            RoundedRectangle(cornerRadius: 8, style: .continuous).fill(accent.opacity(i == 0 ? 0.28 : 0.12))
+                                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(accent, lineWidth: i == 0 ? 2 : 1.2, antialiased: true))
+                                .overlay(i == 1 ? AnyView(Text("pick app").font(.system(size: 10, weight: .bold)).foregroundStyle(.white.opacity(0.8))) : AnyView(EmptyView()))
+                        }
+                    }.frame(width: area.width - 12, height: area.height - 12).position(x: area.midX, y: area.midY)
                 } else if layout(sel) == "hide" {
                     Label("Hides the app (like ⌘H)", systemImage: "eye.slash.fill").font(.system(size: 12, weight: .bold)).foregroundStyle(.white)
                         .padding(.horizontal, 12).padding(.vertical, 7)
@@ -798,6 +834,12 @@ struct DragZonesCard: View {
                                 Circle().fill(tint.opacity(on ? 0.3 : 0.12))
                                 Circle().strokeBorder(tint.opacity(on ? 1 : 0.7), style: StrokeStyle(lineWidth: on ? 1.6 : 1.2, lineCap: .round, dash: [3.5, 3]))
                             }
+                            if !on {
+                                TimelineView(.animation) { t in
+                                    let k = (t.date.timeIntervalSinceReferenceDate * 0.9).truncatingRemainder(dividingBy: 1)
+                                    Circle().strokeBorder(tint.opacity(0.7 * (1 - k)), lineWidth: 1.5).frame(width: 12 + 24 * k, height: 12 + 24 * k)
+                                }.allowsHitTesting(false)
+                            }
                             Circle().fill(z == .top ? cyan : on ? accent : none ? Color.white.opacity(0.12) : Color.white.opacity(0.85))
                                 .frame(width: on ? 14 : 10, height: on ? 14 : 10)
                                 .overlay(Circle().strokeBorder(.white.opacity(on ? 0.9 : 0.3), lineWidth: on ? 2 : 1))
@@ -819,7 +861,7 @@ struct DragZonesCard: View {
         let picked = layout(sel) == id
         return Button { withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { set(sel, id) } } label: {
             VStack(spacing: 4) {
-                if let l { Image(nsImage: l.picture) } else { Image(systemName: id == "hide" ? "eye.slash" : "nosign").font(.system(size: 14)).frame(height: 20) }
+                if let l { Image(nsImage: l.picture) } else { Image(systemName: id == "hide" ? "eye.slash" : id == "split" ? "rectangle.split.2x1" : "nosign").font(.system(size: 14)).frame(height: 20) }
                 Text(title).font(.system(size: 10, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.8)
             }
             .frame(maxWidth: .infinity).padding(.vertical, 7)
@@ -863,6 +905,8 @@ struct DraggingSettings: View {
                         Spacer(minLength: 0)
                         Toggle("", isOn: $optionDrag).labelsHidden()
                     }
+                    HoldDragPicture(key: ["shift": "⇧", "control": "⌃", "command": "⌘"][modifier] ?? "⌥")
+                        .padding(.vertical, 6).opacity(optionDrag ? 1 : 0.4)
                     HStack {
                         Text("Key to hold").font(.system(size: 12, weight: .semibold))
                         Spacer()

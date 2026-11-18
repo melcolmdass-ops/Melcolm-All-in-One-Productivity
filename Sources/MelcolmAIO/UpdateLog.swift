@@ -24,6 +24,30 @@ enum UpdateLog {
 
     /// Newest first.
     static let all: [AppUpdate] = [
+        AppUpdate(version: "2.43", date: "November 18th, 2026", title: "Settings tidy-up, Pages tab, more pictures",
+                  improvements: [
+                      "Settings: Master Rules and Update Log moved into General (they are things you read, not set). Pages is now its own tab next to Main Bar.",
+                      "Dragging: \"Hold a key and drag any window\" now shows three steps (Hold, Drag, Drop). Snap to the edges says \"Click a dot to choose what that spot does\", and the dots softly pulse.",
+                      "Pages and Utility Bar: every page has a small picture of what it looks like.",
+                  ],
+                  fixes: [],
+                  features: [
+                      "The utility bar is always at the bottom of Home. The option to hide it is gone; you only choose what is on it.",
+                  ],
+                  icons: ["slider.horizontal.3", "hand.tap.fill", "square.grid.2x2.fill"], tint: cyan),
+        AppUpdate(version: "2.42", date: "November 18th, 2026", title: "Your own hotkeys, Settings hotkey, 10 snap spots, Split view",
+                  improvements: [
+                      "Commands is simpler: the \"Shortcuts use\" bar with the four modifier choices is gone. Every command is Off, a Custom hotkey, or a double-tap.",
+                      "Pick Custom hotkey…, the button says \"Press your hotkey…\", press your keys, and it says \"Hotkey saved\". Esc cancels. Your old shortcuts were kept as custom hotkeys.",
+                      "Next Space and Previous Space now say that ← and → work while the bar is open.",
+                  ],
+                  fixes: [],
+                  features: [
+                      "New command: Open Settings. Set a hotkey or double-tap for it and Settings opens from anywhere.",
+                      "Two more snap spots on the top edge: Top left-middle and Top right-middle. They start as None, so pick what each one does.",
+                      "New snap choice: Split view. Drop a window on that spot and a pop-up asks which app goes next to it. The dropped window takes the left, the one you pick takes the right.",
+                  ],
+                  icons: ["keyboard", "gearshape.fill", "rectangle.split.2x1.fill"], tint: blue),
         AppUpdate(version: "2.41", date: "November 17th, 2026", title: "Double-tap keys, Space hotkeys, Notifications",
                   improvements: [],
                   fixes: [

@@ -330,8 +330,8 @@ struct SettingsTab: View {
     enum Page: String, CaseIterable { case general = "General", commands = "Commands", bar = "Bar", display = "Display on bar", spaces = "Spaces", dragging = "Dragging", mouse = "Mouse", hover = "Hover bar", panel = "Pages", utility = "Utility Bar", focus = "Focus Workflows", colors = "Colors", look = "Display", rules = "Master Rules", updates = "Update Log" }
     /// Top tabs, each with its own sub-tabs.
     static let groups: [(name: String, tabs: [Page])] = [
-        ("General", [.general, .commands]), ("Main Bar", [.bar, .panel, .display, .spaces, .mouse, .hover]), ("Dragging", [.dragging]), ("Utility Bar", [.utility]), ("Focus Workflows", [.focus]), ("Colors & Display", [.colors, .look]),
-        ("Master Rules", [.rules]), ("Update Log", [.updates]),
+        ("General", [.general, .commands, .rules, .updates]), ("Main Bar", [.bar, .display, .spaces, .mouse, .hover]), ("Pages", [.panel]), ("Dragging", [.dragging]), ("Utility Bar", [.utility]),
+        ("Focus Workflows", [.focus]), ("Colors & Display", [.colors, .look]),
     ]
     @AppStorage("settingsPage") var page = Page.general.rawValue
     @AppStorage("islandSize") var size = "large"
@@ -384,7 +384,7 @@ struct SettingsTab: View {
                     ForEach(group.tabs, id: \.self) { t in
                         Button { page = t.rawValue } label: {
                             VStack(spacing: 3) {
-                                Text(t == .general ? "Main" : t.rawValue).font(.system(size: 11, weight: .semibold))
+                                Text(t == .general ? "Main" : t == .updates ? "Update Log" : t.rawValue).font(.system(size: 11, weight: .semibold))
                                     .foregroundStyle(t == cur ? .white : .white.opacity(0.5))
                                 Capsule().fill(t == cur ? accent : .clear).frame(height: 2)
                             }.fixedSize().padding(.vertical, 3).contentShape(Rectangle())
@@ -414,7 +414,7 @@ struct SettingsTab: View {
                     }
                 }
             }
-            Text("Melcolm All-in-One Productivity · v2.40").font(.system(size: 10)).foregroundStyle(.tertiary)
+            Text("Melcolm All-in-One Productivity · v2.43").font(.system(size: 10)).foregroundStyle(.tertiary)
         }
         .font(.system(size: 12))
         .toggleStyle(.switch).controlSize(.small)
@@ -477,16 +477,14 @@ struct SettingsTab: View {
     }
 
     @AppStorage("barOrder") var barOrder = "timer,music"
-    @AppStorage("utilityBar") var utilityBar = true
     @AppStorage("utilityItems") var utilityRaw = "sound,network,brightness,batteries"
 
     @ViewBuilder var utilityPage: some View {
-        row("Show the utility bar (bottom of Home)") { Toggle("", isOn: $utilityBar).labelsHidden() }
-        Text("Pick what sits on the bar. Click one on Home and its page opens as a pop-up right there. Order follows Pages.")
+        Text("The utility bar is always at the bottom of Home. Choose what sits on it. Click one on Home and its page opens as a pop-up right there. Order follows Pages.")
             .font(.system(size: 10.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         let on = Set(utilityRaw.split(separator: ",").map(String.init))
         ForEach(PanelPage.listed, id: \.self) { p in
-            row(p.title) {
+            row(p.title, pic: p) {
                 Toggle("", isOn: Binding(get: { on.contains(p.rawValue) }, set: { v in
                     var set = on; if v { set.insert(p.rawValue) } else { set.remove(p.rawValue) }
                     utilityRaw = PanelPage.listed.filter { set.contains($0.rawValue) }.map(\.rawValue).joined(separator: ",")
@@ -641,17 +639,12 @@ struct SettingsTab: View {
     @AppStorage("hotkeyNumbers") var hkNumbersOn = true
 
     @ViewBuilder var commandsPage: some View {
-        row("Shortcuts use") {
-            Picker("", selection: $cmdMods) {
-                ForEach(Hotkeys.modifierChoices, id: \.id) { Text($0.label).tag($0.id) }
-            }.pickerStyle(.segmented).labelsHidden().frame(width: 200)
-        }
         sectionLabel("Commands")
-        ForEach(Hotkeys.commands) { c in CommandRow(c: c, mods: Hotkeys.modifierChoices.first { $0.id == cmdMods }?.label ?? "⌃⌥") }
+        ForEach(Hotkeys.commands) { c in CommandRow(c: c) }
         row("Go to desktop 1…9") {
             HStack(spacing: 5) { ForEach(1...3, id: \.self) { n in Text("\(n)").font(.system(size: 10, weight: .heavy, design: .rounded)).frame(width: 14, height: 14).background(RoundedRectangle(cornerRadius: 4).fill(n == 2 ? accent : Color.white.opacity(0.22))) }; Text("…9").font(.system(size: 10, weight: .bold)).foregroundStyle(.secondary) }
                 .frame(width: 92, height: 24).background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Color(white: 0.13)))
-            Text((Hotkeys.modifierChoices.first { $0.id == cmdMods }?.label ?? "⌃⌥") + "1…9").font(.system(size: 11, weight: .bold, design: .rounded))
+            Text("⌃⌥1…9").font(.system(size: 11, weight: .bold, design: .rounded))
                 .foregroundStyle(.secondary).padding(.horizontal, 8).frame(height: 22)
                 .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(.white.opacity(0.08)))
             Toggle("", isOn: $hkNumbersOn).labelsHidden()
@@ -661,14 +654,17 @@ struct SettingsTab: View {
         row("Mission Control shortcuts") { LinkButton("Keyboard Shortcuts…") { SystemModel.open("com.apple.Keyboard-Settings.extension") } }
     }
 
-    func row<C: View>(_ title: String, drag: PanelPage? = nil, @ViewBuilder _ control: () -> C) -> some View {
+    func row<C: View>(_ title: String, drag: PanelPage? = nil, pic: PanelPage? = nil, @ViewBuilder _ control: () -> C) -> some View {
         VStack(spacing: 0) {
             HStack {
                 if drag != nil {
                     Image(systemName: "line.3.horizontal").font(.system(size: 11, weight: .bold)).foregroundStyle(.secondary)
                         .frame(width: 16).help("Drag to reorder")
                 }
-                Text(title).font(.system(size: 12.5, weight: .medium)); Spacer(); control()
+                Text(title).font(.system(size: 12.5, weight: .medium)).lineLimit(1).minimumScaleFactor(0.8)
+                Spacer(minLength: 4)
+                if let pg = drag ?? pic { PagePicture(page: pg) }
+                control()
             }.frame(minHeight: 30).contentShape(Rectangle())
             Hairline().padding(.top, 6)
         }
@@ -842,44 +838,90 @@ struct Shortcut: Identifiable {
     }
 }
 
-/// One command: its name, the key you can change, and an on/off switch.
-/// One command: its name, a small picture of what it does, and ONE trigger: a hotkey, a double-tap, or off.
+/// Records the next key combination you press (used by "Custom hotkey").
+final class HotkeyRecorder: ObservableObject {
+    @Published var recording = false
+    @Published var saved = ""
+    private var monitor: Any?
+    func start(_ done: @escaping (Hotkeys.Custom) -> Void) {
+        stop(); recording = true; saved = ""
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
+            guard let self else { return e }
+            if e.keyCode == 53 { self.stop(); return nil }                      // Esc cancels
+            let f = e.modifierFlags.intersection([.command, .option, .control, .shift])
+            let isFn = [122, 120, 99, 118, 96, 97, 98, 100, 101, 109, 103, 111].contains(Int(e.keyCode))
+            guard !f.isEmpty || isFn else { NSSound.beep(); return nil }        // a plain letter would break typing
+            let h = Hotkeys.Custom(code: UInt32(e.keyCode), mods: Hotkeys.carbon(f),
+                                   label: Hotkeys.label(code: UInt32(e.keyCode), flags: f, chars: e.charactersIgnoringModifiers))
+            self.stop(); self.saved = h.label; done(h)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in self?.saved = "" }
+            return nil
+        }
+    }
+    func stop() { recording = false; if let m = monitor { NSEvent.removeMonitor(m); monitor = nil } }
+    deinit { stop() }
+}
+
+/// One command: its name, a small picture of what it does, and ONE trigger: a custom hotkey, a double-tap, or off.
 struct CommandRow: View {
-    let c: Hotkeys.Command; let mods: String
-    @AppStorage var key: String
+    let c: Hotkeys.Command
+    @AppStorage var hk: String
     @AppStorage var on: Bool
     @AppStorage var dbl: String
-    init(c: Hotkeys.Command, mods: String) {
-        self.c = c; self.mods = mods
-        _key = AppStorage(wrappedValue: c.key, "cmd.\(c.id).key")
+    @StateObject private var rec = HotkeyRecorder()
+    init(c: Hotkeys.Command) {
+        self.c = c
+        _hk = AppStorage(wrappedValue: "", Hotkeys.hkKey(c.id))
         _on = AppStorage(wrappedValue: c.on, Hotkeys.onKey(c.id))
         _dbl = AppStorage(wrappedValue: "Off", DoubleTap.prefKey(c.id))
     }
 
-    /// "off", "key:Space" or "dbl:Right ⌘": exactly one of them is true at a time.
+    func record() {
+        rec.start { h in hk = h.stored; on = true; dbl = "Off" }
+    }
+
+    /// "off", "hk" (the saved custom hotkey), "rec" (record a new one) or "dbl:Right ⌘": exactly one is true at a time.
     var trigger: Binding<String> {
-        Binding(get: { dbl != "Off" ? "dbl:\(dbl)" : on ? "key:\(key)" : "off" },
+        Binding(get: { dbl != "Off" ? "dbl:\(dbl)" : on && !hk.isEmpty ? "hk" : "off" },
                 set: { v in
                     if v == "off" { on = false; dbl = "Off" }
-                    else if v.hasPrefix("key:") { key = String(v.dropFirst(4)); on = true; dbl = "Off" }
-                    else { dbl = String(v.dropFirst(4)); on = false }
+                    else if v == "rec" { record() }
+                    else if v == "hk" { on = true; dbl = "Off" }
+                    else if v.hasPrefix("dbl:") { dbl = String(v.dropFirst(4)); on = false }
                 })
     }
+
+    /// The two Space commands also work with the plain arrow keys while the bar is open.
+    var note: String? { c.id == "spaceNext" ? "→ while the bar is open" : c.id == "spacePrev" ? "← while the bar is open" : nil }
 
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                Text(c.title).font(.system(size: 12.5, weight: .medium)).lineLimit(1).minimumScaleFactor(0.85).frame(width: 160, alignment: .leading)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(c.title).font(.system(size: 12.5, weight: .medium)).lineLimit(1).minimumScaleFactor(0.85)
+                    if let note { Text(note).font(.system(size: 9.5)).foregroundStyle(.secondary).lineLimit(1) }
+                }.frame(width: 160, alignment: .leading)
                 Spacer(minLength: 0)
                 CommandPicture(id: c.id)
                 Spacer(minLength: 0)
-                Picker("", selection: trigger) {
-                    Text("Off").tag("off")
-                    Divider()
-                    ForEach(Hotkeys.keys, id: \.label) { Text("\(mods) \($0.label)").tag("key:\($0.label)") }
-                    Divider()
-                    ForEach(DoubleTap.keys, id: \.label) { Text("Double-tap \($0.label)").tag("dbl:\($0.label)") }
-                }.labelsHidden().frame(width: 140)
+                if rec.recording {
+                    Button { rec.stop() } label: {
+                        Text("Press your hotkey…").font(.system(size: 11, weight: .bold)).foregroundStyle(.white)
+                            .frame(width: 140, height: 22).background(RoundedRectangle(cornerRadius: 6).fill(accent))
+                    }.buttonStyle(.plain)
+                } else if !rec.saved.isEmpty {
+                    Label("Hotkey saved · \(rec.saved)", systemImage: "checkmark.circle.fill").font(.system(size: 10.5, weight: .bold))
+                        .foregroundStyle(.green).lineLimit(1).minimumScaleFactor(0.7).frame(width: 140, height: 22)
+                } else {
+                    Picker("", selection: trigger) {
+                        Text("Off").tag("off")
+                        Divider()
+                        if on, let h = Hotkeys.Custom(hk) { Text(h.label).tag("hk") }
+                        Text("Custom hotkey…").tag("rec")
+                        Divider()
+                        ForEach(DoubleTap.keys, id: \.label) { Text("Double-tap \($0.label)").tag("dbl:\($0.label)") }
+                    }.labelsHidden().frame(width: 140)
+                }
             }.frame(minHeight: 30)
             Hairline().padding(.top, 6)
         }
@@ -905,6 +947,7 @@ struct CommandPicture: View {
             case "volUp": glyph("speaker.wave.1.fill", .white.opacity(0.6)); glyph("plus", accent); glyph("speaker.wave.3.fill")
             case "volDown": glyph("speaker.wave.3.fill", .white.opacity(0.6)); glyph("minus", accent); glyph("speaker.wave.1.fill")
             case "mute": glyph("speaker.wave.2.fill", .white.opacity(0.6)); glyph("arrow.right", accent); glyph("speaker.slash.fill")
+            case "settings": glyph("gearshape.fill", accent); glyph("arrow.right", .white.opacity(0.6)); glyph("slider.horizontal.3")
             case "spaceNext": box(); box(true); glyph("arrow.right", accent); box()
             case "spacePrev": box(); glyph("arrow.left", accent); box(true); box()
             default: glyph("keyboard")

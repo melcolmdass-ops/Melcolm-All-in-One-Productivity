@@ -181,3 +181,77 @@ struct SettingsVisual: View {
         }
     }
 }
+
+/// A tiny picture of what a page looks like, for the Pages and Utility Bar lists.
+struct PagePicture: View {
+    let page: PanelPage
+    func g(_ n: String, _ c: Color = .white, _ s: CGFloat = 10) -> some View { Image(systemName: n).font(.system(size: s, weight: .bold)).foregroundStyle(c) }
+    func bar(_ w: CGFloat, _ f: CGFloat) -> some View {
+        ZStack(alignment: .leading) {
+            Capsule().fill(Color.white.opacity(0.2)).frame(width: w, height: 4)
+            Capsule().fill(accent).frame(width: w * f, height: 4)
+        }
+    }
+    var body: some View {
+        HStack(spacing: 3) {
+            switch page {
+            case .nowPlaying: g("backward.fill", .white.opacity(0.6), 7); g("play.fill", accent, 9); g("forward.fill", .white.opacity(0.6), 7)
+            case .sound: g("speaker.wave.2.fill", accent, 9); bar(24, 0.7); g("mic.fill", .white.opacity(0.7), 8)
+            case .brightness: g("sun.max.fill", .yellow, 10); bar(34, 0.6)
+            case .network: g("wifi", accent, 10); g("dot.radiowaves.left.and.right", .white.opacity(0.7), 9)
+            case .batteries: g("battery.75percent", .green, 11); g("airpods", .white.opacity(0.7), 9)
+            case .awake: g("cup.and.saucer.fill", .orange, 10); Text("on").font(.system(size: 8, weight: .heavy)).foregroundStyle(.white.opacity(0.7))
+            case .dark: g("circle.lefthalf.filled", .white, 11); g("moon.fill", .white.opacity(0.6), 8)
+            case .timer: g("timer", .red, 10); Text("15:01").font(.system(size: 8.5, weight: .heavy).monospacedDigit()).foregroundStyle(.white)
+            case .layouts:
+                HStack(spacing: 1.5) {
+                    RoundedRectangle(cornerRadius: 1.5).fill(accent).frame(width: 9, height: 12)
+                    VStack(spacing: 1.5) { RoundedRectangle(cornerRadius: 1.5).fill(.white.opacity(0.4)).frame(width: 9, height: 5.2); RoundedRectangle(cornerRadius: 1.5).fill(.white.opacity(0.4)).frame(width: 9, height: 5.2) }
+                }
+            case .focus: g("moon.fill", .purple, 10); g("arrow.right", .white.opacity(0.5), 7); g("checkmark.circle.fill", .green, 9)
+            default: g(page.icon)
+            }
+        }
+        .frame(width: 72, height: 22)
+        .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color(white: 0.13)))
+    }
+}
+
+/// "Hold a key, drag a window, drop it on the bar": three steps drawn out.
+struct HoldDragPicture: View {
+    let key: String
+    func step(_ n: Int, _ label: String, @ViewBuilder _ pic: () -> some View) -> some View {
+        VStack(spacing: 5) {
+            ZStack { pic() }.frame(width: 84, height: 54)
+                .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color(white: 0.13)))
+            HStack(spacing: 4) {
+                Text("\(n)").font(.system(size: 9, weight: .heavy)).foregroundStyle(.white).frame(width: 14, height: 14).background(Circle().fill(accent))
+                Text(label).font(.system(size: 10.5, weight: .semibold))
+            }
+        }
+    }
+    var body: some View {
+        HStack(spacing: 6) {
+            step(1, "Hold") {
+                Text(key).font(.system(size: 17, weight: .heavy)).foregroundStyle(.white)
+                    .frame(width: 34, height: 30).background(RoundedRectangle(cornerRadius: 7).fill(accent))
+                    .shadow(color: accent.opacity(0.7), radius: 6)
+            }
+            Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
+            step(2, "Drag") {
+                RoundedRectangle(cornerRadius: 4).strokeBorder(.white.opacity(0.25), style: StrokeStyle(lineWidth: 1, dash: [3, 2])).frame(width: 34, height: 24).offset(x: -12, y: 6)
+                RoundedRectangle(cornerRadius: 4).fill(accent.opacity(0.35)).overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(accent, lineWidth: 1.5)).frame(width: 34, height: 24).offset(x: 8, y: -2)
+                Image(systemName: "cursorarrow").font(.system(size: 13)).foregroundStyle(.white).offset(x: 20, y: 8)
+            }
+            Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
+            step(3, "Drop") {
+                VStack(spacing: 5) {
+                    Capsule().fill(.black).overlay(Capsule().strokeBorder(.cyan, lineWidth: 1)).frame(width: 64, height: 10)
+                    Image(systemName: "arrow.down").font(.system(size: 9, weight: .bold)).foregroundStyle(.cyan)
+                    RoundedRectangle(cornerRadius: 3).fill(accent.opacity(0.35)).overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(accent, lineWidth: 1)).frame(width: 24, height: 16)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+}

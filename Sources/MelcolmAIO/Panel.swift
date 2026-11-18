@@ -167,7 +167,6 @@ struct HomePage: View {
     @EnvironmentObject var timer: TimerModel
     @AppStorage("hiddenTiles") var hidden = ""
     @AppStorage("homePinned") var pinnedRaw = ""
-    @AppStorage("utilityBar") var utilityBar = true
     @AppStorage("utilityItems") var utilityRaw = "sound,network,brightness,batteries"
     @AppStorage("pageOrder") var order = ""
 
@@ -227,10 +226,7 @@ struct HomePage: View {
           .scrollIndicators(.visible)
             Hairline()
             HStack(spacing: 10) {
-                if utilityBar { UtilityBar(items: PanelPage.utility(utilityRaw)) } else {
-                    Spacer()
-                    Text("⌃⌥Space").foregroundStyle(.tertiary)
-                }
+                UtilityBar(items: PanelPage.utility(utilityRaw))
                 Button { state.page = .settings } label: {
                     Image(systemName: "gearshape.fill").font(.system(size: 12))
                         .frame(width: 28, height: 28).background(Circle().fill(.white.opacity(0.08)))
@@ -906,9 +902,8 @@ struct SpaceHintBox: View {
                 .background(RoundedRectangle(cornerRadius: 5, style: .continuous).fill(.white.opacity(0.12)))
         }
         func hotkey(_ id: String, _ arrow: String) -> String? {
-            guard Prefs.bool(Hotkeys.onKey(id)), (Prefs.d.string(forKey: DoubleTap.prefKey(id)) ?? "Off") == "Off", let c = Hotkeys.commands.first(where: { $0.id == id }) else { return nil }
-            let mods = Hotkeys.modifierChoices.first { $0.id == (Prefs.d.string(forKey: "cmdMods") ?? "ctrlOpt") }?.label ?? "⌃⌥"
-            return mods + (Prefs.d.string(forKey: "cmd.\(id).key") ?? c.key)
+            guard Prefs.bool(Hotkeys.onKey(id)), (Prefs.d.string(forKey: DoubleTap.prefKey(id)) ?? "Off") == "Off" else { return nil }
+            return Hotkeys.custom(id)?.label
         }
         let dbl = ["spacePrev", "spaceNext"].compactMap { Prefs.d.string(forKey: DoubleTap.prefKey($0)) }.filter { $0 != "Off" }
         return HStack(spacing: 6) {

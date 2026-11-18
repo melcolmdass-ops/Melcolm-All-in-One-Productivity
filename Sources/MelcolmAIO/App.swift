@@ -306,6 +306,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             "mute": g { [weak self] in self?.sound.toggleMute() },
             "spaceNext": g { [weak self] in self?.activeIsland?.spaces.step(1, wrap: true) },
             "spacePrev": g { [weak self] in self?.activeIsland?.spaces.step(-1, wrap: true) },
+            "settings": { [weak self] in
+                guard let i = self?.activeIsland else { return }
+                i.state.page = .settings; if !i.state.expanded { i.setExpanded(true) }
+            },
         ], jump: { [weak self] n in if !Island.typing(in: NSApp.keyWindow) { self?.activeIsland?.spaces.jump(toNumber: n) } })
     }
 }
