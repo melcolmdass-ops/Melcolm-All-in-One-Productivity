@@ -36,6 +36,7 @@ struct SettingsVisual: View {
         case .panel: "Which pages are on Home, their order, and which show in Quick View."
         case .focus: "Your focus workflows: steps that run in order, once, like a shortcut."
         case .colors: "Pick the colours of the closed bar: outlines, boxes and highlights."
+        case .look: "How things look and what shows. Tick each one on or off and see it right here."
         case .utility: "Quick buttons at the bottom of Home; each opens its page as a pop-up."
         case .rules: "Things the app always does, everywhere. You can't switch these off."
         case .updates: "Every update, in plain words."
@@ -145,6 +146,8 @@ struct SettingsVisual: View {
             HStack(spacing: 8) {
                 ForEach(["66A0FF", "40E0FF", "5CE08A", "FFD84D", "FF7ACB"], id: \.self) { h in Circle().fill(Color(hex: h) ?? .white).frame(width: 22, height: 22) }
             }
+        case .look:
+            HStack(spacing: 8) { ForEach(["Outlined", "Soft", "Minimal"], id: \.self) { t in Text(t).font(.system(size: 9, weight: .bold)).foregroundStyle(.white.opacity(0.85)).padding(.horizontal, 7).frame(height: 20).background(RoundedRectangle(cornerRadius: 6).strokeBorder(.white.opacity(t == "Outlined" ? 0.8 : 0.25), lineWidth: 1)) } }
         case .hover:
             VStack(spacing: 0) {
                 pill(width: 160) { box("1", on: true); Spacer(); chevron }

@@ -65,11 +65,12 @@ struct PanelView: View {
     @EnvironmentObject var state: IslandState
     @AppStorage("settingsPage") var settingsPage = "General"
     @ObservedObject var notes = NotificationsModel.shared
+    @AppStorage("showSpaceHint") var showHint = true
 
     var body: some View {
         VStack(spacing: 8) {
         if state.page == .home || state.page == .notifications {
-            if !state.byHover { spaceHint }
+            if !state.byHover && showHint { spaceHint }
             tabs
         }
         ZStack(alignment: .top) {
@@ -131,34 +132,7 @@ struct PanelView: View {
 
     /// A short reminder under the bar (only when you open it yourself, not on hover): the arrows change Space and wrap around.
     var spaceHint: some View {
-        func key(_ t: String) -> some View {
-            Text(t).font(.system(size: 10, weight: .heavy, design: .rounded)).frame(minWidth: 18, minHeight: 16).padding(.horizontal, 2)
-                .background(RoundedRectangle(cornerRadius: 5, style: .continuous).fill(.white.opacity(0.12)))
-        }
-        func hotkey(_ id: String, _ arrow: String) -> String? {
-            guard Prefs.bool(Hotkeys.onKey(id)), let c = Hotkeys.commands.first(where: { $0.id == id }) else { return nil }
-            let mods = Hotkeys.modifierChoices.first { $0.id == (Prefs.d.string(forKey: "cmdMods") ?? "ctrlOpt") }?.label ?? "⌃⌥"
-            return mods + (Prefs.d.string(forKey: "cmd.\(id).key") ?? c.key)
-        }
-        let dbl = ["spacePrev", "spaceNext"].compactMap { Prefs.d.string(forKey: DoubleTap.prefKey($0)) }.filter { $0 != "Off" }
-        return HStack(spacing: 6) {
-            key("←"); key("→")
-            Text("switch Space · wraps · only while the bar is open").font(.system(size: 10.5, weight: .medium)).foregroundStyle(.secondary).lineLimit(1)
-            if let a = hotkey("spacePrev", "←"), let b = hotkey("spaceNext", "→") {
-                Text("· anywhere: \(a) \(b)").font(.system(size: 10.5)).foregroundStyle(.tertiary).lineLimit(1)
-            } else if !dbl.isEmpty {
-                Text("· anywhere: double-tap \(dbl.joined(separator: " / "))").font(.system(size: 10.5)).foregroundStyle(.tertiary)
-            }
-            Spacer(minLength: 0)
-            Button { settingsPage = SettingsTab.Page.commands.rawValue; state.page = .settings } label: {
-                HStack(spacing: 3) { Text("Change keys").font(.system(size: 10.5, weight: .semibold)); Image(systemName: "chevron.right").font(.system(size: 8, weight: .bold)) }
-                    .foregroundStyle(accent)
-            }.buttonStyle(.plain)
-        }
-        .padding(.horizontal, 10).frame(height: 28)
-        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(accent.opacity(0.08))
-            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(accent.opacity(0.55), lineWidth: 1)))
-        .transition(.opacity)
+        SpaceHintBox { settingsPage = SettingsTab.Page.commands.rawValue; state.page = .settings }
     }
 
     @ViewBuilder var content: some View { Self.pageContent(state.page) }
@@ -917,5 +891,43 @@ struct LowPowerRow: View {
         .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color(white: 0.105))
             .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(on ? yellow.opacity(0.5) : .white.opacity(0.08), lineWidth: 1)))
         .help("Turns Low Power Mode on or off for the whole Mac. macOS asks for your password the first time only.")
+    }
+}
+
+
+/// The "← → switch Space" reminder. Used under the open bar and as the picture in Settings ▸ Display.
+struct SpaceHintBox: View {
+    /// Tapping "Change keys" (nil in the Settings picture).
+    let onChange: (() -> Void)?
+
+    var body: some View {
+        func key(_ t: String) -> some View {
+            Text(t).font(.system(size: 10, weight: .heavy, design: .rounded)).frame(minWidth: 18, minHeight: 16).padding(.horizontal, 2)
+                .background(RoundedRectangle(cornerRadius: 5, style: .continuous).fill(.white.opacity(0.12)))
+        }
+        func hotkey(_ id: String, _ arrow: String) -> String? {
+            guard Prefs.bool(Hotkeys.onKey(id)), let c = Hotkeys.commands.first(where: { $0.id == id }) else { return nil }
+            let mods = Hotkeys.modifierChoices.first { $0.id == (Prefs.d.string(forKey: "cmdMods") ?? "ctrlOpt") }?.label ?? "⌃⌥"
+            return mods + (Prefs.d.string(forKey: "cmd.\(id).key") ?? c.key)
+        }
+        let dbl = ["spacePrev", "spaceNext"].compactMap { Prefs.d.string(forKey: DoubleTap.prefKey($0)) }.filter { $0 != "Off" }
+        return HStack(spacing: 6) {
+            key("←"); key("→")
+            Text("switch Space · wraps · only while the bar is open").font(.system(size: 10.5, weight: .medium)).foregroundStyle(.secondary).lineLimit(1)
+            if let a = hotkey("spacePrev", "←"), let b = hotkey("spaceNext", "→") {
+                Text("· anywhere: \(a) \(b)").font(.system(size: 10.5)).foregroundStyle(.tertiary).lineLimit(1)
+            } else if !dbl.isEmpty {
+                Text("· anywhere: double-tap \(dbl.joined(separator: " / "))").font(.system(size: 10.5)).foregroundStyle(.tertiary)
+            }
+            Spacer(minLength: 0)
+            Button { onChange?() } label: {
+                HStack(spacing: 3) { Text("Change keys").font(.system(size: 10.5, weight: .semibold)); Image(systemName: "chevron.right").font(.system(size: 8, weight: .bold)) }
+                    .foregroundStyle(accent)
+            }.buttonStyle(.plain)
+        }
+        .padding(.horizontal, 10).frame(height: 28)
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(accent.opacity(0.08))
+            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(accent.opacity(0.55), lineWidth: 1)))
+        .transition(.opacity)
     }
 }

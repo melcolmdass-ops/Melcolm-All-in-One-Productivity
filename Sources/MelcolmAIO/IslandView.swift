@@ -327,10 +327,10 @@ struct Card<Content: View>: View {
 }
 
 struct SettingsTab: View {
-    enum Page: String, CaseIterable { case general = "General", commands = "Commands", bar = "Bar", display = "Display on bar", spaces = "Spaces", dragging = "Dragging", mouse = "Mouse", hover = "Hover bar", panel = "Pages", utility = "Utility Bar", focus = "Focus Workflows", colors = "Colors", rules = "Master Rules", updates = "Update Log" }
+    enum Page: String, CaseIterable { case general = "General", commands = "Commands", bar = "Bar", display = "Display on bar", spaces = "Spaces", dragging = "Dragging", mouse = "Mouse", hover = "Hover bar", panel = "Pages", utility = "Utility Bar", focus = "Focus Workflows", colors = "Colors", look = "Display", rules = "Master Rules", updates = "Update Log" }
     /// Top tabs, each with its own sub-tabs.
     static let groups: [(name: String, tabs: [Page])] = [
-        ("General", [.general, .commands]), ("Main Bar", [.bar, .panel, .display, .spaces, .mouse, .hover]), ("Dragging", [.dragging]), ("Utility Bar", [.utility]), ("Focus Workflows", [.focus]), ("Colors", [.colors]),
+        ("General", [.general, .commands]), ("Main Bar", [.bar, .panel, .display, .spaces, .mouse, .hover]), ("Dragging", [.dragging]), ("Utility Bar", [.utility]), ("Focus Workflows", [.focus]), ("Colors & Display", [.colors, .look]),
         ("Master Rules", [.rules]), ("Update Log", [.updates]),
     ]
     @AppStorage("settingsPage") var page = Page.general.rawValue
@@ -408,6 +408,7 @@ struct SettingsTab: View {
                     case .utility: utilityPage
                     case .focus: FocusSettings()
                     case .colors: ColorsPage()
+                    case .look: DisplayLookPage()
                     case .rules: MasterRulesPage()
                     case .updates: UpdateLogPage()
                     }

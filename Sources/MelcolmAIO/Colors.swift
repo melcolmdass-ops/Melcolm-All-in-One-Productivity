@@ -50,21 +50,11 @@ extension Color {
 
 struct ColorsPage: View {
     @AppStorage("colRev") var rev = 0       // views that draw the bar watch this, so a change shows at once
-    @AppStorage("boxStyle") var boxStyle = "soft"
     static let swatches = ["FFFFFF", "66A0FF", "40E0FF", "5CE08A", "FFD84D", "FF9F40", "FF5A6A", "C77DFF", "FF7ACB"]
 
     var body: some View {
         let _ = rev
         VStack(alignment: .leading, spacing: 4) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Box style").font(.system(size: 12.5, weight: .medium))
-                Picker("", selection: $boxStyle) {
-                    Text("Outlined").tag("outlined"); Text("Soft").tag("soft"); Text("Minimal").tag("minimal")
-                }.pickerStyle(.segmented).labelsHidden()
-                Text(boxStyle == "outlined" ? "A glowing outline around each box." : boxStyle == "soft" ? "A faint fill, no outline. Calm, still grouped." : "No boxes. Spacing and thin dividers keep things apart.")
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
-            }.padding(.vertical, 6)
-            Divider().opacity(0.3)
             ForEach(BarColor.shown, id: \.self) { c in
                 let cur = Prefs.d.string(forKey: c.rawValue) ?? ""
                 VStack(alignment: .leading, spacing: 6) {
@@ -257,4 +247,41 @@ struct HoverLift: ViewModifier {
 
 extension View {
     func hoverLift(_ id: String, _ color: Color, radius: CGFloat = 7) -> some View { modifier(HoverLift(id: id, color: color, radius: radius)) }
+}
+
+
+/// Settings ▸ Colors & Display ▸ Display: what the bar and panel look like, each with a picture and an on/off tick.
+struct DisplayLookPage: View {
+    @AppStorage("colRev") var rev = 0
+    @AppStorage("boxStyle") var boxStyle = "soft"
+    @AppStorage("showSpaceHint") var showHint = true
+
+    var body: some View {
+        let _ = rev
+        VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Box style").font(.system(size: 12.5, weight: .medium))
+                Picker("", selection: $boxStyle) {
+                    Text("Outlined").tag("outlined"); Text("Soft").tag("soft"); Text("Minimal").tag("minimal")
+                }.pickerStyle(.segmented).labelsHidden()
+                Text(boxStyle == "outlined" ? "A glowing outline around each box." : boxStyle == "soft" ? "A faint fill, no outline. Calm, still grouped." : "No boxes. Spacing and thin dividers keep things apart.")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+            }.padding(.vertical, 6)
+            Divider().opacity(0.3)
+            Divider().opacity(0.3)
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("Space reminder").font(.system(size: 12.5, weight: .medium))
+                    Spacer()
+                    Toggle("", isOn: $showHint).labelsHidden()
+                }
+                Text("The line under the bar that says the arrow keys switch Spaces. Shows only when you open the bar yourself.")
+                    .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                SpaceHintBox(onChange: nil)
+                    .opacity(showHint ? 1 : 0.35).saturation(showHint ? 1 : 0)
+                    .animation(.easeOut(duration: 0.2), value: showHint)
+                    .allowsHitTesting(false)
+            }.padding(.vertical, 6)
+        }
+    }
 }
