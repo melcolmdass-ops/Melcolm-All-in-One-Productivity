@@ -22,9 +22,16 @@ final class IslandState: ObservableObject {
     var displayID: CGDirectDisplayID = 0
     var collapsedWidth: CGFloat { leftWing + rightWing }
     /// The open panel is centred, so on a notched screen it is symmetric around the notch.
+    /// The front app's menus run too far right for anything to sit left of the notch.
+    @Published var menusInTheWay = false
+    /// The panel keeps its usual size and only grows when the bar truly needs more room.
+    /// With menus in the way it hugs the notch (nothing on the left) instead of reaching out over them.
     var expandedWidth: CGFloat {
-        max(AppDelegate.expandedSize.width, notchWidth > 0 ? 2 * max(leftWing, rightWing) + notchWidth : collapsedWidth)
+        if menusInTheWay && notchWidth > 0 { return max(AppDelegate.expandedSize.width, notchWidth + leftWing + rightWing) }
+        return max(AppDelegate.expandedSize.width, notchWidth > 0 ? 2 * max(leftWing, rightWing) + notchWidth : collapsedWidth)
     }
+    /// How much of the open panel's top row sits left of the notch.
+    var expandedLeft: CGFloat { menusInTheWay ? leftWing : (expandedWidth - notchWidth) / 2 }
 
     struct Peek: Equatable {
         var text: String
@@ -461,10 +468,12 @@ final class Island: NSObject {
                 return k > 0 ? (max(l, r), max(l, r)) : (l, r)
             }
             var k = groups.isEmpty ? 0 : 1
+            var blocked = false
             // If the front app's menus would run under the left side, every display goes right instead.
             if k > 0,
                let menuEnd = MenuBar.rightEdge(on: screen),
-               screen.frame.midX - state.notchWidth / 2 - wings(k).0 < menuEnd + 6 { k = 0 }
+               screen.frame.midX - state.notchWidth / 2 - wings(k).0 < menuEnd + 6 { k = 0; blocked = true }
+            if state.menusInTheWay != blocked { state.menusInTheWay = blocked }
             if state.leftDisplays != k { state.leftDisplays = k }
             let (l, r) = wings(k)
             set(&state.leftWing, l); set(&state.rightWing, r)
@@ -504,9 +513,12 @@ final class Island: NSObject {
                      height: state.barHeight + (state.peek?.height ?? 0))
         // Centred on every screen; on a notched screen it straddles the notch.
         // Collapsed on a notched screen, each side is only as wide as its content.
-        let x = !expanded && state.notchWidth > 0
+        var x = !expanded && state.notchWidth > 0
             ? screen.frame.midX - state.notchWidth / 2 - state.leftWing - state.peekExtra
             : screen.frame.midX - size.width / 2
+        // Open with menus in the way: the left edge stays at the notch, so no menu is ever covered.
+        if expanded, state.menusInTheWay, state.notchWidth > 0 { x = screen.frame.midX - state.notchWidth / 2 - state.leftWing }
+        x = min(x, screen.frame.maxX - size.width)
         return NSRect(x: x.rounded(), y: screen.frame.maxY - size.height, width: size.width.rounded(), height: size.height)
     }
 

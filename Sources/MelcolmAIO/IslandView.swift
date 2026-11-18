@@ -84,7 +84,7 @@ struct TopBar: View {
                         .padding(state.notchWidth > 0 ? .trailing : .leading, state.notchWidth > 0 ? 18 : 14)
                 } else { Color.clear }
             }
-            .frame(width: state.expanded && state.notchWidth > 0 ? (state.expandedWidth - state.notchWidth) / 2 : state.leftWing,
+            .frame(width: state.expanded && state.notchWidth > 0 ? state.expandedLeft : state.leftWing,
                    alignment: state.notchWidth > 0 ? .trailing : .leading)
             if state.notchWidth > 0 { NotchButton(toggle: toggle).frame(width: state.notchWidth) }
             if state.notchWidth == 0 { Spacer(minLength: 0) }

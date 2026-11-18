@@ -28,6 +28,7 @@ enum UpdateLog {
                   improvements: [],
                   fixes: [
                       "The focus workflow message and the completed pop-up now sit above the bar even when it is open. Click either one to close it early.",
+                      "The open panel no longer covers an app's menus (Chrome's, for example) and keeps the same size when you switch apps: it only grows when something new has to fit. New Master Rule: The bar only resizes when it has to.",
                       "Dragging a full-screen app onto any display's space area now lands it in that display's Spaces. Only the number itself means \"go to this desktop\".",
                   ],
                   features: [
@@ -634,7 +635,9 @@ struct MasterRule: Identifiable {
         MasterRule(icon: "cursorarrow.rays", title: "Whatever you rest on lights up",
                    detail: "Rest the pointer on anything in the bar (a display number, an app, the music, the arrow, the notch or the island itself) and it lifts up a little and glows in the colour you picked for it in Colors."),
         MasterRule(icon: "menubar.rectangle", title: "App menus are never covered",
-                   detail: "If an app's menus (File, Edit, View…) would run under the island, your displays move to the right of the notch instead."),
+                   detail: "If an app's menus (File, Edit, View…) would run under the island, your displays move to the right of the notch instead. The same goes for the open panel: it starts at the notch, so it never covers an app's menus."),
+        MasterRule(icon: "arrow.up.left.and.arrow.down.right", title: "The bar only resizes when it has to",
+                   detail: "The bar and the open panel keep the same size. They only grow when something new has to fit, like another display, a timer or a song. Switching apps never changes the size: when menus are in the way the bar slides over to the right side of the notch instead."),
         MasterRule(icon: "plus.rectangle.on.rectangle", title: "A dragged window always becomes the last Space",
                    detail: "Drop a window from your desktop onto the bar, or onto the top-middle New Space spot, and it always becomes the last Space on that display, wherever you let go. Nothing else opens, closes or moves to make room."),
         MasterRule(icon: "hand.draw.fill", title: "Dragging is always smooth",
