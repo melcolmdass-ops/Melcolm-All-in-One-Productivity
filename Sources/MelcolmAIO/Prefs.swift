@@ -161,7 +161,7 @@ enum Hotkeys {
                 refs.append(ref); hotkeyActions[id] = action
             }
         }
-        for (i, c) in commands.enumerated() where Prefs.bool(onKey(c.id)) {
+        for (i, c) in commands.enumerated() where Prefs.bool(onKey(c.id)) && (Prefs.d.string(forKey: DoubleTap.prefKey(c.id)) ?? "Off") == "Off" {
             let label = Prefs.d.string(forKey: "cmd.\(c.id).key") ?? c.key
             if let code = keys.first(where: { $0.label == label })?.code, let act = actions[c.id] { add(UInt32(100 + i), code, act) }
         }

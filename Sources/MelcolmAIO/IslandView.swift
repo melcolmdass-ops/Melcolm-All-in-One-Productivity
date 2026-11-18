@@ -649,6 +649,8 @@ struct SettingsTab: View {
         sectionLabel("Commands")
         ForEach(Hotkeys.commands) { c in CommandRow(c: c, mods: Hotkeys.modifierChoices.first { $0.id == cmdMods }?.label ?? "⌃⌥") }
         row("Go to desktop 1…9") {
+            HStack(spacing: 5) { ForEach(1...3, id: \.self) { n in Text("\(n)").font(.system(size: 10, weight: .heavy, design: .rounded)).frame(width: 14, height: 14).background(RoundedRectangle(cornerRadius: 4).fill(n == 2 ? accent : Color.white.opacity(0.22))) }; Text("…9").font(.system(size: 10, weight: .bold)).foregroundStyle(.secondary) }
+                .frame(width: 92, height: 24).background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Color(white: 0.13)))
             Text((Hotkeys.modifierChoices.first { $0.id == cmdMods }?.label ?? "⌃⌥") + "1…9").font(.system(size: 11, weight: .bold, design: .rounded))
                 .foregroundStyle(.secondary).padding(.horizontal, 8).frame(height: 22)
                 .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(.white.opacity(0.08)))
@@ -841,6 +843,7 @@ struct Shortcut: Identifiable {
 }
 
 /// One command: its name, the key you can change, and an on/off switch.
+/// One command: its name, a small picture of what it does, and ONE trigger: a hotkey, a double-tap, or off.
 struct CommandRow: View {
     let c: Hotkeys.Command; let mods: String
     @AppStorage var key: String
@@ -852,26 +855,63 @@ struct CommandRow: View {
         _on = AppStorage(wrappedValue: c.on, Hotkeys.onKey(c.id))
         _dbl = AppStorage(wrappedValue: "Off", DoubleTap.prefKey(c.id))
     }
+
+    /// "off", "key:Space" or "dbl:Right ⌘": exactly one of them is true at a time.
+    var trigger: Binding<String> {
+        Binding(get: { dbl != "Off" ? "dbl:\(dbl)" : on ? "key:\(key)" : "off" },
+                set: { v in
+                    if v == "off" { on = false; dbl = "Off" }
+                    else if v.hasPrefix("key:") { key = String(v.dropFirst(4)); on = true; dbl = "Off" }
+                    else { dbl = String(v.dropFirst(4)); on = false }
+                })
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                Text(c.title).font(.system(size: 12.5, weight: .medium))
-                Spacer()
-                Text(mods).font(.system(size: 11, weight: .bold, design: .rounded)).foregroundStyle(.secondary)
-                Picker("", selection: $key) { ForEach(Hotkeys.keys, id: \.label) { Text($0.label).tag($0.label) } }
-                    .labelsHidden().frame(width: 74)
-                Toggle("", isOn: $on).labelsHidden()
+                Text(c.title).font(.system(size: 12.5, weight: .medium)).lineLimit(1).frame(width: 120, alignment: .leading)
+                Spacer(minLength: 0)
+                CommandPicture(id: c.id)
+                Spacer(minLength: 0)
+                Picker("", selection: trigger) {
+                    Text("Off").tag("off")
+                    Divider()
+                    ForEach(Hotkeys.keys, id: \.label) { Text("\(mods) \($0.label)").tag("key:\($0.label)") }
+                    Divider()
+                    ForEach(DoubleTap.keys, id: \.label) { Text("Double-tap \($0.label)").tag("dbl:\($0.label)") }
+                }.labelsHidden().frame(width: 150)
             }.frame(minHeight: 30)
-            HStack(spacing: 8) {
-                Text("or double-tap").font(.system(size: 11)).foregroundStyle(.secondary)
-                Spacer()
-                Picker("", selection: $dbl) {
-                    Text("Off").tag("Off")
-                    ForEach(DoubleTap.keys, id: \.label) { Text($0.label).tag($0.label) }
-                }.labelsHidden().frame(width: 110)
-            }.frame(minHeight: 26)
             Hairline().padding(.top, 6)
         }
+    }
+}
+
+/// A tiny drawing of what a command does, in the middle of its row.
+struct CommandPicture: View {
+    let id: String
+    func box(_ lit: Bool = false) -> some View {
+        RoundedRectangle(cornerRadius: 3, style: .continuous).fill(lit ? accent : Color.white.opacity(0.22)).frame(width: 11, height: 11)
+    }
+    func glyph(_ n: String, _ c: Color = .white) -> some View { Image(systemName: n).font(.system(size: 11, weight: .bold)).foregroundStyle(c) }
+    var body: some View {
+        HStack(spacing: 5) {
+            switch id {
+            case "toggle":
+                Capsule().fill(.white.opacity(0.3)).frame(width: 22, height: 7); glyph("arrow.up.and.down", accent)
+                RoundedRectangle(cornerRadius: 3).fill(.white.opacity(0.22)).frame(width: 22, height: 11)
+            case "play": glyph("play.fill"); glyph("pause.fill", .white.opacity(0.6))
+            case "next": glyph("music.note", .white.opacity(0.6)); glyph("forward.fill", accent)
+            case "prev": glyph("backward.fill", accent); glyph("music.note", .white.opacity(0.6))
+            case "volUp": glyph("speaker.wave.1.fill", .white.opacity(0.6)); glyph("plus", accent); glyph("speaker.wave.3.fill")
+            case "volDown": glyph("speaker.wave.3.fill", .white.opacity(0.6)); glyph("minus", accent); glyph("speaker.wave.1.fill")
+            case "mute": glyph("speaker.wave.2.fill", .white.opacity(0.6)); glyph("arrow.right", accent); glyph("speaker.slash.fill")
+            case "spaceNext": box(); box(true); glyph("arrow.right", accent); box()
+            case "spacePrev": box(); glyph("arrow.left", accent); box(true); box()
+            default: glyph("keyboard")
+            }
+        }
+        .frame(width: 92, height: 24)
+        .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Color(white: 0.13)))
     }
 }
 

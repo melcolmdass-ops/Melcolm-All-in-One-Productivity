@@ -906,7 +906,7 @@ struct SpaceHintBox: View {
                 .background(RoundedRectangle(cornerRadius: 5, style: .continuous).fill(.white.opacity(0.12)))
         }
         func hotkey(_ id: String, _ arrow: String) -> String? {
-            guard Prefs.bool(Hotkeys.onKey(id)), let c = Hotkeys.commands.first(where: { $0.id == id }) else { return nil }
+            guard Prefs.bool(Hotkeys.onKey(id)), (Prefs.d.string(forKey: DoubleTap.prefKey(id)) ?? "Off") == "Off", let c = Hotkeys.commands.first(where: { $0.id == id }) else { return nil }
             let mods = Hotkeys.modifierChoices.first { $0.id == (Prefs.d.string(forKey: "cmdMods") ?? "ctrlOpt") }?.label ?? "⌃⌥"
             return mods + (Prefs.d.string(forKey: "cmd.\(id).key") ?? c.key)
         }
