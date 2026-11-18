@@ -6,6 +6,7 @@ import SwiftUI
 final class IslandState: ObservableObject {
     @Published var expanded = false
     @Published var page: PanelPage = .home
+    @Published var byHover = false             // opened by resting the mouse on it, not by a click or hotkey
     @Published var notchWidth: CGFloat = 0     // 0 = this screen has no notch
     @Published var barHeight: CGFloat = 32
     @Published var leftWing: CGFloat = 130
@@ -290,8 +291,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             "volUp": g { [weak self] in self?.sound.nudge(0.06) },
             "volDown": g { [weak self] in self?.sound.nudge(-0.06) },
             "mute": g { [weak self] in self?.sound.toggleMute() },
-            "spaceNext": g { [weak self] in self?.activeIsland?.spaces.step(1) },
-            "spacePrev": g { [weak self] in self?.activeIsland?.spaces.step(-1) },
+            "spaceNext": g { [weak self] in self?.activeIsland?.spaces.step(1, wrap: true) },
+            "spacePrev": g { [weak self] in self?.activeIsland?.spaces.step(-1, wrap: true) },
         ], jump: { [weak self] n in if !Island.typing(in: NSApp.keyWindow) { self?.activeIsland?.spaces.jump(toNumber: n) } })
     }
 }
@@ -310,7 +311,7 @@ final class Island: NSObject {
     var clickMonitor: Any?
 
     var screenBar: CGFloat = 24
-    var openedByHover = false
+    var openedByHover = false { didSet { state.byHover = openedByHover } }
     var hovering = false
     var scrollAccum: CGFloat = 0
     var lastScrollSwitch = Date.distantPast
@@ -563,8 +564,8 @@ final class Island: NSObject {
         case 49: playing.playPause(); return true                       // space
         case 126: sound.nudge(0.06); return true                        // up
         case 125: sound.nudge(-0.06); return true                       // down
-        case 123: spaces.step(-1); return true                          // left
-        case 124: spaces.step(1); return true                           // right
+        case 123: spaces.step(-1, wrap: true); return true                          // left
+        case 124: spaces.step(1, wrap: true); return true                           // right
         default:
             if let c = e.charactersIgnoringModifiers, let n = Int(c), n > 0 { spaces.jump(toNumber: n); return true }
             if e.charactersIgnoringModifiers == "," { state.page = state.page == .settings ? .home : .settings; return true }

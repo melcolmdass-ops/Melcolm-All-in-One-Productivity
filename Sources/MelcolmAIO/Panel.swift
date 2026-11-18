@@ -63,8 +63,11 @@ extension PanelPage {
 /// The panel that slides out of the island: a home grid, and one clean page per button.
 struct PanelView: View {
     @EnvironmentObject var state: IslandState
+    @AppStorage("settingsPage") var settingsPage = "General"
 
     var body: some View {
+        VStack(spacing: 6) {
+        if state.page == .home && !state.byHover { spaceHint }
         ZStack(alignment: .top) {
             if state.page == .home {
                 HomePage().transition(.opacity.combined(with: .scale(scale: 0.98)))
@@ -88,8 +91,39 @@ struct PanelView: View {
             }
         }
         .animation(.snappy(duration: 0.25), value: state.page)
+        }
         .padding(.horizontal, 18).padding(.top, 10).padding(.bottom, 16)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    /// A short reminder under the bar (only when you open it yourself, not on hover): the arrows change Space and wrap around.
+    var spaceHint: some View {
+        func key(_ t: String) -> some View {
+            Text(t).font(.system(size: 10, weight: .heavy, design: .rounded)).frame(minWidth: 18, minHeight: 16).padding(.horizontal, 2)
+                .background(RoundedRectangle(cornerRadius: 5, style: .continuous).fill(.white.opacity(0.12)))
+        }
+        func hotkey(_ id: String, _ arrow: String) -> String? {
+            guard Prefs.bool(Hotkeys.onKey(id)), let c = Hotkeys.commands.first(where: { $0.id == id }) else { return nil }
+            let mods = Hotkeys.modifierChoices.first { $0.id == (Prefs.d.string(forKey: "cmdMods") ?? "ctrlOpt") }?.label ?? "⌃⌥"
+            return mods + (Prefs.d.string(forKey: "cmd.\(id).key") ?? c.key)
+        }
+        let dbl = ["spacePrev", "spaceNext"].compactMap { Prefs.d.string(forKey: DoubleTap.prefKey($0)) }.filter { $0 != "Off" }
+        return HStack(spacing: 6) {
+            key("←"); key("→")
+            Text("switch Space · wraps around").font(.system(size: 10.5, weight: .medium)).foregroundStyle(.secondary)
+            if let a = hotkey("spacePrev", "←"), let b = hotkey("spaceNext", "→") {
+                Text("· anywhere: \(a) \(b)").font(.system(size: 10.5)).foregroundStyle(.tertiary)
+            } else if !dbl.isEmpty {
+                Text("· anywhere: double-tap \(dbl.joined(separator: " / "))").font(.system(size: 10.5)).foregroundStyle(.tertiary)
+            }
+            Spacer(minLength: 0)
+            Button { settingsPage = SettingsTab.Page.commands.rawValue; state.page = .settings } label: {
+                HStack(spacing: 3) { Text("Change keys").font(.system(size: 10.5, weight: .semibold)); Image(systemName: "chevron.right").font(.system(size: 8, weight: .bold)) }
+                    .foregroundStyle(accent)
+            }.buttonStyle(.plain)
+        }
+        .padding(.horizontal, 2).frame(height: 20)
+        .transition(.opacity)
     }
 
     @ViewBuilder var content: some View { Self.pageContent(state.page) }

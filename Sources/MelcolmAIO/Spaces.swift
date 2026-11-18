@@ -182,9 +182,11 @@ final class SpacesModel: ObservableObject {
         switchTo(spaces[n - 1])
     }
 
-    func step(_ delta: Int) {
+    /// One Space left or right. With `wrap`, going past the last Space comes back round to the first (and the other way).
+    func step(_ delta: Int, wrap: Bool = false) {
         guard let i = currentIndex else { return }
-        let j = i + delta
+        var j = i + delta
+        if wrap, !spaces.isEmpty { j = ((j % spaces.count) + spaces.count) % spaces.count }
         if spaces.indices.contains(j) { switchTo(spaces[j]) }
     }
 
