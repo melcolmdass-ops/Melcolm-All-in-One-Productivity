@@ -278,9 +278,15 @@ final class NowPlayingModel: ObservableObject {
                     if !self.held(m.id) { self.playing = m.playing }
                     if m.duration > 0 { self.position = m.position; self.duration = m.duration }
                 }
+                // Not there yet: look again soon, but only a few times per song. (This used to repeat every 0.5 s
+                // forever when a player never reports its length, e.g. a paused YouTube Music tab.)
                 if let m = self.mainResult, self.app == "Browser", self.duration == 0 {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self.refresh() }   // not there yet: look again soon
-                }
+                    if self.axRetryID != m.id { self.axRetryID = m.id; self.axRetries = 0 }
+                    if self.axRetries < 4 {
+                        self.axRetries += 1
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self.refresh() }
+                    }
+                } else { self.axRetries = 0 }
                 BrowserMedia.log("ax \(out.map { "\($0.key) pos=\($0.value.pos)/\($0.value.dur) play=\(String(describing: $0.value.playing))" })")
             }
         }
@@ -289,6 +295,8 @@ final class NowPlayingModel: ObservableObject {
     /// Where each player's read last stood, and since when. A read that stays put while sound is
     /// coming out is frozen (Chrome stops updating pages on another Space or display).
     private var axSince: [String: (pos: Double, since: Date)] = [:]
+    private var axRetries = 0
+    private var axRetryID = ""
 
     /// MASTER RULE: what you hear decides. If the browser is making sound, a player shows as playing
     /// (on its card and on the bar) even when the page's own read is stale; if it has been silent
@@ -361,6 +369,7 @@ final class NowPlayingModel: ObservableObject {
 
     /// Plays or pauses exactly that tab. Others keep doing what they were doing.
     func toggle(_ r: BrowserMedia.Result) {
+        axRetries = 0          // you pressed something: allow a fresh round of quick re-reads
         // The page's own button says the truth: "pause" showing means it is playing right now.
         var button = ax[r.id]?.found.play
         // A saved button can go stale (new song, page redrawn): if it no longer answers, find it again now.

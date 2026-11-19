@@ -29,6 +29,7 @@ enum UpdateLog {
                   fixes: [
                       "Split, Triple and Quad view with Stage Manager: bringing the dropped window forward made Stage Manager send the other apps back to its side strip, so only one window showed. Each one is now added back onto the same stage (the strip slides in if a window was covering it) and everything is put in its spot again.",
                       "With Stage Manager on, windows could end up the wrong size because Stage Manager was still animating. Window views now place everything a second time once it has settled.",
+                      "A paused YouTube Music tab (or any player that doesn't say how long the song is) made the app re-check the music every half second, forever. It now re-checks a few times and then waits for the normal check, so the app uses about 2% of the processor instead of 10–20%.",
                   ],
                   features: [],
                   icons: ["ladybug.fill", "rectangle.split.2x1.fill", "checkmark.circle.fill"], tint: orange),
