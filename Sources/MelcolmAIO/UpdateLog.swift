@@ -24,6 +24,11 @@ enum UpdateLog {
 
     /// Newest first.
     static let all: [AppUpdate] = [
+        AppUpdate(version: "2.44", date: "November 18th, 2026", title: "Reliable Space arrows, cleaner hotkey setup",
+                  improvements: ["Setting a Custom hotkey now says \"Press keys · click to cancel\". Press keys to set it, or click anywhere to back out."],
+                  fixes: ["Left and right arrows now always change Space. Quick presses no longer get lost while macOS is still switching; the app checks where you really are and retries if a switch didn't land."],
+                  features: ["While you are setting a Custom hotkey, all your other hotkeys, double-taps and arrow shortcuts are paused until it is saved or cancelled."],
+                  icons: ["arrow.left.arrow.right", "keyboard", "hand.tap.fill"], tint: blue),
         AppUpdate(version: "2.43", date: "November 18th, 2026", title: "Settings tidy-up, Pages tab, more pictures",
                   improvements: [
                       "Settings: Master Rules and Update Log moved into General (they are things you read, not set). Pages is now its own tab next to Main Bar.",
@@ -673,6 +678,8 @@ struct MasterRule: Identifiable {
                    detail: "Holding the drag key shows the dashed snap circles only on a desktop, where a window can actually be moved. Inside a full-screen app nothing appears. A window only snaps when you drop it inside a circle."),
         MasterRule(icon: "play.circle.fill", title: "Each player controls only itself",
                    detail: "Play, Pause, Next, Back and the play bar on a Now Playing row only ever act on the exact thing that row shows. If the app can't reach that one directly, it does nothing rather than risk starting something else."),
+        MasterRule(icon: "keyboard.badge.ellipsis", title: "Setting a hotkey pauses every other shortcut",
+                   detail: "While a Custom hotkey is waiting for your keys, all hotkeys, double-taps and the arrow keys are off, so the keys you press only set the new hotkey. Press keys to save it, or click anywhere (or press Esc) to cancel. Everything switches back on straight away."),
     ]
 }
 

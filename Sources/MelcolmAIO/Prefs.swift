@@ -109,6 +109,16 @@ private var hotkeyActions: [UInt32: () -> Void] = [:]
 enum Hotkeys {
     private static var refs: [EventHotKeyRef] = []
     private static var installed = false
+    private static var lastActions: [String: () -> Void] = [:]
+    private static var lastJump: (Int) -> Void = { _ in }
+    /// MASTER RULE: while a Custom hotkey is being recorded, every hotkey, double-tap and arrow shortcut is off.
+    static var paused = false
+    static func setPaused(_ on: Bool) {
+        guard paused != on else { return }
+        paused = on
+        if on { refs.forEach { UnregisterEventHotKey($0) }; refs = []; hotkeyActions = [:] }
+        else { reload(actions: lastActions, jump: lastJump) }
+    }
     // Key codes for 1…9 on the top row.
     private static let digitCodes: [UInt32] = [18, 19, 20, 21, 23, 22, 26, 28, 25]
 
@@ -184,6 +194,7 @@ enum Hotkeys {
     }
 
     static func reload(actions: [String: () -> Void], jump: @escaping (Int) -> Void) {
+        lastActions = actions; lastJump = jump
         if !installed {
             var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
             InstallEventHandler(GetApplicationEventTarget(), { _, event, _ in
@@ -199,6 +210,7 @@ enum Hotkeys {
         refs.forEach { UnregisterEventHotKey($0) }
         refs = []; hotkeyActions = [:]
         migrate()
+        if paused { return }
         let numberMods = UInt32(controlKey | optionKey)
         func add(_ id: UInt32, _ code: UInt32, _ mods: UInt32, _ action: @escaping () -> Void) {
             var ref: EventHotKeyRef?

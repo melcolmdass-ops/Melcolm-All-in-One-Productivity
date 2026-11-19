@@ -183,11 +183,40 @@ final class SpacesModel: ObservableObject {
     }
 
     /// One Space left or right. With `wrap`, going past the last Space comes back round to the first (and the other way).
+    /// Presses arrive faster than macOS can animate a switch, and a switch posted mid-animation is dropped.
+    /// So each press is counted from where the LAST press is heading (not a stale reading), presses are spaced
+    /// out until the animation is done, and each one re-reads the real current Space before it switches.
+    private var stepTarget: Int?
+    private var busyUntil = Date.distantPast
+    private static let stepGap = 0.42
+
     func step(_ delta: Int, wrap: Bool = false) {
-        guard let i = currentIndex else { return }
+        let idle = Date() >= busyUntil
+        if idle { stepTarget = nil; refresh() }
+        let base = stepTarget.flatMap { t in spaces.firstIndex { $0.id == t } } ?? currentIndex
+        guard let i = base, !spaces.isEmpty else { refresh(); return }
         var j = i + delta
-        if wrap, !spaces.isEmpty { j = ((j % spaces.count) + spaces.count) % spaces.count }
-        if spaces.indices.contains(j) { switchTo(spaces[j]) }
+        if wrap { j = ((j % spaces.count) + spaces.count) % spaces.count }
+        guard spaces.indices.contains(j) else { return }
+        let target = spaces[j].id
+        stepTarget = target
+        let wait = max(0, busyUntil.timeIntervalSinceNow)
+        busyUntil = Date().addingTimeInterval(wait + Self.stepGap)
+        DispatchQueue.main.asyncAfter(deadline: .now() + wait) { [weak self] in self?.go(to: target, retries: 1) }
+    }
+
+    /// Switches to the Space with this id from wherever macOS really is now, then checks it arrived (retrying once).
+    private func go(to id: Int, retries: Int) {
+        guard stepTarget == id || stepTarget == nil else { return }   // a newer press took over; it will finish the job
+        refresh()
+        guard let sp = spaces.first(where: { $0.id == id }) else { return }
+        if currentID != id { switchTo(sp) }
+        guard retries > 0 else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) { [weak self] in
+            guard let self, self.stepTarget == id, Date() >= self.busyUntil else { return }
+            self.refresh()
+            if self.currentID != id { self.busyUntil = Date().addingTimeInterval(Self.stepGap); self.go(to: id, retries: retries - 1) }
+        }
     }
 
     /// Steps left/right with the "Move left/right a space" shortcuts, which is

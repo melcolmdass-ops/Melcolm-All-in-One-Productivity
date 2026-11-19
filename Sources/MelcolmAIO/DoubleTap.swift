@@ -55,6 +55,7 @@ final class DoubleTap {
     }
 
     private func fire(_ label: String) {
+        if Hotkeys.paused { return }
         for id in commandIDs where Prefs.d.string(forKey: Self.prefKey(id)) == label {
             if let a = actions[id] { DispatchQueue.main.async { a() } }
         }

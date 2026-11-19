@@ -414,7 +414,7 @@ struct SettingsTab: View {
                     }
                 }
             }
-            Text("Melcolm All-in-One Productivity · v2.43").font(.system(size: 10)).foregroundStyle(.tertiary)
+            Text("Melcolm All-in-One Productivity · v2.44").font(.system(size: 10)).foregroundStyle(.tertiary)
         }
         .font(.system(size: 12))
         .toggleStyle(.switch).controlSize(.small)
@@ -842,9 +842,18 @@ struct Shortcut: Identifiable {
 final class HotkeyRecorder: ObservableObject {
     @Published var recording = false
     @Published var saved = ""
-    private var monitor: Any?
+    private var monitor: Any?, clickMonitor: Any?, globalClick: Any?
     func start(_ done: @escaping (Hotkeys.Custom) -> Void) {
         stop(); recording = true; saved = ""
+        Hotkeys.setPaused(true)
+        // A click anywhere cancels; a key sets the hotkey.
+        clickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] e in
+            DispatchQueue.main.async { self?.stop() }
+            return e
+        }
+        globalClick = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+            DispatchQueue.main.async { self?.stop() }
+        }
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
             guard let self else { return e }
             if e.keyCode == 53 { self.stop(); return nil }                      // Esc cancels
@@ -858,7 +867,12 @@ final class HotkeyRecorder: ObservableObject {
             return nil
         }
     }
-    func stop() { recording = false; if let m = monitor { NSEvent.removeMonitor(m); monitor = nil } }
+    func stop() {
+        recording = false
+        for m in [monitor, clickMonitor, globalClick] { if let m { NSEvent.removeMonitor(m) } }
+        monitor = nil; clickMonitor = nil; globalClick = nil
+        Hotkeys.setPaused(false)
+    }
     deinit { stop() }
 }
 
@@ -906,8 +920,8 @@ struct CommandRow: View {
                 Spacer(minLength: 0)
                 if rec.recording {
                     Button { rec.stop() } label: {
-                        Text("Press your hotkey…").font(.system(size: 11, weight: .bold)).foregroundStyle(.white)
-                            .frame(width: 140, height: 22).background(RoundedRectangle(cornerRadius: 6).fill(accent))
+                        Text("Press keys · click to cancel").font(.system(size: 10.5, weight: .bold)).foregroundStyle(.white)
+                            .lineLimit(1).minimumScaleFactor(0.7).frame(width: 140, height: 22).background(RoundedRectangle(cornerRadius: 6).fill(accent))
                     }.buttonStyle(.plain)
                 } else if !rec.saved.isEmpty {
                     Label("Hotkey saved · \(rec.saved)", systemImage: "checkmark.circle.fill").font(.system(size: 10.5, weight: .bold))

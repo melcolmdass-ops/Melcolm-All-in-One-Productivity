@@ -35,7 +35,7 @@ final class ArrowKeys {
         let code = e.getIntegerValueField(.keyboardEventKeycode)
         guard code == 123 || code == 124,
               e.flags.intersection([.maskCommand, .maskControl, .maskAlternate, .maskShift]).isEmpty,
-              wants() else { return Unmanaged.passUnretained(e) }
+              !Hotkeys.paused, wants() else { return Unmanaged.passUnretained(e) }
         // Holding the key repeats, but one Space at a time reads smoother than a rush.
         let now = Date()
         if now.timeIntervalSince(last) >= 0.14 { last = now; step(code == 123 ? -1 : 1) }

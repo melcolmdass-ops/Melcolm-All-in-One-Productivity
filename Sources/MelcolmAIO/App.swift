@@ -605,6 +605,7 @@ final class Island: NSObject {
     func handleKey(_ e: NSEvent) -> Bool {
         // MASTER RULE: while you're typing in a text box, keys type. No shortcut fires (space doesn't
         // play music, numbers don't switch Spaces). Only the open/close hotkey still works (it's global).
+        if Hotkeys.paused { return false }
         if Self.typing(in: e.window ?? panel) { return false }
         switch e.keyCode {
         case 53: if state.page != .home { state.page = .home } else { setExpanded(false) }; return true   // esc: back, then close
