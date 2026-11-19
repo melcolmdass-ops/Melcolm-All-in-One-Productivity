@@ -24,6 +24,14 @@ enum UpdateLog {
 
     /// Newest first.
     static let all: [AppUpdate] = [
+        AppUpdate(version: "2.48", date: "November 19th, 2026", title: "Bug sweep: Stage Manager window views, quieter background work",
+                  improvements: ["When the browser's JavaScript setting is off, the app stops re-asking every music tab every few seconds; it tries again every 30 seconds instead."],
+                  fixes: [
+                      "Split, Triple and Quad view with Stage Manager: bringing the dropped window forward made Stage Manager send the other apps back to its side strip, so only one window showed. Each one is now added back onto the same stage (the strip slides in if a window was covering it) and everything is put in its spot again.",
+                      "With Stage Manager on, windows could end up the wrong size because Stage Manager was still animating. Window views now place everything a second time once it has settled.",
+                  ],
+                  features: [],
+                  icons: ["ladybug.fill", "rectangle.split.2x1.fill", "checkmark.circle.fill"], tint: orange),
         AppUpdate(version: "2.47", date: "November 19th, 2026", title: "Smooth again: the bar stops re-measuring itself",
                   improvements: [],
                   fixes: [

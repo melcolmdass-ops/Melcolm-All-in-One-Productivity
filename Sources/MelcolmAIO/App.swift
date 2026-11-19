@@ -266,10 +266,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                 let me = ProcessInfo.processInfo.processIdentifier
                 let list = (CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]]) ?? []
-                guard let front = list.first(where: { ($0[kCGWindowLayer as String] as? Int) == 0 && ($0[kCGWindowOwnerPID as String] as? pid_t) != me }),
+                guard let front = list.first(where: { w in
+                          guard (w[kCGWindowLayer as String] as? Int) == 0, (w[kCGWindowOwnerPID as String] as? pid_t) != me,
+                                let d = w[kCGWindowBounds as String] as CFTypeRef?, let r = CGRect(dictionaryRepresentation: d as! CFDictionary) else { return false }
+                          return r.width > 200 && r.height > 150 }),
                       let pid = front[kCGWindowOwnerPID as String] as? pid_t, let wid = front[kCGWindowNumber as String] as? CGWindowID,
-                      let ax = SpaceMover.window(pid: pid, wid: wid), !SpaceMover.isFull(ax),
-                      ((front[kCGWindowBounds as String] as? [String: CGFloat])?["Height"] ?? 0) > 150 else {
+                      let ax = SpaceMover.window(pid: pid, wid: wid), !SpaceMover.isFull(ax) else {
                     try? "no normal front window".write(toFile: "/tmp/melcolm-arrange.log", atomically: true, encoding: .utf8); return }
                 let sc = NSScreen.screens[0], h = sc.frame.height
                 let vis = CGRect(x: sc.visibleFrame.minX, y: h - sc.visibleFrame.maxY, width: sc.visibleFrame.width, height: sc.visibleFrame.height)

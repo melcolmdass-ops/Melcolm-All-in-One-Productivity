@@ -57,6 +57,9 @@ enum WindowView: String, CaseIterable, Identifiable {
                   let b = w[kCGWindowBounds as String] as? [String: CGFloat],
                   (w[kCGWindowAlpha as String] as? CGFloat ?? 1) > 0.1,
                   let app = NSRunningApplication(processIdentifier: p), app.activationPolicy == .regular else { continue }
+            // Testing only: `-debugArrangeOnly "TextEdit,Calculator"` limits which apps can be picked.
+            if let only = UserDefaults.standard.string(forKey: "debugArrangeOnly"),
+               !only.split(separator: ",").contains(where: { $0 == app.localizedName ?? "" }) { continue }
             let r = CGRect(x: b["X"] ?? 0, y: b["Y"] ?? 0, width: b["Width"] ?? 0, height: b["Height"] ?? 0)
             guard display.contains(CGPoint(x: r.midX, y: r.midY)) else { continue }
             if r.width > 200, r.height > 150 { out.append(Win(pid: p, wid: n)); continue }
@@ -71,19 +74,40 @@ enum WindowView: String, CaseIterable, Identifiable {
         return out + strip.filter { s in !out.contains { $0.pid == s.pid && $0.wid == s.wid } }
     }
 
-    /// Shift-click on a Stage Manager thumbnail: adds that window to the stage you're on (Stage Manager's own rule),
-    /// then the pointer goes back where it was.
-    static func addToStage(_ thumb: CGRect) {
-        let back = CGEvent(source: nil)?.location ?? .zero
-        let at = CGPoint(x: thumb.midX, y: thumb.midY)
+    /// Where a window is right now (top-left coords), or nil if macOS no longer lists it.
+    static func bounds(_ wid: CGWindowID) -> CGRect? {
+        guard let d = (CGWindowListCopyWindowInfo([.optionIncludingWindow], wid) as? [[String: Any]])?.first,
+              let b = d[kCGWindowBounds as String] as? [String: CGFloat] else { return nil }
+        return CGRect(x: b["X"] ?? 0, y: b["Y"] ?? 0, width: b["Width"] ?? 0, height: b["Height"] ?? 0)
+    }
+
+    /// Posts a pointer event (our own: the drag tap lets it through).
+    private static func mouse(_ t: CGEventType, _ p: CGPoint, shift: Bool = false) {
         OptionDrag.passThroughUntil = Date().addingTimeInterval(1)
-        for t: CGEventType in [.leftMouseDown, .leftMouseUp] {
-            let e = CGEvent(mouseEventSource: nil, mouseType: t, mouseCursorPosition: at, mouseButton: .left)
-            e?.flags = .maskShift
-            e?.post(tap: .cghidEventTap)
-            Thread.sleep(forTimeInterval: 0.05)
+        let e = CGEvent(mouseEventSource: nil, mouseType: t, mouseCursorPosition: p, mouseButton: .left)
+        if shift { e?.flags = .maskShift }
+        e?.post(tap: .cghidEventTap)
+    }
+
+    /// Stage Manager: brings a window that's sitting in the strip onto the stage you're on. The strip hides when a
+    /// window covers the screen's edge, so the pointer rests on the edge first to slide it back in, then
+    /// shift-clicks the window's thumbnail (Stage Manager's own "add to this stage").
+    static func addToStage(_ wid: CGWindowID, display: CGRect) {
+        guard var t = bounds(wid), t.width < 260 else { return }      // already full size: it's on the stage
+        let left = t.midX < display.midX
+        if t.minX < display.minX + 2 || t.maxX > display.maxX - 2 {
+            let edge = CGPoint(x: left ? display.minX + 1 : display.maxX - 2, y: min(max(t.midY, display.minY + 60), display.maxY - 60))
+            for dx in [0.0, 1.0, 0.0] { mouse(.mouseMoved, CGPoint(x: edge.x + (left ? dx : -dx), y: edge.y)); Thread.sleep(forTimeInterval: 0.08) }
+            Thread.sleep(forTimeInterval: 0.6)
+            guard let n = bounds(wid) else { return }
+            t = n
+            guard t.minX >= display.minX, t.maxX <= display.maxX else { return }
         }
-        CGWarpMouseCursorPosition(back)
+        let at = CGPoint(x: t.midX, y: t.midY)
+        mouse(.mouseMoved, at); Thread.sleep(forTimeInterval: 0.05)
+        mouse(.leftMouseDown, at, shift: true); Thread.sleep(forTimeInterval: 0.05)
+        mouse(.leftMouseUp, at, shift: true)
+        Thread.sleep(forTimeInterval: 0.7)
     }
 
     /// Arranges the dropped window plus the most recent others into this view. `visible` is the
@@ -92,29 +116,37 @@ enum WindowView: String, CaseIterable, Identifiable {
         let gap: CGFloat = Prefs.bool("viewGaps") ? Self.gap : 0
         let spots = slots(in: visible, gap: gap)
         DispatchQueue.global(qos: .userInitiated).async {
+            let stage = Self.stageManager
             // Let Stage Manager finish settling after the drop (it may have just sent the last app to its strip).
-            if Self.stageManager { Thread.sleep(forTimeInterval: 0.45) }
+            if stage { Thread.sleep(forTimeInterval: 0.45) }
             let others = Self.recent(excluding: wid, on: display).filter { w in
                 // Never pull a full-screen window out of its Space.
                 guard let ax = SpaceMover.window(pid: w.pid, wid: w.wid) else { return false }
                 return !SpaceMover.isFull(ax)
             }
             let wins = [Win(pid: pid, wid: wid)] + others.prefix(count - 1)
-            // Stage Manager: bring the chosen thumbnails onto this stage first.
-            let thumbs = wins.compactMap(\.thumb)
-            if !thumbs.isEmpty {
-                for t in thumbs { Self.addToStage(t); Thread.sleep(forTimeInterval: 0.6) }
-                Thread.sleep(forTimeInterval: 0.3)
+            BrowserMedia.log("views \(self.rawValue) stage=\(stage) wins=\(wins.map { "\($0.wid)\($0.thumb != nil ? "T" : "")" })")
+            func place() {
+                // Back to front, so the dropped window ends up on top.
+                for (w, r) in zip(wins, spots).reversed() {
+                    guard let ax = SpaceMover.window(pid: w.pid, wid: w.wid) else { continue }
+                    OptionDrag.setFrame(ax, app: AXUIElementCreateApplication(w.pid), to: r)
+                }
             }
-            // Placed back to front, so the dropped window ends up on top.
-            for (w, r) in zip(wins, spots).reversed() {
-                guard let ax = SpaceMover.window(pid: w.pid, wid: w.wid) else { continue }
-                OptionDrag.setFrame(ax, app: AXUIElementCreateApplication(w.pid), to: r)
-                AXUIElementPerformAction(ax, kAXRaiseAction as CFString)
-            }
-            DispatchQueue.main.async {
+            place()
+            DispatchQueue.main.sync {
                 if let ax = SpaceMover.window(pid: pid, wid: wid) { AXUIElementPerformAction(ax, kAXRaiseAction as CFString) }
                 NSRunningApplication(processIdentifier: pid)?.activate()
+            }
+            // Stage Manager shows one app's stage at a time: bringing the dropped window forward sends the others
+            // to the strip. Add each one back onto this stage, then put everything in its spot again.
+            if stage {
+                let back = CGEvent(source: nil)?.location ?? .zero
+                Thread.sleep(forTimeInterval: 0.8)
+                for w in wins.dropFirst() { Self.addToStage(w.wid, display: display) }
+                CGWarpMouseCursorPosition(back)
+                place()
+                BrowserMedia.log("views placed \(wins.map { "\($0.wid)=\(Self.bounds($0.wid).map { "\(Int($0.minX)),\(Int($0.minY)) \(Int($0.width))x\(Int($0.height))" } ?? "-")" })")
             }
         }
     }

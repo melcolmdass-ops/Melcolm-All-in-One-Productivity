@@ -1043,7 +1043,9 @@ enum BackgroundScript {
     static func latest(_ key: String, _ src: String) -> (text: String?, at: Date?) {
         lock.lock()
         let r = results[key], busy = running.contains(key), old = stale.contains(key)
-        let due = !busy && (old || Date().timeIntervalSince(r?.at ?? .distantPast) > 2.5)
+        // A script that failed (e.g. the browser's JavaScript setting is off) is only retried every 30 s.
+        let wait: TimeInterval = r != nil && r?.text == nil ? 30 : 2.5
+        let due = !busy && (old || Date().timeIntervalSince(r?.at ?? .distantPast) > wait)
         if due { running.insert(key); stale.remove(key) }
         lock.unlock()
         if due {
@@ -1053,7 +1055,7 @@ enum BackgroundScript {
                 if changed { DispatchQueue.main.async { onUpdate() } }
             }
         }
-        guard let r, Date().timeIntervalSince(r.at) < 15 else { return (nil, nil) }
+        guard let r, r.text != nil, Date().timeIntervalSince(r.at) < 15 else { return (nil, r?.at) }
         return (r.text, r.at)
     }
 
