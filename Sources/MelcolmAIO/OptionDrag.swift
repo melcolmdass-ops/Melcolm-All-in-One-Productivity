@@ -111,6 +111,8 @@ final class OptionDrag: ObservableObject {
             lastHit = nil; DispatchQueue.main.async { self.overBar = nil }
             // The spot under the pointer right now wins; the last one seen while dragging is the fallback.
             let zone = zoneRect(at: e.location) ?? lastZone; lastZone = nil
+            lock.lock(); let dbgFs = fullScreens; let dbgScr = screens.map { "\($0.cg) \($0.uuid ?? "nil")" }; let dbgOn = zonesOn; lock.unlock()
+            BrowserMedia.log("drop at \(e.location) zone=\(zone?.id ?? "none") space=\(zone?.space ?? "-") win=\(win != nil) on=\(dbgOn) fs=\(dbgFs) screens=\(dbgScr)")
             DispatchQueue.main.async { self.dropRing(into: zone?.rect); self.showZone(nil) }
             // Into the bar, or onto the top-middle "New Space" spot: always the LAST Space on that display.
             // (Inserting between apps would make macOS re-enter every app after it, one by one.)

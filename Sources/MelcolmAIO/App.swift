@@ -305,6 +305,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         }
+        // For testing: `-debugNewSpace "<app name>"` makes that app's front window a New Space on the main display,
+        // exactly like dropping it on the top-middle spot.
+        if let name = UserDefaults.standard.string(forKey: "debugNewSpace"),
+           let app = NSWorkspace.shared.runningApplications.first(where: { $0.localizedName == name }) {
+            DispatchQueue.global().asyncAfter(deadline: .now() + 3) {
+                let ax = AXUIElementCreateApplication(app.processIdentifier); var v: CFTypeRef?
+                AXUIElementCopyAttributeValue(ax, kAXWindowsAttribute as CFString, &v)
+                guard let w = (v as? [AXUIElement])?.first else { BrowserMedia.log("newspace no window"); return }
+                var wid: CGWindowID = 0; _ = axWindowID(w, &wid)
+                let uuid = DispatchQueue.main.sync { SpacesModel.uuid(of: NSScreen.screens[0]) } ?? ""
+                BrowserMedia.log("TEST newspace pid=\(app.processIdentifier) wid=\(wid) uuid=\(uuid)")
+                SpaceMover.move(pid: app.processIdentifier, wid: wid, display: uuid, index: 999)
+            }
+        }
         // For testing: `-debugSettingsTiming YES` opens Settings, visits every tab twice and writes how long each
         // took to lay out and draw to /tmp/melcolm-settings-timing.log.
         if UserDefaults.standard.bool(forKey: "debugSettingsTiming"), let i = islands.first {
@@ -470,16 +484,23 @@ final class Island: NSObject {
         relayout()
         panel.orderFrontRegardless()
         Publishers.MergeMany(
-            spaces.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
-            app.timer.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
-            app.playing.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
-            app.sound.$micInUse.removeDuplicates().map { _ in () }.eraseToAnyPublisher(),
-            app.focus.$active.removeDuplicates().map { _ in () }.eraseToAnyPublisher(),
-            NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
-                .filter { [weak self] _ in Prefs.changed("island-\(self?.screenID ?? 0)") }.map { _ in () }.eraseToAnyPublisher()
+            spaces.objectWillChange.map { _ in "spaces" }.eraseToAnyPublisher(),
+            // The bar only changes size when the timer or music turns on or off, not on every tick of
+            // either (that re-measured the bar ~8 times a second and made everything stutter).
+            app.timer.objectWillChange.receive(on: RunLoop.main).map { [weak self] _ in self?.timer.isActive ?? false }
+                .removeDuplicates().map { _ in "timer" }.eraseToAnyPublisher(),
+            app.playing.objectWillChange.receive(on: RunLoop.main).map { [weak self] _ in self?.playing.playing ?? false }
+                .removeDuplicates().map { _ in "playing" }.eraseToAnyPublisher(),
+            app.sound.$micInUse.removeDuplicates().map { _ in "mic" }.eraseToAnyPublisher(),
+            app.focus.$active.removeDuplicates().map { _ in "focus" }.eraseToAnyPublisher(),
+            NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification).map { _ in "defaults" }.eraseToAnyPublisher()
         )
         .receive(on: RunLoop.main)
-        .sink { [weak self] in self?.relayout() }
+        .sink { [weak self] why in
+            guard let self else { return }
+            if why == "defaults", !Prefs.changed("island-\(screenID)") { return }
+            relayout()
+        }
         .store(in: &bag)
         // Master rule: opening anything outside (a link, an app, the artwork) closes the panel.
         NotificationCenter.default.publisher(for: .melcolmOpenedOutside)

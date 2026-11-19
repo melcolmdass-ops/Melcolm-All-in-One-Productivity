@@ -24,6 +24,14 @@ enum UpdateLog {
 
     /// Newest first.
     static let all: [AppUpdate] = [
+        AppUpdate(version: "2.47", date: "November 19th, 2026", title: "Smooth again: the bar stops re-measuring itself",
+                  improvements: [],
+                  fixes: [
+                      "The bar was re-measuring itself about 8 times a second while music played (every tick of the song's progress), which used about 20% of the Mac's processor and made dragging, Stage Manager and New Space feel glitchy. It now only re-measures when music or the timer starts or stops.",
+                      "Checked New Space end to end: hold the key, drag a window onto the top-middle circle, and it becomes its own Space.",
+                  ],
+                  features: [],
+                  icons: ["speedometer", "plus.rectangle.on.rectangle", "checkmark.circle.fill"], tint: green),
         AppUpdate(version: "2.46", date: "November 19th, 2026", title: "Window views with Stage Manager, icon stays on the pointer",
                   improvements: ["While you drag a window, the app's icon sits at the bottom right of the circle around the pointer and moves exactly with it. It no longer drifts away in the middle of the window."],
                   fixes: ["With Stage Manager on, Split, Triple and Quad view now bring in the apps waiting at the edge of the screen too, most recent first, instead of only the window you dropped."],
