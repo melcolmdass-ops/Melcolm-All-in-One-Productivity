@@ -35,6 +35,7 @@ struct SettingsVisual: View {
         case .hover: "The strip that drops down when you rest on the island."
         case .panel: "Which pages are on Home, their order, and which show in Quick View."
         case .focus: "Your focus workflows: steps that run in order, once, like a shortcut."
+        case .feedback: "Pop-ups that show what just happened. Tick each one on or off."
         case .colors: "Pick the colours of the closed bar: outlines, boxes and highlights."
         case .look: "How things look and what shows. Tick each one on or off and see it right here."
         case .utility: "Quick buttons at the bottom of Home; each opens its page as a pop-up."
@@ -128,6 +129,14 @@ struct SettingsVisual: View {
                         Image(systemName: "arrow.up.arrow.down").font(.system(size: 14, weight: .bold)).foregroundStyle(accent)
                     }.padding(.top, 22)
                 }
+        case .feedback:
+            ZStack {
+                RoundedRectangle(cornerRadius: 6).strokeBorder(.white.opacity(0.25), lineWidth: 1).frame(width: 120, height: 60)
+                RoundedRectangle(cornerRadius: 5).fill(Color(white: 0.06)).overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(accent, lineWidth: 1))
+                    .frame(width: 34, height: 24).overlay(Text("K").font(.system(size: 11, weight: .heavy)).foregroundStyle(.white))
+                Capsule().fill(Color(white: 0.06)).overlay(Capsule().strokeBorder(.green.opacity(0.8), lineWidth: 1))
+                    .frame(width: 56, height: 9).offset(y: 22)
+            }
         case .rules, .updates:
             HStack(spacing: 10) {
                 ForEach(["1", "2", "3"], id: \.self) { n in

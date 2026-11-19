@@ -46,13 +46,31 @@ enum Prefs {
         "cmd.play.on": false, "cmd.next.on": false, "cmd.prev.on": false,
         "cmd.volUp.on": false, "cmd.volDown.on": false, "cmd.mute.on": false,
         "hotkeyToggle": true,          // opens/closes the island
-        "hotkeyNumbers": true,         // ⌃⌥1…9 jumps to that Space
+        // Window views (Split, Triple, Quad)
+        "viewGaps": true,              // keep a small gap between windows arranged by a window view
+        // Keyboard block (the block itself always starts off; it isn't saved)
+        "keyBlockPopup": true,         // show the key you pressed in the middle of the screen (one every 3 s)
     ]
 
     static func register() { UserDefaults.standard.register(defaults: defaults) }
     static func reset() { defaults.keys.forEach { UserDefaults.standard.removeObject(forKey: $0) } }
 
     static var d: UserDefaults { .standard }
+
+    /// Settings that only remember where you are in the app (which tab is open, which spot is picked).
+    /// Changing them never needs the bar re-measured or the hotkeys re-registered.
+    static let viewOnly: Set<String> = ["settingsPage", "zoneSelected", "notchHover", "draftShortcutName", "draftShortcutTarget",
+                                        "utilityOpen", "showSpaceHint", "colRev"]
+    private static var lastSeen: [String: NSDictionary] = [:]
+    /// True when a setting other than the view-only ones changed since the last call with this `tag`.
+    /// Opening a Settings tab used to re-measure the bar and re-register every hotkey; that was the lag.
+    static func changed(_ tag: String) -> Bool {
+        var dict = d.persistentDomain(forName: Bundle.main.bundleIdentifier ?? "com.melcolm.allinone") ?? [:]
+        for k in viewOnly { dict.removeValue(forKey: k) }
+        let now = dict as NSDictionary
+        defer { lastSeen[tag] = now }
+        return lastSeen[tag].map { !$0.isEqual(now) } ?? true
+    }
     static func bool(_ k: String) -> Bool { d.bool(forKey: k) }
 }
 
@@ -110,17 +128,14 @@ enum Hotkeys {
     private static var refs: [EventHotKeyRef] = []
     private static var installed = false
     private static var lastActions: [String: () -> Void] = [:]
-    private static var lastJump: (Int) -> Void = { _ in }
     /// MASTER RULE: while a Custom hotkey is being recorded, every hotkey, double-tap and arrow shortcut is off.
     static var paused = false
     static func setPaused(_ on: Bool) {
         guard paused != on else { return }
         paused = on
         if on { refs.forEach { UnregisterEventHotKey($0) }; refs = []; hotkeyActions = [:] }
-        else { reload(actions: lastActions, jump: lastJump) }
+        else { reload(actions: lastActions) }
     }
-    // Key codes for 1…9 on the top row.
-    private static let digitCodes: [UInt32] = [18, 19, 20, 21, 23, 22, 26, 28, 25]
 
     /// Keys you can assign to a command.
     static let keys: [(label: String, code: UInt32)] = [
@@ -129,7 +144,13 @@ enum Hotkeys {
         ("L", 37), ("M", 46), ("N", 45), ("O", 31), ("P", 35), ("Q", 12), ("R", 15), ("S", 1), ("T", 17), ("U", 32),
         ("V", 9), ("W", 13), ("X", 7), ("Y", 16), ("Z", 6), ("[", 33), ("]", 30), (",", 43),
     ]
-    struct Command: Identifiable { let id: String; let title: String; let key: String; let on: Bool }
+    struct Command: Identifiable {
+        let id: String; let title: String; let key: String; let on: Bool
+        /// Fixed commands always use their arrow key while the bar is open; they can't be given another key.
+        var fixed: Bool { id == "spaceNext" || id == "spacePrev" }
+    }
+    /// Commands you can give your own key or double-tap to.
+    static var changeable: [Command] { commands.filter { !$0.fixed } }
     /// Every command: its name, the key it starts with, and whether it starts switched on.
     static let commands: [Command] = [
         .init(id: "toggle", title: "Open or close the island", key: "Space", on: true),
@@ -184,7 +205,7 @@ enum Hotkeys {
     static func migrate() {
         let mods = UInt32(modifierChoices.first { $0.id == (Prefs.d.string(forKey: "cmdMods") ?? "ctrlOpt") }?.flags ?? (controlKey | optionKey))
         let name = modifierChoices.first { $0.id == (Prefs.d.string(forKey: "cmdMods") ?? "ctrlOpt") }?.label ?? "⌃⌥"
-        for c in commands where Prefs.d.string(forKey: hkKey(c.id)) == nil {
+        for c in changeable where Prefs.d.string(forKey: hkKey(c.id)) == nil {
             guard Prefs.bool(onKey(c.id)), (Prefs.d.string(forKey: DoubleTap.prefKey(c.id)) ?? "Off") == "Off" else { continue }
             let label = Prefs.d.string(forKey: "cmd.\(c.id).key") ?? c.key
             if let code = keys.first(where: { $0.label == label })?.code {
@@ -193,8 +214,8 @@ enum Hotkeys {
         }
     }
 
-    static func reload(actions: [String: () -> Void], jump: @escaping (Int) -> Void) {
-        lastActions = actions; lastJump = jump
+    static func reload(actions: [String: () -> Void]) {
+        lastActions = actions
         if !installed {
             var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
             InstallEventHandler(GetApplicationEventTarget(), { _, event, _ in
@@ -211,17 +232,15 @@ enum Hotkeys {
         refs = []; hotkeyActions = [:]
         migrate()
         if paused { return }
-        let numberMods = UInt32(controlKey | optionKey)
         func add(_ id: UInt32, _ code: UInt32, _ mods: UInt32, _ action: @escaping () -> Void) {
             var ref: EventHotKeyRef?
             if RegisterEventHotKey(code, mods, EventHotKeyID(signature: OSType(0x4D4C434D), id: id), GetApplicationEventTarget(), 0, &ref) == noErr, let ref {
                 refs.append(ref); hotkeyActions[id] = action
             }
         }
-        for (i, c) in commands.enumerated() where Prefs.bool(onKey(c.id)) && (Prefs.d.string(forKey: DoubleTap.prefKey(c.id)) ?? "Off") == "Off" {
+        for (i, c) in commands.enumerated() where !c.fixed && Prefs.bool(onKey(c.id)) && (Prefs.d.string(forKey: DoubleTap.prefKey(c.id)) ?? "Off") == "Off" {
             if let h = custom(c.id), let act = actions[c.id] { add(UInt32(100 + i), h.code, h.mods, act) }
         }
-        if Prefs.bool("hotkeyNumbers") { for (i, c) in digitCodes.enumerated() { add(UInt32(i + 1), c, numberMods) { jump(i + 1) } } }
     }
 }
 

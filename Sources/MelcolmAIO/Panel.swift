@@ -3,7 +3,7 @@ import SwiftUI
 
 /// Every page the panel can show. `home` is the grid of buttons; the rest open from it.
 enum PanelPage: String, CaseIterable {
-    case home, nowPlaying, sound, brightness, network, batteries, awake, dark, timer, layouts, focus, notifications, settings
+    case home, nowPlaying, sound, brightness, network, batteries, awake, dark, keyboard, timer, layouts, focus, notifications, settings
 
     /// Every page in your chosen order (Settings ▸ Pages, drag to reorder).
     static var listed: [PanelPage] {
@@ -26,7 +26,7 @@ enum PanelPage: String, CaseIterable {
     var title: String {
         switch self {
         case .home: "Melcolm"; case .nowPlaying: "Now Playing"; case .sound: "Sound & Microphone"; case .brightness: "Brightness"
-        case .network: "Wi-Fi & Bluetooth"; case .batteries: "Batteries"; case .awake: "Keep Awake"; case .dark: "Dark Mode"
+        case .network: "Wi-Fi & Bluetooth"; case .batteries: "Batteries"; case .awake: "Keep Awake"; case .dark: "Dark Mode"; case .keyboard: "Keyboard Block"
         case .timer: "Clock"; case .layouts: "Layouts"; case .focus: "Focus Workflows"; case .notifications: "Notifications"; case .settings: "Settings"
         }
     }
@@ -34,7 +34,7 @@ enum PanelPage: String, CaseIterable {
         switch self {
         case .home: "house"; case .nowPlaying: "music.note"; case .sound: "speaker.wave.2.fill"; case .brightness: "sun.max.fill"
         case .network: "wifi"; case .batteries: "battery.75percent"; case .awake: "cup.and.saucer.fill"
-        case .dark: "circle.lefthalf.filled"; case .timer: "timer"; case .layouts: "rectangle.split.2x2.fill"; case .focus: "moon.fill"; case .notifications: "bell.badge.fill"; case .settings: "gearshape.fill"
+        case .dark: "circle.lefthalf.filled"; case .keyboard: "keyboard"; case .timer: "timer"; case .layouts: "rectangle.split.2x2.fill"; case .focus: "moon.fill"; case .notifications: "bell.badge.fill"; case .settings: "gearshape.fill"
         }
     }
 }
@@ -51,6 +51,7 @@ extension PanelPage {
         case .batteries: return [c(0.25, 0.95, 0.45), c(0.20, 0.74, 0.50)]
         case .awake: return [c(1.0, 0.62, 0.22), c(1.0, 0.40, 0.28)]
         case .dark: return [c(0.52, 0.46, 1.0), c(0.72, 0.36, 0.95)]
+        case .keyboard: return [c(1.0, 0.45, 0.35), c(1.0, 0.30, 0.55)]
         case .timer: return [c(0.32, 0.92, 0.58), c(0.20, 0.74, 0.82)]
         case .layouts: return [c(0.26, 0.82, 0.82), c(0.30, 0.55, 1.0)]
         case .focus: return [c(0.62, 0.40, 1.0), c(0.36, 0.30, 0.95)]
@@ -146,6 +147,7 @@ struct PanelView: View {
         case .brightness: BrightnessPage()
         case .awake: AwakePage()
         case .dark: DarkPage()
+        case .keyboard: KeyBlockPage()
         case .timer: TimerPage()
         case .layouts: LayoutsPage()
         case .focus: FocusPage()
@@ -165,6 +167,7 @@ struct HomePage: View {
     @EnvironmentObject var playing: NowPlayingModel
     @EnvironmentObject var focus: FocusModel
     @EnvironmentObject var timer: TimerModel
+    @ObservedObject var block = KeyBlock.shared
     @AppStorage("hiddenTiles") var hidden = ""
     @AppStorage("homePinned") var pinnedRaw = ""
     @AppStorage("utilityItems") var utilityRaw = "sound,network,brightness,batteries"
@@ -246,6 +249,7 @@ struct HomePage: View {
         case .network: return ("\(system.wifiOn ? (system.wifiName ?? "Wi-Fi on") : "Wi-Fi off") · BT \(system.bluetoothOn ? "on" : "off")", system.wifiOn || system.bluetoothOn)
         case .awake: return (system.awake ? "On" : "Off", system.awake)
         case .dark: return (system.dark ? "Dark" : "Light", system.dark)
+        case .keyboard: return (KeyBlock.shared.on ? "Blocked · click to turn off" : "Off", KeyBlock.shared.on)
         case .timer: return (timer.isActive ? timer.display : "Ready", timer.isActive)
         case .layouts: return ("Snap windows", true)
         case .notifications: return ("See your Mac's alerts", true)
@@ -759,10 +763,27 @@ struct UtilityBar: View {
     @EnvironmentObject var sound: SoundModel
     @EnvironmentObject var net: NetworkModel
     @AppStorage("utilityOpen") var open = ""
+    @ObservedObject var block = KeyBlock.shared
 
     var body: some View {
         HStack(spacing: 6) {
             ForEach(items, id: \.self) { p in
+              if p == .keyboard {
+                // Keyboard Block is one switch: a click turns it on or off right here.
+                Button { block.toggle() } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: block.on ? "lock.fill" : "keyboard").font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(block.on ? .white : p.tint[0])
+                        Text(block.on ? "Blocked" : "Keys").font(.system(size: 11, weight: .semibold)).lineLimit(1)
+                    }
+                    .padding(.horizontal, 9).frame(height: 28)
+                    .background(Capsule().fill(block.on ? AnyShapeStyle(p.tint[0]) : AnyShapeStyle(Color.white.opacity(0.07)))
+                        .overlay(Capsule().strokeBorder(.white.opacity(0.08), lineWidth: 1)))
+                    .contentShape(Capsule())
+                }
+                .buttonStyle(PressStyle()).foregroundStyle(.white.opacity(0.9))
+                .help(block.on ? "Keyboard blocked: click to turn it off" : "Block the keyboard (to clean it)")
+              } else {
                 Button { open = open == p.rawValue ? "" : p.rawValue } label: {
                     HStack(spacing: 5) {
                         if p == .network {
@@ -795,6 +816,7 @@ struct UtilityBar: View {
                     .environment(\.controlActiveState, .key)
                     .foregroundStyle(.white)
                 }
+              }
             }
             if items.isEmpty { Text("Pick items in Settings ▸ Utility Bar").foregroundStyle(.tertiary) }
             Spacer(minLength: 0)
@@ -901,24 +923,10 @@ struct SpaceHintBox: View {
             Text(t).font(.system(size: 10, weight: .heavy, design: .rounded)).frame(minWidth: 18, minHeight: 16).padding(.horizontal, 2)
                 .background(RoundedRectangle(cornerRadius: 5, style: .continuous).fill(.white.opacity(0.12)))
         }
-        func hotkey(_ id: String, _ arrow: String) -> String? {
-            guard Prefs.bool(Hotkeys.onKey(id)), (Prefs.d.string(forKey: DoubleTap.prefKey(id)) ?? "Off") == "Off" else { return nil }
-            return Hotkeys.custom(id)?.label
-        }
-        let dbl = ["spacePrev", "spaceNext"].compactMap { Prefs.d.string(forKey: DoubleTap.prefKey($0)) }.filter { $0 != "Off" }
         return HStack(spacing: 6) {
             key("←"); key("→")
             Text("switch Space · wraps · only while the bar is open").font(.system(size: 10.5, weight: .medium)).foregroundStyle(.secondary).lineLimit(1)
-            if let a = hotkey("spacePrev", "←"), let b = hotkey("spaceNext", "→") {
-                Text("· anywhere: \(a) \(b)").font(.system(size: 10.5)).foregroundStyle(.tertiary).lineLimit(1)
-            } else if !dbl.isEmpty {
-                Text("· anywhere: double-tap \(dbl.joined(separator: " / "))").font(.system(size: 10.5)).foregroundStyle(.tertiary)
-            }
             Spacer(minLength: 0)
-            Button { onChange?() } label: {
-                HStack(spacing: 3) { Text("Change keys").font(.system(size: 10.5, weight: .semibold)); Image(systemName: "chevron.right").font(.system(size: 8, weight: .bold)) }
-                    .foregroundStyle(accent)
-            }.buttonStyle(.plain)
         }
         .padding(.horizontal, 10).frame(height: 28)
         .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(accent.opacity(0.08))

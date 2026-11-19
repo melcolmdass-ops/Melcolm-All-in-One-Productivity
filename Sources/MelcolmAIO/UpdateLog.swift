@@ -24,6 +24,27 @@ enum UpdateLog {
 
     /// Newest first.
     static let all: [AppUpdate] = [
+        AppUpdate(version: "2.46", date: "November 19th, 2026", title: "Window views with Stage Manager, icon stays on the pointer",
+                  improvements: ["While you drag a window, the app's icon sits at the bottom right of the circle around the pointer and moves exactly with it. It no longer drifts away in the middle of the window."],
+                  fixes: ["With Stage Manager on, Split, Triple and Quad view now bring in the apps waiting at the edge of the screen too, most recent first, instead of only the window you dropped."],
+                  features: [],
+                  icons: ["rectangle.split.2x1.fill", "cursorarrow", "macwindow.on.rectangle"], tint: blue),
+        AppUpdate(version: "2.45", date: "November 19th, 2026", title: "Window views, Keyboard Block, Feedback & Pop-ups",
+                  improvements: [
+                      "Dragging ▸ Drop at is now two groups: Window panes (None, Hide, halves, thirds, corners, full screen, centre) and Window views (Split, Triple and Quad view).",
+                      "Next Space and Previous Space are fixed to → and ←. Click the key and a note says they can't be changed.",
+                      "Go to desktop 1…9 is gone. ← and → move between desktops, so there's nothing to remember.",
+                  ],
+                  fixes: [
+                      "Settings no longer lags when you click between tabs. Opening a tab used to make the whole bar re-measure itself and re-load every hotkey; now that only happens when a real setting changes.",
+                  ],
+                  features: [
+                      "Two new window views: Triple view and Quad view. Drop a window on a view spot and it's arranged straight away with your most recent other windows on that display. No pop-up. Only one window open? Only that one moves.",
+                      "Keep gaps between the windows: Split, Triple and Quad view always leave a small gap between windows (on by default).",
+                      "Keyboard Block: a new page and a utility bar button. Turn it on and every key is blocked so you can clean the keyboard. Click again to turn it off.",
+                      "Settings ▸ Feedback & Pop-ups: switch the Focus \"Workflow completed\" pop-up and the Keyboard Block key pop-up on or off, with a picture of where each shows and a Show me button.",
+                  ],
+                  icons: ["rectangle.split.3x1.fill", "keyboard", "bubble.middle.bottom.fill"], tint: purple),
         AppUpdate(version: "2.44", date: "November 18th, 2026", title: "Reliable Space arrows, cleaner hotkey setup",
                   improvements: ["Setting a Custom hotkey now says \"Press keys · click to cancel\". Press keys to set it, or click anywhere to back out."],
                   fixes: ["Left and right arrows now always change Space. Quick presses no longer get lost while macOS is still switching; the app checks where you really are and retries if a switch didn't land."],
@@ -658,6 +679,8 @@ struct MasterRule: Identifiable {
     var id: String { title }
     let icon: String, title: String, detail: String
     static let all: [MasterRule] = [
+        MasterRule(icon: "keyboard.badge.ellipsis", title: "The keyboard is never blocked by surprise",
+                   detail: "Keyboard Block always starts off when the app opens, and the mouse or trackpad can always turn it off from the page or the utility bar."),
         MasterRule(icon: "character.cursor.ibeam", title: "Typing never fires a shortcut",
                    detail: "While you're typing in a text box (naming a focus workflow, a search box, a message), every key just types. Space won't play or pause music, numbers won't switch Spaces, arrows won't change the volume. The only shortcut that still works is the one that opens and closes the panel, whatever keys you set it to."),
         MasterRule(icon: "arrow.up.forward.app.fill", title: "Opening something outside closes the panel",

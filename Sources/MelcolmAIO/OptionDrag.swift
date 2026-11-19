@@ -9,6 +9,8 @@ import ScreenCaptureKit
 /// Drop it on the bar and it becomes its own full-screen Space on that display.
 final class OptionDrag: ObservableObject {
     static let shared = OptionDrag()
+    /// Our own synthetic clicks (Stage Manager shift-clicks) go straight through until this time.
+    static var passThroughUntil = Date.distantPast
     @Published var overBar: CGDirectDisplayID?      // the island the window is over (glows)
     private var active = false
     private var badgeOn = false
@@ -81,7 +83,7 @@ final class OptionDrag: ObservableObject {
             showBadge(Prefs.bool("optionDrag") && e.flags.contains(modifier) && !inFullScreen(at: e.location), at: e.location)
             return Unmanaged.passUnretained(e)
         case .leftMouseDown:
-            guard Prefs.bool("optionDrag"), e.flags.contains(modifier), !inFullScreen(at: e.location), grab(at: e.location) else { break }
+            guard Date() > Self.passThroughUntil, Prefs.bool("optionDrag"), e.flags.contains(modifier), !inFullScreen(at: e.location), grab(at: e.location) else { break }
             active = true
             return nil
         case .leftMouseDragged where active:
@@ -132,11 +134,11 @@ final class OptionDrag: ObservableObject {
                     self.fadeGhost(.settle, after: 0)
                     NSRunningApplication(processIdentifier: p)?.hide()
                 }
-            } else if target == nil, win != nil, zone?.id == "split" {
-                // Split view: the window goes back where it was dropped, then a pop-up asks which app joins it.
-                let (p, w, d) = (pid, wid, zone?.display ?? 0)
-                pending = lastOrigin; pump()
-                DispatchQueue.main.async { self.fadeGhost(.settle, after: 0.22); SplitView.ask(pid: p, wid: w, display: d) }
+            } else if target == nil, win != nil, let snap = zone, let view = WindowView(rawValue: snap.id) {
+                // Window view: the dropped window plus your most recent others are arranged right away. No pop-up.
+                let (p, w) = (pid, wid)
+                DispatchQueue.main.async { self.flyGhost(to: snap.rect) }
+                view.arrange(pid: p, wid: w, visible: snap.vis, display: snap.full)
             } else if target == nil, let win, let snap = zone {
                 let zone = snap.rect
                 // Snapped to a zone: the copy glides into the spot while the window takes it.
@@ -195,7 +197,10 @@ final class OptionDrag: ObservableObject {
     private var pumping = false
     private var lastHit: CGDirectDisplayID?
     private var lastZone: Snap?
-    struct Snap: Equatable { let rect: CGRect; let title: String; let id: String; var zone = ""; var space: String? = nil; var display: CGDirectDisplayID = 0 }
+    struct Snap: Equatable {
+        let rect: CGRect; let title: String; let id: String; var zone = ""; var space: String? = nil; var display: CGDirectDisplayID = 0
+        var vis: CGRect = .zero, full: CGRect = .zero      // the display's usable area and whole area (window views)
+    }
     private var slots: [CGDirectDisplayID: [(uuid: String, box: CGRect, cells: [CGFloat])]] = [:]
     private var screens: [(cg: CGRect, vis: CGRect, uuid: String?, id: CGDirectDisplayID)] = []
     private var zoneLayouts: [String] = []
@@ -270,10 +275,10 @@ final class OptionDrag: ObservableObject {
             return Snap(rect: CGRect(x: v.minX + c.x - r, y: v.minY + c.y - r, width: 2 * r, height: 2 * r).integral,
                         title: "Hide", id: "hide", zone: zone.rawValue, display: s.id)
         }
-        if lay[i] == "split" {
-            let c = zone.center(in: v.size), r = DragZone.radius + 30
-            return Snap(rect: CGRect(x: v.minX + c.x - r, y: v.minY + c.y - r, width: 2 * r, height: 2 * r).integral,
-                        title: "Split view", id: "split", zone: zone.rawValue, display: s.id)
+        // Window views: the blue box shows where the dropped window goes (the first spot of the view).
+        if let view = WindowView(rawValue: lay[i]) {
+            let first = view.slots(in: v, gap: Prefs.bool("viewGaps") ? WindowView.gap : 0)[0]
+            return Snap(rect: first, title: view.title, id: view.rawValue, zone: zone.rawValue, display: s.id, vis: v, full: s.cg)
         }
         guard let wl = WindowLayout.all.first(where: { $0.id == lay[i] }) else { return nil }
         return Snap(rect: CGRect(x: v.minX + v.width * wl.x, y: v.minY + v.height * wl.y, width: v.width * wl.w, height: v.height * wl.h).integral, title: wl.title, id: wl.id, zone: zone.rawValue, display: s.id)
@@ -345,7 +350,8 @@ final class OptionDrag: ObservableObject {
     }
     // MARK: the circle around the pointer while dragging
 
-    static let ringSize: CGFloat = 72
+    /// The pointer circle's window: the 72 pt circle in the middle, room at its bottom right for the app icon.
+    static let ringSize: CGFloat = 116
     private let ringModel = RingModel()
     private var ringID: UInt32 = 0
     private lazy var ring: NSPanel = {
@@ -355,8 +361,9 @@ final class OptionDrag: ObservableObject {
         p.contentView = NSHostingView(rootView: RingView(m: ringModel))
         return p
     }()
-    private func showRing(at pt: CGPoint) {
+    private func showRing(at pt: CGPoint, pid: pid_t) {
         guard active else { return }
+        ringModel.icon = NSRunningApplication(processIdentifier: pid)?.icon
         let h = NSScreen.screens.first?.frame.height ?? 0, d = Self.ringSize
         ringModel.tint = nil; ringModel.dropping = false
         ring.alphaValue = 1
@@ -505,7 +512,7 @@ final class OptionDrag: ObservableObject {
             self.pid = pid; self.wid = wid; win = ax
             startMouse = p; startPos = r.origin; lastOrigin = r.origin
             active = true
-            DispatchQueue.main.async { self.makeGhost(r, wid: wid, pid: pid); self.showRing(at: p) }
+            DispatchQueue.main.async { self.makeGhost(r, wid: wid, pid: pid); self.showRing(at: p, pid: pid) }
             AXUIElementSetMessagingTimeout(ax, 0.25)
             NSRunningApplication(processIdentifier: pid)?.activate()
             AXUIElementPerformAction(ax, kAXRaiseAction as CFString)
@@ -536,7 +543,8 @@ struct GhostView: View {
             if let img = m.image, !m.overBar { Image(nsImage: img).resizable().transition(.opacity) }
             else {
                 shape.fill(tint.opacity(m.overBar ? 0.55 : 0.22))
-                if let i = m.icon { Image(nsImage: i).resizable().frame(width: m.overBar ? 200 : 72, height: m.overBar ? 200 : 72) }
+                // The app icon rides with the pointer circle instead (see RingView), so it never drifts away.
+                if m.overBar, let i = m.icon { Image(nsImage: i).resizable().frame(width: 200, height: 200) }
             }
             if m.overBar {
                 VStack {
@@ -563,6 +571,7 @@ struct GhostView: View {
 final class RingModel: ObservableObject {
     @Published var tint: Color?        // over a spot: takes the spot's colour and fills
     @Published var dropping = false    // let go over a spot: shrinks into it
+    @Published var icon: NSImage?      // the dragged app's icon, pinned to the circle's bottom right
 }
 
 /// The small circle around the pointer: exactly where the drop will happen.
@@ -571,6 +580,7 @@ struct RingView: View {
     var body: some View {
         let over = m.tint != nil
         let c = m.tint ?? Color(red: 0.55, green: 0.85, blue: 1.0)
+        ZStack {
         ZStack {
             // Outer dashed ring, like the snap circles: easy to spot on any background.
             Circle().strokeBorder(c, style: StrokeStyle(lineWidth: over ? 3 : 2.5, lineCap: .round, dash: [7, 5]))
@@ -582,9 +592,17 @@ struct RingView: View {
             Circle().fill(c.opacity(over ? 0.45 : 0.18)).padding(14)
             Circle().fill(Color.white).frame(width: 6, height: 6).shadow(color: c, radius: 3)
         }
+        .frame(width: 68, height: 68)
+        // The app being dragged, always at the circle's bottom right: it moves exactly with the pointer.
+        if let i = m.icon {
+            Image(nsImage: i).resizable().frame(width: 30, height: 30)
+                .shadow(color: .black.opacity(0.6), radius: 3, y: 1)
+                .offset(x: 30, y: 30)
+        }
+        }
+        .frame(width: OptionDrag.ringSize, height: OptionDrag.ringSize)
         .scaleEffect(m.dropping ? 0.25 : over ? 1.08 : 0.92)
         .animation(.spring(response: 0.18, dampingFraction: 0.7), value: over)
-        .padding(4)
     }
 }
 
@@ -606,7 +624,7 @@ struct DotsView: View {
                 let lay = m.layouts[z.rawValue] ?? "none"
                 if isSpace || lay != "none" {
                     let on = m.active == z.rawValue && m.screen == screen
-                    let title = isSpace ? "New Space" : lay == "hide" ? "Hide" : lay == "split" ? "Split view" : WindowLayout.all.first { $0.id == lay }?.title ?? ""
+                    let title = isSpace ? "New Space" : lay == "hide" ? "Hide" : WindowView(rawValue: lay)?.title ?? WindowLayout.all.first { $0.id == lay }?.title ?? ""
                     let tint = isSpace ? Color(red: 0.25, green: 0.88, blue: 1.0) : accent
                     let d = DragZone.radius * 2
                     ZStack {
@@ -665,8 +683,8 @@ struct ZoneView: View {
                     .padding(.horizontal, 16).padding(.vertical, 9)
                     .background(Capsule().fill(Color.black.opacity(0.75)))
                     .overlay(Capsule().strokeBorder(accent, lineWidth: 1.5))
-            } else if m.id == "split" {
-                Label("Split view", systemImage: "rectangle.split.2x1.fill").font(.system(size: 15, weight: .bold)).foregroundStyle(.white)
+            } else if let view = WindowView(rawValue: m.id) {
+                Label(view.title, systemImage: view.icon + ".fill").font(.system(size: 15, weight: .bold)).foregroundStyle(.white)
                     .padding(.horizontal, 16).padding(.vertical, 9)
                     .background(Capsule().fill(Color.black.opacity(0.75)))
                     .overlay(Capsule().strokeBorder(accent, lineWidth: 1.5))
@@ -722,6 +740,7 @@ struct DragZonesCard: View {
     @AppStorage("dragZones") var on = true
     @AppStorage("zoneSelected") var selRaw = DragZone.topLeft.rawValue
     @AppStorage("colRev") var rev = 0
+    @AppStorage("viewGaps") var gaps = true
     var sel: DragZone { DragZone(rawValue: selRaw) ?? .topLeft }
 
     func layout(_ z: DragZone) -> String { let _ = rev; if z == .top { return "space" }; return Prefs.d.string(forKey: "zone.\(z.rawValue)") ?? z.defaultLayout }
@@ -760,18 +779,42 @@ struct DragZonesCard: View {
                             Text("Drop at").foregroundStyle(.secondary)
                             Text(sel.title).fontWeight(.heavy).foregroundStyle(accent)
                             Text("→").foregroundStyle(.secondary)
-                            Text(sel == .top ? "New Space" : layout(sel) == "hide" ? "Hide the app" : layout(sel) == "split" ? "Split view" : WindowLayout.all.first { $0.id == layout(sel) }?.title ?? "Nothing").fontWeight(.heavy)
+                            Text(sel == .top ? "New Space" : layout(sel) == "hide" ? "Hide the app" : WindowView(rawValue: layout(sel))?.title ?? WindowLayout.all.first { $0.id == layout(sel) }?.title ?? "Nothing").fontWeight(.heavy)
                             if sel == .top { Image(systemName: "lock.fill").foregroundStyle(.secondary) }
                         }.font(.system(size: 12))
                         if sel == .top {
                             Text("This spot is always New Space: the window becomes its own Space, added last on that display. It can't be changed.")
                                 .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                        } else { LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 4), spacing: 6) {
-                            chip("none", "None", nil)
-                            chip("hide", "Hide", nil)
-                            chip("split", "Split view", nil)
-                            ForEach(WindowLayout.all) { l in chip(l.id, l.title, l) }
-                        } }
+                        } else {
+                            category("Window panes", "rectangle.inset.filled", "Move or size just the window you drop.")
+                            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 4), spacing: 6) {
+                                chip("none", "None", nil)
+                                chip("hide", "Hide", nil)
+                                ForEach(WindowLayout.all) { l in chip(l.id, l.title, l) }
+                            }
+                            category("Window views", "rectangle.split.3x1.fill", "Arranges the window you drop with your most recent other windows, straight away.")
+                                .padding(.top, 6)
+                            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 3), spacing: 6) {
+                                ForEach(WindowView.allCases) { v in chip(v.rawValue, v.title, nil) }
+                            }
+                            if let v = WindowView(rawValue: layout(sel)) {
+                                Text(v.blurb + " Fewer windows open? Only the ones there are get placed.")
+                                    .font(.system(size: 10.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                            }
+                            HStack(spacing: 10) {
+                                GapsPicture(on: gaps)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text("Keep gaps between the windows").font(.system(size: 12, weight: .bold))
+                                    Text("Split, Triple and Quad view always leave a small gap between windows.")
+                                        .font(.system(size: 10.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                                }
+                                Spacer(minLength: 0)
+                                Toggle("", isOn: $gaps).labelsHidden()
+                            }
+                            .padding(10)
+                            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.white.opacity(0.05))
+                                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(.white.opacity(0.1), lineWidth: 1)))
+                        }
                     }
                 }
                 .opacity(on ? 1 : 0.4).disabled(!on)
@@ -799,14 +842,16 @@ struct DragZonesCard: View {
                         .background(Capsule().fill(Color(red: 0.25, green: 0.88, blue: 1.0).opacity(0.35)))
                         .overlay(Capsule().strokeBorder(Color(red: 0.25, green: 0.88, blue: 1.0), lineWidth: 1.5))
                         .position(x: W / 2, y: area.minY + 52)
-                } else if layout(sel) == "split" {
-                    HStack(spacing: 6) {
-                        ForEach(0..<2, id: \.self) { i in
-                            RoundedRectangle(cornerRadius: 8, style: .continuous).fill(accent.opacity(i == 0 ? 0.28 : 0.12))
-                                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(accent, lineWidth: i == 0 ? 2 : 1.2, antialiased: true))
-                                .overlay(i == 1 ? AnyView(Text("pick app").font(.system(size: 10, weight: .bold)).foregroundStyle(.white.opacity(0.8))) : AnyView(EmptyView()))
-                        }
-                    }.frame(width: area.width - 12, height: area.height - 12).position(x: area.midX, y: area.midY)
+                } else if let v = WindowView(rawValue: layout(sel)) {
+                    // The view's spots: the dropped window first (bright), then your most recent ones.
+                    let spots = v.slots(in: area, gap: gaps ? 6 : 1)
+                    ForEach(Array(spots.enumerated()), id: \.offset) { i, r in
+                        RoundedRectangle(cornerRadius: 6, style: .continuous).fill(accent.opacity(i == 0 ? 0.3 : 0.12))
+                            .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(accent, lineWidth: i == 0 ? 2 : 1.2))
+                            .overlay(Text(i == 0 ? "dropped" : i == 1 ? "most recent" : "next").font(.system(size: 9, weight: .bold)).foregroundStyle(.white.opacity(0.8)))
+                            .frame(width: r.width, height: r.height).position(x: r.midX, y: r.midY)
+                    }
+                    .animation(.spring(response: 0.32, dampingFraction: 0.8), value: gaps)
                 } else if layout(sel) == "hide" {
                     Label("Hides the app (like ⌘H)", systemImage: "eye.slash.fill").font(.system(size: 12, weight: .bold)).foregroundStyle(.white)
                         .padding(.horizontal, 12).padding(.vertical, 7)
@@ -857,11 +902,18 @@ struct DragZonesCard: View {
         .frame(maxWidth: .infinity)
     }
 
+    func category(_ title: String, _ icon: String, _ sub: String) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Label(title.uppercased(), systemImage: icon).font(.system(size: 10, weight: .heavy)).kerning(0.6).foregroundStyle(accent)
+            Text(sub).font(.system(size: 10.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
     func chip(_ id: String, _ title: String, _ l: WindowLayout?) -> some View {
         let picked = layout(sel) == id
         return Button { withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { set(sel, id) } } label: {
             VStack(spacing: 4) {
-                if let l { Image(nsImage: l.picture) } else { Image(systemName: id == "hide" ? "eye.slash" : id == "split" ? "rectangle.split.2x1" : "nosign").font(.system(size: 14)).frame(height: 20) }
+                if let l { Image(nsImage: l.picture) } else { Image(systemName: id == "hide" ? "eye.slash" : WindowView(rawValue: id)?.icon ?? "nosign").font(.system(size: 14)).frame(height: 20) }
                 Text(title).font(.system(size: 10, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.8)
             }
             .frame(maxWidth: .infinity).padding(.vertical, 7)
@@ -869,6 +921,23 @@ struct DragZonesCard: View {
             .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(picked ? accent : .white.opacity(0.1), lineWidth: picked ? 1.5 : 1))
             .contentShape(Rectangle())
         }.buttonStyle(PressStyle())
+    }
+}
+
+/// Two little windows, with or without a gap between them.
+struct GapsPicture: View {
+    let on: Bool
+    var body: some View {
+        HStack(spacing: on ? 4 : 0) {
+            ForEach(0..<2, id: \.self) { i in
+                RoundedRectangle(cornerRadius: on ? 3 : 1, style: .continuous).fill(accent.opacity(i == 0 ? 0.55 : 0.3))
+                    .overlay(RoundedRectangle(cornerRadius: on ? 3 : 1, style: .continuous).strokeBorder(accent, lineWidth: 1))
+            }
+        }
+        .padding(on ? 4 : 0)
+        .frame(width: 46, height: 30)
+        .background(RoundedRectangle(cornerRadius: 5, style: .continuous).fill(Color(white: 0.16)))
+        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: on)
     }
 }
 

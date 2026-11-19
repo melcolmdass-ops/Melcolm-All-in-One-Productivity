@@ -407,11 +407,9 @@ struct FocusEditor: View {
 
 /// Settings ▸ Focus: how every focus starts and ends, plus the focus modes themselves.
 struct FocusSettings: View {
-    @AppStorage("focusDonePopup") var donePopup = true
-
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Toggle("\"Workflow completed\" pop-up at the bottom of the screen", isOn: $donePopup)
+            Text("The \"Workflow completed\" pop-up is in Settings ▸ Feedback & Pop-ups.").font(.system(size: 10.5)).foregroundStyle(.secondary)
             Divider().opacity(0.3).padding(.vertical, 4)
             Text("Focus Workflows").font(.system(size: 12.5, weight: .semibold))
             Text("Each one runs its steps in order, once, like a shortcut. Click the pencil to change them.").font(.system(size: 11)).foregroundStyle(.secondary)

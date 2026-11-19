@@ -509,8 +509,11 @@ final class NowPlayingModel: ObservableObject {
               return (name of current track) & "\\n" & (artist of current track) & "\\n" & (player state as string) & "\\n" & (player position) & "\\n" & \(extra)
             end tell
             """
-            var err: NSDictionary?
-            if let out = NSAppleScript(source: src)?.executeAndReturnError(&err).stringValue, !out.isEmpty {
+            // Asked in the background (osascript), never on the main thread: waiting for the answer froze the app.
+            let (text, at) = BackgroundScript.latest("player.\(player)", src)
+            // Just pressed play / next: keep what's showing until an answer from after the press comes in.
+            if let at, at < lastAction { if app == player { return true }; continue }
+            if let out = text, !out.isEmpty {
                 let p = out.components(separatedBy: "\n")
                 func at(_ i: Int) -> String { p.count > i ? p[i] : "" }
                 let changed = at(0) != title
@@ -549,7 +552,11 @@ final class NowPlayingModel: ObservableObject {
         }
     }
 
-    private func later() { DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self.refresh() } }
+    private var lastAction = Date.distantPast
+    private func later() {
+        lastAction = Date()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { BackgroundScript.expire(prefix: "player."); self.refresh() }
+    }
 
     private static func mediaKey(_ key: Int32) {
         func post(_ down: Bool) {
@@ -865,10 +872,11 @@ enum BrowserMedia {
             end tell
             return out
             """
-            var err: NSDictionary?
-            let res = NSAppleScript(source: src)?.executeAndReturnError(&err)
-            log("\(b.name) audible=\(audible) err=\(String(describing: err)) text=\(String(describing: res?.stringValue?.prefix(400)))")
-            guard let text = res?.stringValue else { continue }
+            // The tab list comes from a background osascript (it took ~270 ms on the main thread every 3 s,
+            // which is what made Settings and the panel feel laggy). The answer is at most a few seconds old.
+            let text = BackgroundScript.latest("tabs.\(b.name)", src).text
+            log("\(b.name) audible=\(audible) text=\(String(describing: text?.prefix(400)))")
+            guard let text else { continue }
             for line in text.split(separator: "\n") {
                 let f = line.components(separatedBy: "\t")
                 guard f.count >= 4, let wi = Int(f[0]), let ti = Int(f[1]) else { continue }
@@ -1011,10 +1019,63 @@ enum BrowserMedia {
         let src = b.safari
             ? "tell application \"Safari\" to do JavaScript \"\(js)\" in tab \(t) of window \(w)"
             : "tell application \"\(b.name)\" to tell tab \(t) of window \(w) to execute javascript \"\(js)\""
-        var err: NSDictionary?
-        guard let out = NSAppleScript(source: src)?.executeAndReturnError(&err).stringValue,
+        // Background osascript too: when the browser's JavaScript setting is off, each failed ask cost ~20 ms on the main thread.
+        guard let out = BackgroundScript.latest("js.\(b.name).\(w).\(t)", src).text,
               let d = out.data(using: .utf8), let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return nil }
         return Info(title: o["t"] as? String ?? "", artist: o["a"] as? String ?? "", art: o["art"] as? String ?? "",
                     playing: o["p"] as? Bool ?? false, pos: (o["pos"] as? NSNumber)?.doubleValue ?? 0, dur: (o["dur"] as? NSNumber)?.doubleValue ?? 0)
+    }
+}
+
+
+/// Runs AppleScript in its own osascript process on a background queue and keeps the latest answer.
+/// Callers get the last answer straight away (never waiting), and a new one is fetched when it's
+/// more than 2.5 s old. When an answer changes, `onUpdate` runs on the main thread.
+enum BackgroundScript {
+    private static let queue = DispatchQueue(label: "melcolm.osascript", qos: .utility, attributes: .concurrent)
+    private static let lock = NSLock()
+    private static var results: [String: (text: String?, at: Date)] = [:]
+    private static var running = Set<String>()
+    private static var stale = Set<String>()
+    static var onUpdate: () -> Void = {}
+
+    /// The last answer for `key` (nil until the first one comes in) and when it came in.
+    static func latest(_ key: String, _ src: String) -> (text: String?, at: Date?) {
+        lock.lock()
+        let r = results[key], busy = running.contains(key), old = stale.contains(key)
+        let due = !busy && (old || Date().timeIntervalSince(r?.at ?? .distantPast) > 2.5)
+        if due { running.insert(key); stale.remove(key) }
+        lock.unlock()
+        if due {
+            queue.async {
+                let out = run(src)
+                lock.lock(); let changed = results[key]?.text != out; results[key] = (out, Date()); running.remove(key); lock.unlock()
+                if changed { DispatchQueue.main.async { onUpdate() } }
+            }
+        }
+        guard let r, Date().timeIntervalSince(r.at) < 15 else { return (nil, nil) }
+        return (r.text, r.at)
+    }
+
+    /// Fetch these again on the next ask (after you press play, next…).
+    static func expire(prefix: String) {
+        lock.lock(); for k in results.keys where k.hasPrefix(prefix) { stale.insert(k) }; lock.unlock()
+    }
+
+    /// Runs the script and returns what it printed, or nil if it failed. Gives up after 8 s.
+    static func run(_ src: String) -> String? {
+        let p = Process(), input = Pipe(), output = Pipe()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        p.standardInput = input; p.standardOutput = output; p.standardError = FileHandle.nullDevice
+        guard (try? p.run()) != nil else { return nil }
+        input.fileHandleForWriting.write(Data(src.utf8)); try? input.fileHandleForWriting.close()
+        let killer = DispatchWorkItem { if p.isRunning { p.terminate() } }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 8, execute: killer)
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit(); killer.cancel()
+        guard p.terminationStatus == 0 else { return nil }
+        var s = String(decoding: data, as: UTF8.self)
+        if s.hasSuffix("\n") { s.removeLast() }   // osascript adds one newline at the end
+        return s
     }
 }

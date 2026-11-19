@@ -327,11 +327,11 @@ struct Card<Content: View>: View {
 }
 
 struct SettingsTab: View {
-    enum Page: String, CaseIterable { case general = "General", commands = "Commands", bar = "Bar", display = "Display on bar", spaces = "Spaces", dragging = "Dragging", mouse = "Mouse", hover = "Hover bar", panel = "Pages", utility = "Utility Bar", focus = "Focus Workflows", colors = "Colors", look = "Display", rules = "Master Rules", updates = "Update Log" }
+    enum Page: String, CaseIterable { case general = "General", commands = "Commands", bar = "Bar", display = "Display on bar", spaces = "Spaces", dragging = "Dragging", mouse = "Mouse", hover = "Hover bar", panel = "Pages", utility = "Utility Bar", focus = "Focus Workflows", feedback = "Feedback & Pop-ups", colors = "Colors", look = "Display", rules = "Master Rules", updates = "Update Log" }
     /// Top tabs, each with its own sub-tabs.
     static let groups: [(name: String, tabs: [Page])] = [
         ("General", [.general, .commands, .rules, .updates]), ("Main Bar", [.bar, .display, .spaces, .mouse, .hover]), ("Pages", [.panel]), ("Dragging", [.dragging]), ("Utility Bar", [.utility]),
-        ("Focus Workflows", [.focus]), ("Colors & Display", [.colors, .look]),
+        ("Focus Workflows", [.focus]), ("Feedback & Pop-ups", [.feedback]), ("Colors & Display", [.colors, .look]),
     ]
     @AppStorage("settingsPage") var page = Page.general.rawValue
     @AppStorage("islandSize") var size = "large"
@@ -356,7 +356,6 @@ struct SettingsTab: View {
     @AppStorage("scrollSwitches") var scrollSwitch = true
     @AppStorage("closeOnClickOutside") var closeOutside = true
     @AppStorage("hotkeyToggle") var hkToggle = true
-    @AppStorage("hotkeyNumbers") var hkNumbers = true
 
     var body: some View {
         VStack(spacing: 10) {
@@ -407,6 +406,7 @@ struct SettingsTab: View {
                     case .commands: commandsPage
                     case .utility: utilityPage
                     case .focus: FocusSettings()
+                    case .feedback: FeedbackPage()
                     case .colors: ColorsPage()
                     case .look: DisplayLookPage()
                     case .rules: MasterRulesPage()
@@ -414,7 +414,7 @@ struct SettingsTab: View {
                     }
                 }
             }
-            Text("Melcolm All-in-One Productivity · v2.44").font(.system(size: 10)).foregroundStyle(.tertiary)
+            Text("Melcolm All-in-One Productivity · v2.46").font(.system(size: 10)).foregroundStyle(.tertiary)
         }
         .font(.system(size: 12))
         .toggleStyle(.switch).controlSize(.small)
@@ -636,20 +636,11 @@ struct SettingsTab: View {
     }
 
     @AppStorage("cmdMods") var cmdMods = "ctrlOpt"
-    @AppStorage("hotkeyNumbers") var hkNumbersOn = true
 
     @ViewBuilder var commandsPage: some View {
         sectionLabel("Commands")
         ForEach(Hotkeys.commands) { c in CommandRow(c: c) }
-        row("Go to desktop 1…9") {
-            HStack(spacing: 5) { ForEach(1...3, id: \.self) { n in Text("\(n)").font(.system(size: 10, weight: .heavy, design: .rounded)).frame(width: 14, height: 14).background(RoundedRectangle(cornerRadius: 4).fill(n == 2 ? accent : Color.white.opacity(0.22))) }; Text("…9").font(.system(size: 10, weight: .bold)).foregroundStyle(.secondary) }
-                .frame(width: 92, height: 24).background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Color(white: 0.13)))
-            Text("⌃⌥1…9").font(.system(size: 11, weight: .bold, design: .rounded))
-                .foregroundStyle(.secondary).padding(.horizontal, 8).frame(height: 22)
-                .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(.white.opacity(0.08)))
-            Toggle("", isOn: $hkNumbersOn).labelsHidden()
-        }
-        Text("While the panel is open: Esc goes back · Space plays/pauses · ↑↓ volume · ←→ or 1–9 desktops · , Settings")
+        Text("While the panel is open: Esc goes back · Space plays/pauses · ↑↓ volume · ← → change Space · , opens Settings")
             .font(.system(size: 10.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true).padding(.top, 4)
         row("Mission Control shortcuts") { LinkButton("Keyboard Shortcuts…") { SystemModel.open("com.apple.Keyboard-Settings.extension") } }
     }
@@ -905,10 +896,59 @@ struct CommandRow: View {
                 })
     }
 
-    /// The two Space commands also work with the plain arrow keys while the bar is open.
+    /// The two Space commands are fixed to the plain arrow keys while the bar is open.
     var note: String? { c.id == "spaceNext" ? "→ while the bar is open" : c.id == "spacePrev" ? "← while the bar is open" : nil }
+    @ObservedObject var fixedNote = FixedKeyNote.shared
 
     var body: some View {
+        if c.fixed { fixedBody } else { normalBody }
+    }
+
+    /// Next / Previous Space: always → / ←. Clicking the key explains that it can't be changed.
+    var fixedBody: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(c.title).font(.system(size: 12.5, weight: .medium)).lineLimit(1).minimumScaleFactor(0.85)
+                    if let note { Text(note).font(.system(size: 9.5)).foregroundStyle(.secondary).lineLimit(1) }
+                }.frame(width: 160, alignment: .leading)
+                Spacer(minLength: 0)
+                CommandPicture(id: c.id)
+                Spacer(minLength: 0)
+                Button { fixedNote.show(c.id) } label: {
+                    HStack(spacing: 6) {
+                        Text(c.id == "spaceNext" ? "→" : "←").font(.system(size: 13, weight: .heavy, design: .rounded))
+                            .frame(width: 28, height: 20)
+                            .background(RoundedRectangle(cornerRadius: 5, style: .continuous).fill(.white.opacity(0.14))
+                                .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).strokeBorder(.white.opacity(0.25), lineWidth: 1)))
+                        Text(c.id == "spaceNext" ? "Right arrow" : "Left arrow").font(.system(size: 10.5, weight: .semibold)).foregroundStyle(.secondary)
+                        Image(systemName: "lock.fill").font(.system(size: 9)).foregroundStyle(.secondary)
+                    }
+                    .frame(width: 140, height: 24, alignment: .leading).contentShape(Rectangle())
+                }.buttonStyle(PressStyle()).help("Fixed: can't be changed")
+            }.frame(minHeight: 30)
+            if fixedNote.id == c.id {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "lock.fill").font(.system(size: 12, weight: .bold)).foregroundStyle(accent)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("These are fixed").font(.system(size: 12, weight: .heavy))
+                        Text("← and → always change Space while the bar is open. You can't change these keys.")
+                            .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(10)
+                .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(accent.opacity(0.14))
+                    .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(accent, lineWidth: 1.2)))
+                .padding(.top, 4)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+                .onTapGesture { fixedNote.hide() }
+            }
+            Hairline().padding(.top, 6)
+        }
+    }
+
+    var normalBody: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
                 VStack(alignment: .leading, spacing: 1) {
@@ -940,6 +980,19 @@ struct CommandRow: View {
             Hairline().padding(.top, 6)
         }
     }
+}
+
+/// The "These are fixed" note under Next / Previous Space. Goes away by itself after a few seconds.
+final class FixedKeyNote: ObservableObject {
+    static let shared = FixedKeyNote()
+    @Published var id = ""
+    private var token = 0
+    func show(_ id: String) {
+        token += 1; let t = token
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { self.id = id }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in if self?.token == t { self?.hide() } }
+    }
+    func hide() { withAnimation(.easeOut(duration: 0.2)) { id = "" } }
 }
 
 /// A tiny drawing of what a command does, in the middle of its row.

@@ -64,7 +64,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let focus = FocusModel()
     var islands: [Island] = []
     var bag = Set<AnyCancellable>()
-    static let expandedSize = CGSize(width: 480, height: 480)
+    /// For screenshots: `-debugTallPanel 1300` makes the open panel that tall, so a whole Settings page fits.
+    static let expandedSize = CGSize(width: 480, height: max(480, CGFloat(UserDefaults.standard.double(forKey: "debugTallPanel"))))
     static let peekHeight: CGFloat = 28
 
     func applicationDidFinishLaunching(_ note: Notification) {
@@ -117,9 +118,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
             .debounce(for: .milliseconds(200), scheduler: RunLoop.main)
-            .sink { [weak self] _ in self?.reloadHotkeys(); self?.rebuildIslands() }
+            .sink { [weak self] _ in guard Prefs.changed("app") else { return }; self?.reloadHotkeys(); self?.rebuildIslands() }
             .store(in: &bag)
         reloadHotkeys()
+        // v2.45: Keyboard Block joins the utility bar once (you can take it off in Settings ▸ Utility Bar).
+        if !Prefs.bool("addedKeyboardToUtility") {
+            let cur = Prefs.d.string(forKey: "utilityItems") ?? "sound,network,brightness,batteries"
+            if !cur.split(separator: ",").contains("keyboard") { Prefs.d.set(cur.isEmpty ? "keyboard" : cur + ",keyboard", forKey: "utilityItems") }
+            Prefs.d.set(true, forKey: "addedKeyboardToUtility")
+        }
         // Only listen to the sound while music is playing and the wave is on.
         playing.$playing.removeDuplicates().receive(on: RunLoop.main).sink { [weak self] on in
             guard let self else { return }
@@ -176,9 +183,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Timer.scheduledTimer(withTimeInterval: 0.8, repeats: true) { [weak self] _ in self?.sound.refreshMic() }
         Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
             guard let self else { return }
+            let t0 = CACurrentMediaTime()
             playing.refresh()
+            BrowserMedia.log("refresh main-thread ms=\(Int((CACurrentMediaTime() - t0) * 1000))")
             if islands.contains(where: { $0.state.expanded }) { system.refresh(); sound.refresh() }
         }
+        // Fresh answers from the background AppleScript (browser tabs, Spotify, Music) update the music right away.
+        BackgroundScript.onUpdate = { [weak self] in self?.playing.refresh() }
         playing.refresh()
         // For testing: `--args -debugPressTest YES -debugLog YES` presses Play/Pause once, then again to put it back.
         if UserDefaults.standard.bool(forKey: "debugPressTest") {
@@ -227,6 +238,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 try? png.write(to: URL(fileURLWithPath: path))
             }
         }
+        // For testing: `-debugRenderRing <png path>` saves a picture of the pointer circle with Chrome's icon.
+        if let path = UserDefaults.standard.string(forKey: "debugRenderRing") {
+            let m = RingModel(); m.icon = NSWorkspace.shared.icon(forFile: "/Applications/Google Chrome.app")
+            let r = ImageRenderer(content: RingView(m: m).background(Color(white: 0.85))); r.scale = 2
+            if let t = r.nsImage?.tiffRepresentation, let png = NSBitmapImageRep(data: t)?.representation(using: .png, properties: [:]) {
+                try? png.write(to: URL(fileURLWithPath: path))
+            }
+        }
         // For testing: `-debugFullWindow "<pid>:<window id>"` puts that window back into full screen.
         if let t = UserDefaults.standard.string(forKey: "debugFullWindow") {
             let p = t.split(separator: ":").compactMap { Int($0) }
@@ -240,6 +259,74 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // For testing: `open … --args -debugOpen Settings` opens the panel on launch (not saved).
         if let t = UserDefaults.standard.string(forKey: "debugOpen"), let i = islands.first {
             i.state.page = PanelPage.allCases.first { $0.rawValue.lowercased() == t.lowercased() } ?? .home; i.setExpanded(true)
+        }
+        // For testing: `-debugArrange "split|triple|quad"` arranges the front app's front window with the most recent
+        // others on the main display, then writes every window's frame to /tmp/melcolm-arrange.log.
+        if let v = UserDefaults.standard.string(forKey: "debugArrange").flatMap(WindowView.init(rawValue:)) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                let me = ProcessInfo.processInfo.processIdentifier
+                let list = (CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]]) ?? []
+                guard let front = list.first(where: { ($0[kCGWindowLayer as String] as? Int) == 0 && ($0[kCGWindowOwnerPID as String] as? pid_t) != me }),
+                      let pid = front[kCGWindowOwnerPID as String] as? pid_t, let wid = front[kCGWindowNumber as String] as? CGWindowID,
+                      let ax = SpaceMover.window(pid: pid, wid: wid), !SpaceMover.isFull(ax),
+                      ((front[kCGWindowBounds as String] as? [String: CGFloat])?["Height"] ?? 0) > 150 else {
+                    try? "no normal front window".write(toFile: "/tmp/melcolm-arrange.log", atomically: true, encoding: .utf8); return }
+                let sc = NSScreen.screens[0], h = sc.frame.height
+                let vis = CGRect(x: sc.visibleFrame.minX, y: h - sc.visibleFrame.maxY, width: sc.visibleFrame.width, height: sc.visibleFrame.height)
+                v.arrange(pid: pid, wid: wid, visible: vis, display: CGRect(x: sc.frame.minX, y: 0, width: sc.frame.width, height: h))
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                    let after = (CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]]) ?? []
+                    let out = after.filter { ($0[kCGWindowLayer as String] as? Int) == 0 }.prefix(6).map { w in
+                        "\(w[kCGWindowOwnerName as String] ?? "") \(w[kCGWindowNumber as String] ?? 0) \(w[kCGWindowBounds as String] ?? "")" }
+                    try? ("front=\(wid) visible=\(vis)\n" + out.joined(separator: "\n")).write(toFile: "/tmp/melcolm-arrange.log", atomically: true, encoding: .utf8)
+                }
+            }
+        }
+        // For testing: `-debugMoveWindow "pid:wid:x:y"` moves one window (top-left screen coords).
+        if let t = UserDefaults.standard.string(forKey: "debugMoveWindow") {
+            let p = t.split(separator: ":").compactMap { Int($0) }
+            if p.count == 4, let w = SpaceMover.window(pid: pid_t(p[0]), wid: CGWindowID(p[1])) {
+                var o = CGPoint(x: p[2], y: p[3])
+                if let v = AXValueCreate(.cgPoint, &o) { AXUIElementSetAttributeValue(w, kAXPositionAttribute as CFString, v) }
+            }
+        }
+        // For testing: `-debugKeyBlockTest YES` turns Keyboard Block on, sends K three times (one pop-up expected),
+        // turns it off after 3 s and writes the result to /tmp/melcolm-keyblock.log.
+        if UserDefaults.standard.bool(forKey: "debugKeyBlockTest") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                KeyBlock.shared.set(true)
+                for k in 0..<3 { DispatchQueue.main.asyncAfter(deadline: .now() + 0.2 + Double(k) * 0.2) {
+                    for down in [true, false] { CGEvent(keyboardEventSource: nil, virtualKey: 40, keyDown: down)?.post(tap: .cghidEventTap) }
+                } }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                    let n = KeyBlock.shared.blockedCount
+                    KeyBlock.shared.set(false)
+                    try? "blocked=\(n) offAfter=\(!KeyBlock.shared.on)".write(toFile: "/tmp/melcolm-keyblock.log", atomically: true, encoding: .utf8)
+                }
+            }
+        }
+        // For testing: `-debugSettingsTiming YES` opens Settings, visits every tab twice and writes how long each
+        // took to lay out and draw to /tmp/melcolm-settings-timing.log.
+        if UserDefaults.standard.bool(forKey: "debugSettingsTiming"), let i = islands.first {
+            i.state.page = .settings; i.setExpanded(true)
+            let pages = SettingsTab.Page.allCases + SettingsTab.Page.allCases
+            var out = ""
+            for (k, p) in pages.enumerated() {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2 + Double(k) * 0.6) {
+                    let t0 = CACurrentMediaTime()
+                    Prefs.d.set(p.rawValue, forKey: "settingsPage")
+                    i.panel.contentView?.layoutSubtreeIfNeeded(); i.panel.contentView?.display()
+                    out += "\(p.rawValue): \(Int((CACurrentMediaTime() - t0) * 1000)) ms\n"
+                    if k == pages.count - 1 {
+                        let c0 = CACurrentMediaTime(); self.reloadHotkeys(); self.rebuildIslands()
+                        for isl in self.islands { isl.relayout() }
+                        out += "old cascade per click (hotkeys + bar re-measure): \(Int((CACurrentMediaTime() - c0) * 1000)) ms\n"
+                        let f0 = CACurrentMediaTime(); _ = Prefs.changed("probe")
+                        out += "new check per click: \(Int((CACurrentMediaTime() - f0) * 1000)) ms\n"
+                        try? out.write(toFile: "/tmp/melcolm-settings-timing.log", atomically: true, encoding: .utf8)
+                    }
+                }
+            }
         }
         // For testing: `-debugClicks "x,y;x,y"` (screen points, top-left origin) clicks inside the panel
         // itself, one every 0.9 s, and writes what Settings page is showing after each to /tmp/melcolm-clicks.log.
@@ -292,7 +379,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func reloadHotkeys() {
-        DoubleTap.shared.commandIDs = Hotkeys.commands.map(\.id)
+        DoubleTap.shared.commandIDs = Hotkeys.changeable.map(\.id)
         DoubleTap.shared.start()
         // Master Rule: while typing in one of our text boxes, only the open/close hotkey works.
         let g = { (f: @escaping () -> Void) -> () -> Void in { if !Island.typing(in: NSApp.keyWindow) { f() } } }
@@ -304,13 +391,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             "volUp": g { [weak self] in self?.sound.nudge(0.06) },
             "volDown": g { [weak self] in self?.sound.nudge(-0.06) },
             "mute": g { [weak self] in self?.sound.toggleMute() },
-            "spaceNext": g { [weak self] in self?.activeIsland?.spaces.step(1, wrap: true) },
-            "spacePrev": g { [weak self] in self?.activeIsland?.spaces.step(-1, wrap: true) },
             "settings": { [weak self] in
                 guard let i = self?.activeIsland else { return }
                 i.state.page = .settings; if !i.state.expanded { i.setExpanded(true) }
             },
-        ], jump: { [weak self] n in if !Island.typing(in: NSApp.keyWindow) { self?.activeIsland?.spaces.jump(toNumber: n) } })
+        ])
     }
 }
 
@@ -390,7 +475,8 @@ final class Island: NSObject {
             app.playing.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
             app.sound.$micInUse.removeDuplicates().map { _ in () }.eraseToAnyPublisher(),
             app.focus.$active.removeDuplicates().map { _ in () }.eraseToAnyPublisher(),
-            NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification).map { _ in () }.eraseToAnyPublisher()
+            NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
+                .filter { [weak self] _ in Prefs.changed("island-\(self?.screenID ?? 0)") }.map { _ in () }.eraseToAnyPublisher()
         )
         .receive(on: RunLoop.main)
         .sink { [weak self] in self?.relayout() }
@@ -613,9 +699,8 @@ final class Island: NSObject {
         case 126: sound.nudge(0.06); return true                        // up
         case 125: sound.nudge(-0.06); return true                       // down
         case 123: stepSpace(-1); return true                          // left
-        case 124: stepSpace(1); return true                           // right
+        case 124: stepSpace(1); return true                           // right (← and → are fixed: Next / Previous Space)
         default:
-            if let c = e.charactersIgnoringModifiers, let n = Int(c), n > 0 { spaces.jump(toNumber: n); return true }
             if e.charactersIgnoringModifiers == "," { state.page = state.page == .settings ? .home : .settings; return true }
             return false
         }
@@ -714,9 +799,12 @@ final class Island: NSObject {
 }
 
 enum LaunchAtLogin {
-    static var isOn: Bool { SMAppService.mainApp.status == .enabled }
+    /// Asking macOS is slow (it showed up as lag on Settings ▸ General), so the answer is kept.
+    private static var cached: Bool?
+    static var isOn: Bool { if let c = cached { return c }; let v = SMAppService.mainApp.status == .enabled; cached = v; return v }
     static func set(_ on: Bool) {
         try? on ? SMAppService.mainApp.register() : SMAppService.mainApp.unregister()
+        cached = SMAppService.mainApp.status == .enabled
     }
 }
 
