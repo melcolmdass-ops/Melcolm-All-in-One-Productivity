@@ -24,6 +24,14 @@ enum UpdateLog {
 
     /// Newest first.
     static let all: [AppUpdate] = [
+        AppUpdate(version: "2.51", date: "November 20th, 2026", title: "Two more snap circles and Minimize",
+                  improvements: [],
+                  fixes: [],
+                  features: [
+                      "Two new snap circles along the bottom edge, bottom left-middle and bottom right-middle, mirroring the two at the top. Pick what each one does in Dragging.",
+                      "New drop action: Minimize. Drop a window on a circle set to Minimize and just that window goes to the Dock (like ⌘M). Hide is still there too. Bottom left-middle starts as Minimize; bottom right-middle starts as None.",
+                  ],
+                  icons: ["circle.dashed", "minus.rectangle", "eye.slash"], tint: blue),
         AppUpdate(version: "2.50", date: "November 20th, 2026", title: "Play bar, one-key Settings, cleaner window layouts",
                   improvements: [
                       "The Open Settings command is now \"Open or close Settings\": press (or double-tap) the same key again and Settings closes.",

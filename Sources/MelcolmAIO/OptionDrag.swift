@@ -138,6 +138,10 @@ final class OptionDrag: ObservableObject {
                     self.fadeGhost(.settle, after: 0)
                     NSRunningApplication(processIdentifier: p)?.hide()
                 }
+            } else if target == nil, let win, zone?.id == "minimize" {
+                // Minimize just the window you dropped (like ⌘M): it goes to the Dock, other windows stay.
+                DispatchQueue.main.async { self.fadeGhost(.settle, after: 0) }
+                mover.async { _ = AXUIElementSetAttributeValue(win, kAXMinimizedAttribute as CFString, kCFBooleanTrue) }
             } else if target == nil, win != nil, let snap = zone, let view = WindowView(rawValue: snap.id) {
                 // Window view: the dropped window plus your most recent others are arranged right away. No pop-up.
                 let (p, w) = (pid, wid)
@@ -313,10 +317,10 @@ final class OptionDrag: ObservableObject {
         }
         guard let i = DragZone.all.firstIndex(of: zone), i < lay.count else { return nil }
         // "Hide": drop here and the app hides (like Cmd-H). The box shows around the circle.
-        if lay[i] == "hide" {
+        if lay[i] == "hide" || lay[i] == "minimize" {
             let c = zone.center(in: v.size), r = DragZone.radius + 30
             return Snap(rect: CGRect(x: v.minX + c.x - r, y: v.minY + c.y - r, width: 2 * r, height: 2 * r).integral,
-                        title: "Hide", id: "hide", zone: zone.rawValue, display: s.id)
+                        title: lay[i] == "hide" ? "Hide" : "Minimize", id: lay[i], zone: zone.rawValue, display: s.id)
         }
         // Window views: the blue box shows where the dropped window goes (the first spot of the view).
         if let view = WindowView(rawValue: lay[i]) {
@@ -667,7 +671,7 @@ struct DotsView: View {
                 let lay = m.layouts[z.rawValue] ?? "none"
                 if isSpace || lay != "none" {
                     let on = m.active == z.rawValue && m.screen == screen
-                    let title = isSpace ? "New Space" : lay == "hide" ? "Hide" : WindowView(rawValue: lay)?.title ?? WindowLayout.all.first { $0.id == lay }?.title ?? ""
+                    let title = isSpace ? "New Space" : lay == "hide" ? "Hide" : lay == "minimize" ? "Minimize" : WindowView(rawValue: lay)?.title ?? WindowLayout.all.first { $0.id == lay }?.title ?? ""
                     let tint = isSpace ? Color(red: 0.25, green: 0.88, blue: 1.0) : accent
                     let d = DragZone.radius * 2
                     ZStack {
@@ -721,6 +725,11 @@ struct ZoneView: View {
                 .padding(.horizontal, 40).padding(.vertical, 24)
                 .background(RoundedRectangle(cornerRadius: 24, style: .continuous).fill(tint.opacity(0.85)))
                 .shadow(color: tint, radius: 24)
+            } else if m.id == "minimize" {
+                Label("Minimize window", systemImage: "minus.rectangle.fill").font(.system(size: 15, weight: .bold)).foregroundStyle(.white)
+                    .padding(.horizontal, 16).padding(.vertical, 9)
+                    .background(Capsule().fill(Color.black.opacity(0.75)))
+                    .overlay(Capsule().strokeBorder(accent, lineWidth: 1.5))
             } else if m.id == "hide" {
                 Label("Hide app", systemImage: "eye.slash.fill").font(.system(size: 15, weight: .bold)).foregroundStyle(.white)
                     .padding(.horizontal, 16).padding(.vertical, 9)
@@ -746,20 +755,22 @@ struct ZoneView: View {
     }
 }
 
-/// The ten snap spots around the screen's edge.
+/// The twelve snap spots around the screen's edge.
 enum DragZone: String, CaseIterable {
-    case topLeft, topLeftMid, top, topRightMid, topRight, right, bottomRight, bottom, bottomLeft, left
+    case topLeft, topLeftMid, top, topRightMid, topRight, right, bottomRight, bottom, bottomLeft, left, bottomLeftMid, bottomRightMid
     static let all = allCases
     var title: String {
         switch self {
         case .topLeft: "Top left"; case .topLeftMid: "Top left-middle"; case .top: "Top middle"; case .topRightMid: "Top right-middle"; case .topRight: "Top right"; case .right: "Right middle"
         case .bottomRight: "Bottom right"; case .bottom: "Bottom middle"; case .bottomLeft: "Bottom left"; case .left: "Left middle"
+        case .bottomLeftMid: "Bottom left-middle"; case .bottomRightMid: "Bottom right-middle"
         }
     }
     var defaultLayout: String {
         switch self {
         case .topLeft: "tl"; case .topLeftMid: "none"; case .top: "full"; case .topRightMid: "none"; case .topRight: "tr"; case .right: "right"
         case .bottomRight: "br"; case .bottom: "bottom"; case .bottomLeft: "bl"; case .left: "left"
+        case .bottomLeftMid: "minimize"; case .bottomRightMid: "none"
         }
     }
     /// Size of each snap circle (points on the real screen).
@@ -774,6 +785,7 @@ enum DragZone: String, CaseIterable {
         switch self {
         case .topLeft: .topLeading; case .topLeftMid: UnitPoint(x: 0.25, y: 0); case .top: .top; case .topRightMid: UnitPoint(x: 0.75, y: 0); case .topRight: .topTrailing; case .right: .trailing
         case .bottomRight: .bottomTrailing; case .bottom: .bottom; case .bottomLeft: .bottomLeading; case .left: .leading
+        case .bottomLeftMid: UnitPoint(x: 0.25, y: 1); case .bottomRightMid: UnitPoint(x: 0.75, y: 1)
         }
     }
 }
@@ -797,7 +809,7 @@ struct DragZonesCard: View {
                         .frame(width: 30, height: 30).background(NeonBox(color: accent, radius: 8, strength: 0.5))
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Snap to the edges").font(.system(size: 13, weight: .heavy))
-                        Text("Drag a window into one of the ten dashed circles. A blue box shows where it'll go; let go and it snaps there. Outside the circles it just moves. Only on a desktop, never inside a full-screen app.")
+                        Text("Drag a window into one of the twelve dashed circles. A blue box shows where it'll go; let go and it snaps there. Outside the circles it just moves. Only on a desktop, never inside a full-screen app.")
                             .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     }
                     Spacer(minLength: 0)
@@ -822,7 +834,7 @@ struct DragZonesCard: View {
                             Text("Drop at").foregroundStyle(.secondary)
                             Text(sel.title).fontWeight(.heavy).foregroundStyle(accent)
                             Text("→").foregroundStyle(.secondary)
-                            Text(sel == .top ? "New Space" : layout(sel) == "hide" ? "Hide the app" : WindowView(rawValue: layout(sel))?.title ?? WindowLayout.all.first { $0.id == layout(sel) }?.title ?? "Nothing").fontWeight(.heavy)
+                            Text(sel == .top ? "New Space" : layout(sel) == "hide" ? "Hide the app" : layout(sel) == "minimize" ? "Minimize the window" : WindowView(rawValue: layout(sel))?.title ?? WindowLayout.all.first { $0.id == layout(sel) }?.title ?? "Nothing").fontWeight(.heavy)
                             if sel == .top { Image(systemName: "lock.fill").foregroundStyle(.secondary) }
                         }.font(.system(size: 12))
                         if sel == .top {
@@ -833,6 +845,7 @@ struct DragZonesCard: View {
                             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 4), spacing: 6) {
                                 chip("none", "None", nil)
                                 chip("hide", "Hide", nil)
+                                chip("minimize", "Minimize", nil)
                                 ForEach(WindowLayout.all) { l in chip(l.id, l.title, l) }
                             }
                             category("Window views", "rectangle.split.3x1.fill", "Arranges the window you drop with your most recent other windows, straight away.")
@@ -895,6 +908,11 @@ struct DragZonesCard: View {
                             .frame(width: r.width, height: r.height).position(x: r.midX, y: r.midY)
                     }
                     .animation(.spring(response: 0.32, dampingFraction: 0.8), value: gaps)
+                } else if layout(sel) == "minimize" {
+                    Label("Minimizes the window (like ⌘M)", systemImage: "minus.rectangle.fill").font(.system(size: 12, weight: .bold)).foregroundStyle(.white)
+                        .padding(.horizontal, 12).padding(.vertical, 7)
+                        .background(Capsule().fill(accent.opacity(0.35))).overlay(Capsule().strokeBorder(accent, lineWidth: 1.5))
+                        .position(x: W / 2, y: area.midY)
                 } else if layout(sel) == "hide" {
                     Label("Hides the app (like ⌘H)", systemImage: "eye.slash.fill").font(.system(size: 12, weight: .bold)).foregroundStyle(.white)
                         .padding(.horizontal, 12).padding(.vertical, 7)
@@ -956,7 +974,7 @@ struct DragZonesCard: View {
         let picked = layout(sel) == id
         return Button { withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { set(sel, id) } } label: {
             VStack(spacing: 4) {
-                if let l { Image(nsImage: l.picture) } else { Image(systemName: id == "hide" ? "eye.slash" : WindowView(rawValue: id)?.icon ?? "nosign").font(.system(size: 14)).frame(height: 20) }
+                if let l { Image(nsImage: l.picture) } else { Image(systemName: id == "hide" ? "eye.slash" : id == "minimize" ? "minus.rectangle" : WindowView(rawValue: id)?.icon ?? "nosign").font(.system(size: 14)).frame(height: 20) }
                 Text(title).font(.system(size: 10, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.8)
             }
             .frame(maxWidth: .infinity).padding(.vertical, 7)
