@@ -24,6 +24,20 @@ enum UpdateLog {
 
     /// Newest first.
     static let all: [AppUpdate] = [
+        AppUpdate(version: "2.50", date: "November 20th, 2026", title: "Play bar, one-key Settings, cleaner window layouts",
+                  improvements: [
+                      "The Open Settings command is now \"Open or close Settings\": press (or double-tap) the same key again and Settings closes.",
+                      "Split, Triple and Quad view now share the screen between the windows that are really there. Two windows in Triple view each take half; before, one took the left third, one the middle and the right third stayed empty.",
+                  ],
+                  fixes: [
+                      "The play bar is easier to grab and always finishes the jump when you let go, so scrubbing works every time on Now Playing, not just sometimes.",
+                      "A window snapped to a third (or any spot) could be cut off at the screen's edge when the app has a minimum size or Stage Manager was still moving things. The app now checks again and slides it back in.",
+                      "Windows dragged out onto the desktop could end up in the screen corner, half cut off, especially with two monitors. A dropped window now always stays fully on the screen it was dropped on.",
+                  ],
+                  features: [
+                      "Dragging settings: a fixed (can't be turned off) rule that windows never land in a corner or off the edge.",
+                  ],
+                  icons: ["slider.horizontal.below.rectangle", "gearshape", "rectangle.split.3x1"], tint: blue),
         AppUpdate(version: "2.49", date: "November 20th, 2026", title: "Same app in two Spaces, smoother arrows",
                   improvements: [],
                   fixes: [
@@ -729,6 +743,8 @@ struct MasterRule: Identifiable {
                    detail: "Play, Pause, Next, Back and the play bar on a Now Playing row only ever act on the exact thing that row shows. If the app can't reach that one directly, it does nothing rather than risk starting something else."),
         MasterRule(icon: "keyboard.badge.ellipsis", title: "Setting a hotkey pauses every other shortcut",
                    detail: "While a Custom hotkey is waiting for your keys, all hotkeys, double-taps and the arrow keys are off, so the keys you press only set the new hotkey. Press keys to save it, or click anywhere (or press Esc) to cancel. Everything switches back on straight away."),
+        MasterRule(icon: "rectangle.dashed", title: "Dropped windows stay on the screen",
+                   detail: "When you drag a window out onto the desktop it always lands fully on the screen you dropped it on, never in the corner and never cut off by an edge. When you snap windows into a Split, Triple or Quad view, only the windows that are really there share the screen, and anything that sticks out past its spot is slid back in. Stage Manager's side strip is never touched."),
     ]
 }
 

@@ -550,16 +550,17 @@ struct Scrubber: View {
                 .contentShape(Rectangle())
                 .highPriorityGesture(DragGesture(minimumDistance: 0)
                     .onChanged { v in
-                        guard known, seek != nil else { return }
+                        guard known, seek != nil, g.size.width > 1 else { return }
                         drag.key = duration; drag.f = min(1, max(0, v.location.x / g.size.width))
                     }
                     .onEnded { v in
-                        guard known, let seek else { return }
+                        guard known, let seek, g.size.width > 1 else { drag.key = nil; return }
                         let to = min(1, max(0, v.location.x / g.size.width)) * duration
+                        drag.f = to / duration
                         seek(to)
                         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { if drag.key == duration { drag.key = nil } }
                     })
-            }.frame(height: 18)
+            }.frame(height: 26)
             Text(known ? TimerModel.format(duration) : "--:--")
         }
         .font(.system(size: 9.5, weight: .semibold).monospacedDigit()).foregroundStyle(.secondary)

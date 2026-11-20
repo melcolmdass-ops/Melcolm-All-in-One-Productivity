@@ -162,7 +162,7 @@ enum Hotkeys {
         .init(id: "mute", title: "Mute", key: "M", on: false),
         .init(id: "spaceNext", title: "Next Space", key: "→", on: false),
         .init(id: "spacePrev", title: "Previous Space", key: "←", on: false),
-        .init(id: "settings", title: "Open Settings", key: ",", on: false),
+        .init(id: "settings", title: "Open or close Settings", key: ",", on: false),
     ]
     static let modifierChoices: [(id: String, label: String, flags: Int)] = [
         ("ctrlOpt", "⌃⌥", controlKey | optionKey), ("ctrlCmd", "⌃⌘", controlKey | cmdKey),

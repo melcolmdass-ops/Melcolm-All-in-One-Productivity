@@ -36,6 +36,16 @@ enum WindowView: String, CaseIterable, Identifiable {
         } }
     }
 
+    /// The spots for exactly `count` windows: a Quad view with 3 windows still uses 3 equal columns, etc.
+    static func fitted(count n: Int, in r: CGRect, gap g: CGFloat, base: WindowView) -> [CGRect] {
+        switch n {
+        case 1: return [CGRect(x: r.minX + g, y: r.minY + g, width: r.width - 2 * g, height: r.height - 2 * g).integral]
+        case 2: return WindowView.split.slots(in: r, gap: g)
+        case 3: return WindowView.triple.slots(in: r, gap: g)
+        default: return base.slots(in: r, gap: g)
+        }
+    }
+
     struct Win { let pid: pid_t; let wid: CGWindowID; var thumb: CGRect? = nil }
 
     /// Stage Manager on? (Then the other apps sit as small thumbnails at the screen's edge.)
@@ -114,7 +124,6 @@ enum WindowView: String, CaseIterable, Identifiable {
     /// display's usable area and `display` the whole display, both in top-left screen coords.
     func arrange(pid: pid_t, wid: CGWindowID, visible: CGRect, display: CGRect) {
         let gap: CGFloat = Prefs.bool("viewGaps") ? Self.gap : 0
-        let spots = slots(in: visible, gap: gap)
         DispatchQueue.global(qos: .userInitiated).async {
             let stage = Self.stageManager
             // Let Stage Manager finish settling after the drop (it may have just sent the last app to its strip).
@@ -125,6 +134,9 @@ enum WindowView: String, CaseIterable, Identifiable {
                 return !SpaceMover.isFull(ax)
             }
             let wins = [Win(pid: pid, wid: wid)] + others.prefix(count - 1)
+            // Only the windows that are really there share the screen: two windows in Triple view split it in halves,
+            // never one in the left third and one in the middle with an empty gap on the right.
+            let spots = Self.fitted(count: wins.count, in: visible, gap: gap, base: self)
             BrowserMedia.log("views \(self.rawValue) stage=\(stage) wins=\(wins.map { "\($0.wid)\($0.thumb != nil ? "T" : "")" })")
             func place() {
                 // Back to front, so the dropped window ends up on top.

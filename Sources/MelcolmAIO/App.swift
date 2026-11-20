@@ -426,6 +426,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             "mute": g { [weak self] in self?.sound.toggleMute() },
             "settings": { [weak self] in
                 guard let i = self?.activeIsland else { return }
+                // Same key opens AND closes Settings: if Settings is already showing, close the island.
+                if i.state.expanded && i.state.page == .settings { i.setExpanded(false); return }
                 i.state.page = .settings; if !i.state.expanded { i.setExpanded(true) }
             },
         ])

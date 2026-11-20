@@ -150,7 +150,16 @@ final class OptionDrag: ObservableObject {
                 mover.async { Self.setFrame(win, app: app, to: zone) }
                 DispatchQueue.main.async { self.flyGhost(to: zone) }
             } else if target == nil, win != nil {
-                pending = lastOrigin; pump()
+                // Never lands in a corner or half off the screen: the final spot is kept inside the display under the pointer.
+                let drop = e.location
+                let w = win
+                lock.lock(); let scr = screens; lock.unlock()
+                let spot = lastOrigin
+                mover.async { [weak self] in
+                    guard let self, let w else { return }
+                    pending = Self.keptOnScreen(origin: spot, window: w, pointer: drop, screens: scr.map { ($0.cg, $0.vis) })
+                    pump()
+                }
                 // The real window is there now: the copy melts away.
                 DispatchQueue.main.async { self.fadeGhost(.settle, after: 0.22) }
             } else { DispatchQueue.main.async { self.hideGhost() } }
@@ -161,9 +170,23 @@ final class OptionDrag: ObservableObject {
         return Unmanaged.passUnretained(e)
     }
 
+    /// FIXED SETTING (always on): a dropped window is never left in a screen corner or cut off by an edge.
+    /// Its spot is moved just far enough to sit fully inside the usable part of the display under the pointer.
+    static func keptOnScreen(origin o: CGPoint, window: AXUIElement, pointer: CGPoint, screens: [(cg: CGRect, vis: CGRect)]) -> CGPoint {
+        guard let s = screens.first(where: { $0.cg.contains(pointer) }) ?? screens.first else { return o }
+        var sz = CGSize(width: 600, height: 400)
+        var sv: CFTypeRef?
+        if AXUIElementCopyAttributeValue(window, kAXSizeAttribute as CFString, &sv) == .success, let v = sv { AXValueGetValue(v as! AXValue, .cgSize, &sz) }
+        let v = s.vis
+        // Windows bigger than the display just sit at its top-left.
+        let maxX = max(v.minX, v.maxX - sz.width), maxY = max(v.minY, v.maxY - sz.height)
+        return CGPoint(x: min(max(o.x, v.minX), maxX), y: min(max(o.y, v.minY), maxY))
+    }
+
     /// Puts a window exactly in a snap spot: moves AND resizes it. Chrome, Electron apps and others
     /// turn on "enhanced user interface", which makes them ignore or undo size changes, so it's
     /// switched off for the move and back on after. Checks the result and tries again if the app pushed back.
+    private static var stageManager: Bool { WindowView.stageManager }
     static func setFrame(_ win: AXUIElement, app: AXUIElement, to r: CGRect) {
         AXUIElementSetMessagingTimeout(win, 1)
         var enh: CFTypeRef?
@@ -183,11 +206,27 @@ final class OptionDrag: ObservableObject {
             AXValueGetValue(pv as! AXValue, .cgPoint, &p); AXValueGetValue(sv as! AXValue, .cgSize, &s)
             return CGRect(origin: p, size: s)
         }
-        for _ in 0..<4 {
+        func fits(_ c: CGRect) -> Bool { abs(c.minX - r.minX) < 4 && abs(c.minY - r.minY) < 4 && abs(c.width - r.width) < 4 && abs(c.height - r.height) < 4 }
+        for _ in 0..<5 {
             apply()
-            Thread.sleep(forTimeInterval: 0.08)
+            Thread.sleep(forTimeInterval: 0.1)
             guard let c = current() else { break }
-            if abs(c.minX - r.minX) < 4, abs(c.minY - r.minY) < 4, abs(c.width - r.width) < 4, abs(c.height - r.height) < 4 { break }
+            if fits(c) { break }
+        }
+        // An app with a minimum size (or Stage Manager still animating) can end up bigger or shifted: look again after a
+        // moment, and if it still sticks out past its spot, slide it back in so nothing is ever cut off at the edge.
+        Thread.sleep(forTimeInterval: stageManager ? 0.35 : 0.12)
+        if let c = current(), !fits(c) {
+            apply(); Thread.sleep(forTimeInterval: 0.1)
+            if let c = current() {
+                var x = c.minX, y = c.minY
+                if c.maxX > r.maxX + 1 { x = max(r.minX, r.maxX - c.width) }
+                if c.maxY > r.maxY + 1 { y = max(r.minY, r.maxY - c.height) }
+                if x != c.minX || y != c.minY {
+                    var o = CGPoint(x: x, y: y)
+                    if let v = AXValueCreate(.cgPoint, &o) { AXUIElementSetAttributeValue(win, kAXPositionAttribute as CFString, v) }
+                }
+            }
         }
         if hadEnh { AXUIElementSetAttributeValue(app, "AXEnhancedUserInterface" as CFString, kCFBooleanTrue) }
     }
@@ -990,6 +1029,18 @@ struct DraggingSettings: View {
                             Text("⌘ Command").tag("command")
                         }.labelsHidden().pickerStyle(.segmented).frame(width: 300)
                     }.opacity(optionDrag ? 1 : 0.45).disabled(!optionDrag)
+                }
+            }
+            Card {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "lock.fill").font(.system(size: 14, weight: .semibold)).foregroundStyle(accent)
+                        .frame(width: 30, height: 30).background(NeonBox(color: accent, radius: 8, strength: 0.5))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Windows never land in a corner").font(.system(size: 13, weight: .heavy))
+                        Text("Fixed, always on. When you drop a window anywhere else on the desktop, it stays fully on that screen: it is never pushed into the screen corner or cut off by an edge, even with a second monitor or other windows already there.")
+                            .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 0)
                 }
             }
             DragZonesCard()
