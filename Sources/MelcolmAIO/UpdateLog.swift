@@ -24,6 +24,17 @@ enum UpdateLog {
 
     /// Newest first.
     static let all: [AppUpdate] = [
+        AppUpdate(version: "2.56", date: "November 20th, 2026", title: "Control-drag from Stage Manager, rebuilt",
+                  improvements: [
+                      "The area that catches a drop is a little bigger than the (now smaller) drawn circle, so you don't have to hit it dead centre.",
+                  ],
+                  fixes: [
+                      "Dragging a window out of Stage Manager's strip to a snap circle works again. The last version tried to take the drag over mid-way by sending a fake mouse-up, which made macOS stop reporting the drag, so nothing followed your pointer and nothing snapped. Now Stage Manager carries the window itself, the snap circles and the blue preview show while you carry it, and the moment you let go the app snaps it into the circle you're on. No fake clicks are sent.",
+                      "A missed mouse-up can no longer leave the app stuck \"dragging\": every new press starts clean. This is what made a second Control-drag glitch after a first one.",
+                      "Picking up a window by pressing on the strip no longer asks the Stage Manager process anything, so it can't stall.",
+                  ],
+                  features: [],
+                  icons: ["rectangle.lefthalf.inset.filled.arrow.left", "circle.dashed"], tint: blue),
         AppUpdate(version: "2.55", date: "November 20th, 2026", title: "No more freeze when dragging out of Stage Manager",
                   improvements: [],
                   fixes: [
