@@ -24,6 +24,18 @@ enum UpdateLog {
 
     /// Newest first.
     static let all: [AppUpdate] = [
+        AppUpdate(version: "2.53", date: "November 20th, 2026", title: "One clean move for every snap",
+                  improvements: [
+                      "The \"never cut off\" notice moved from the Dragging page to Master Rules, reworded to say what it really means: windows can sit in a corner, they just never hang off the screen.",
+                  ],
+                  fixes: [
+                      "A snapped window no longer lands cut off and then fixes itself. The final spot is worked out first (from the size the app really allows) and the window goes straight there.",
+                      "Triple, Split and Quad view with Stage Manager no longer shuffle windows: before, they went to the middle, swapped sides and were moved again two or three times. Other windows are now brought onto the stage first, then each one moves once.",
+                  ],
+                  features: [
+                      "New Master Rule: One movement, then done.",
+                  ],
+                  icons: ["arrow.right.circle", "rectangle.split.3x1", "rectangle.dashed"], tint: blue),
         AppUpdate(version: "2.52", date: "November 20th, 2026", title: "Snaps fit the screen edge, views do exactly what you pick",
                   improvements: [],
                   fixes: [
@@ -759,8 +771,10 @@ struct MasterRule: Identifiable {
                    detail: "Play, Pause, Next, Back and the play bar on a Now Playing row only ever act on the exact thing that row shows. If the app can't reach that one directly, it does nothing rather than risk starting something else."),
         MasterRule(icon: "keyboard.badge.ellipsis", title: "Setting a hotkey pauses every other shortcut",
                    detail: "While a Custom hotkey is waiting for your keys, all hotkeys, double-taps and the arrow keys are off, so the keys you press only set the new hotkey. Press keys to save it, or click anywhere (or press Esc) to cancel. Everything switches back on straight away."),
-        MasterRule(icon: "rectangle.dashed", title: "Dropped windows stay on the screen",
-                   detail: "When you drag a window out onto the desktop it always lands fully on the screen you dropped it on, never in the corner and never cut off by an edge. When you snap a window to a spot or into a Split, Triple or Quad view, you get exactly the layout you chose, and any window that can't get small enough is slid back so no edge is ever off the screen. Stage Manager's side strip is never touched."),
+        MasterRule(icon: "rectangle.dashed", title: "A window is never cut off by the edge of the screen",
+                   detail: "A window can land in a corner or against an edge, that's fine. What never happens is part of it hanging off the screen. Drop a window anywhere, snap it to a third, a half, a corner or into a Split, Triple or Quad view, and all of it stays visible on the screen you dropped it on. If an app can't get small enough for its spot, it takes a little more room towards the middle instead of sticking out."),
+        MasterRule(icon: "arrow.right.circle.fill", title: "One movement, then done",
+                   detail: "Snapping a window, or arranging a Split, Triple or Quad view, is always one clean move per window straight to its final spot. Windows never go to the middle first, swap sides or get moved again afterwards. You get exactly the layout you drop on, even if fewer windows are open than the view holds."),
     ]
 }
 

@@ -117,7 +117,7 @@ enum WindowView: String, CaseIterable, Identifiable {
         mouse(.mouseMoved, at); Thread.sleep(forTimeInterval: 0.05)
         mouse(.leftMouseDown, at, shift: true); Thread.sleep(forTimeInterval: 0.05)
         mouse(.leftMouseUp, at, shift: true)
-        Thread.sleep(forTimeInterval: 0.7)
+        Thread.sleep(forTimeInterval: 0.45)
     }
 
     /// Arranges the dropped window plus the most recent others into this view. `visible` is the
@@ -127,40 +127,34 @@ enum WindowView: String, CaseIterable, Identifiable {
         DispatchQueue.global(qos: .userInitiated).async {
             let stage = Self.stageManager
             // Let Stage Manager finish settling after the drop (it may have just sent the last app to its strip).
-            if stage { Thread.sleep(forTimeInterval: 0.45) }
+            if stage { Thread.sleep(forTimeInterval: 0.3) }
             let others = Self.recent(excluding: wid, on: display).filter { w in
                 // Never pull a full-screen window out of its Space.
                 guard let ax = SpaceMover.window(pid: w.pid, wid: w.wid) else { return false }
                 return !SpaceMover.isFull(ax)
             }
             let wins = [Win(pid: pid, wid: wid)] + others.prefix(count - 1)
-            // Only the windows that are really there share the screen: two windows in Triple view split it in halves,
-            // never one in the left third and one in the middle with an empty gap on the right.
             // Exactly the view you chose: Triple always makes three spots, even with fewer windows open.
             let spots = self.slots(in: visible, gap: gap)
             BrowserMedia.log("views \(self.rawValue) stage=\(stage) wins=\(wins.map { "\($0.wid)\($0.thumb != nil ? "T" : "")" })")
-            func place() {
-                // Back to front, so the dropped window ends up on top.
-                for (w, r) in zip(wins, spots).reversed() {
-                    guard let ax = SpaceMover.window(pid: w.pid, wid: w.wid) else { continue }
-                    OptionDrag.setFrame(ax, app: AXUIElementCreateApplication(w.pid), to: r, within: visible)
-                }
-            }
-            place()
-            DispatchQueue.main.sync {
-                if let ax = SpaceMover.window(pid: pid, wid: wid) { AXUIElementPerformAction(ax, kAXRaiseAction as CFString) }
-                NSRunningApplication(processIdentifier: pid)?.activate()
-            }
-            // Stage Manager shows one app's stage at a time: bringing the dropped window forward sends the others
-            // to the strip. Add each one back onto this stage, then put everything in its spot again.
+            // Stage Manager first: bring the other windows onto this stage BEFORE anything moves (the dropped window is
+            // already the front app, so nothing gets sent back to the strip). Then every window goes to its spot once.
             if stage {
                 let back = CGEvent(source: nil)?.location ?? .zero
-                Thread.sleep(forTimeInterval: 0.8)
                 for w in wins.dropFirst() { Self.addToStage(w.wid, display: display) }
                 CGWarpMouseCursorPosition(back)
-                place()
-                BrowserMedia.log("views placed \(wins.map { "\($0.wid)=\(Self.bounds($0.wid).map { "\(Int($0.minX)),\(Int($0.minY)) \(Int($0.width))x\(Int($0.height))" } ?? "-")" })")
             }
+            // One movement each, back to front so the dropped window ends up on top.
+            for (w, r) in zip(wins, spots).reversed() {
+                guard let ax = SpaceMover.window(pid: w.pid, wid: w.wid) else { continue }
+                OptionDrag.setFrame(ax, app: AXUIElementCreateApplication(w.pid), to: r, within: visible)
+            }
+            DispatchQueue.main.sync {
+                if let ax = SpaceMover.window(pid: pid, wid: wid) { AXUIElementPerformAction(ax, kAXRaiseAction as CFString) }
+                // With Stage Manager the dropped app is already in front; activating it again would send the rest to the strip.
+                if !stage { NSRunningApplication(processIdentifier: pid)?.activate() }
+            }
+            BrowserMedia.log("views placed \(wins.map { "\($0.wid)=\(Self.bounds($0.wid).map { "\(Int($0.minX)),\(Int($0.minY)) \(Int($0.width))x\(Int($0.height))" } ?? "-")" })")
         }
     }
 }

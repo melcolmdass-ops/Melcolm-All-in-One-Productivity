@@ -191,18 +191,15 @@ final class OptionDrag: ObservableObject {
     /// Puts a window exactly in a snap spot: moves AND resizes it. Chrome, Electron apps and others
     /// turn on "enhanced user interface", which makes them ignore or undo size changes, so it's
     /// switched off for the move and back on after. Checks the result and tries again if the app pushed back.
-    private static var stageManager: Bool { WindowView.stageManager }
+    /// ONE movement: the final spot is worked out first, then the window goes straight there. Size is set first and read
+    /// back (an app with a minimum size says how big it really is), then the position is set once from that real size,
+    /// so the window is never seen cut off at an edge and never shuffled. Only if the app pushes back does it try again.
+    /// A window too big for its spot grows leftwards/upwards and always stays fully on `screen`.
     static func setFrame(_ win: AXUIElement, app: AXUIElement, to r: CGRect, within screen: CGRect? = nil) {
         AXUIElementSetMessagingTimeout(win, 1)
         var enh: CFTypeRef?
         let hadEnh = AXUIElementCopyAttributeValue(app, "AXEnhancedUserInterface" as CFString, &enh) == .success && (enh as? Bool) == true
         if hadEnh { AXUIElementSetAttributeValue(app, "AXEnhancedUserInterface" as CFString, kCFBooleanFalse) }
-        func apply() {
-            var o = r.origin, sz = r.size
-            if let v = AXValueCreate(.cgPoint, &o) { AXUIElementSetAttributeValue(win, kAXPositionAttribute as CFString, v) }
-            if let v = AXValueCreate(.cgSize, &sz) { AXUIElementSetAttributeValue(win, kAXSizeAttribute as CFString, v) }
-            if let v = AXValueCreate(.cgPoint, &o) { AXUIElementSetAttributeValue(win, kAXPositionAttribute as CFString, v) }
-        }
         func current() -> CGRect? {
             var pv: CFTypeRef?, sv: CFTypeRef?
             guard AXUIElementCopyAttributeValue(win, kAXPositionAttribute as CFString, &pv) == .success,
@@ -211,32 +208,26 @@ final class OptionDrag: ObservableObject {
             AXValueGetValue(pv as! AXValue, .cgPoint, &p); AXValueGetValue(sv as! AXValue, .cgSize, &s)
             return CGRect(origin: p, size: s)
         }
-        func fits(_ c: CGRect) -> Bool { abs(c.minX - r.minX) < 4 && abs(c.minY - r.minY) < 4 && abs(c.width - r.width) < 4 && abs(c.height - r.height) < 4 }
-        for _ in 0..<5 {
-            apply()
-            Thread.sleep(forTimeInterval: 0.1)
-            guard let c = current() else { break }
-            if fits(c) { break }
-        }
-        // An app with a minimum size (or Stage Manager still animating) can end up bigger or shifted. Look again after a
-        // moment, and if any edge is past its spot, pull it back: first into the spot, and if the window simply can't be
-        // that small, at least fully onto the screen, so no edge is ever off the display.
         let bounds = screen ?? r
-        for _ in 0..<3 {
-            Thread.sleep(forTimeInterval: stageManager ? 0.35 : 0.12)
-            guard let c = current() else { break }
-            if fits(c) { break }
-            var x = r.minX, y = r.minY                                                  // shifted: back to its corner
-            if x + c.width > r.maxX + 1 { x = r.maxX - c.width }                        // too wide for the spot: grow leftwards
-            if y + c.height > r.maxY + 1 { y = r.maxY - c.height }
-            x = min(max(x, bounds.minX), max(bounds.minX, bounds.maxX - c.width))       // never off the screen
-            y = min(max(y, bounds.minY), max(bounds.minY, bounds.maxY - c.height))
-            var o = CGPoint(x: x, y: y)
-            if let v = AXValueCreate(.cgPoint, &o) { AXUIElementSetAttributeValue(win, kAXPositionAttribute as CFString, v) }
-            // Ask for the size once more now that it sits inside the screen (a window can't grow past an edge it is touching).
+        /// Where a window of this size goes: its spot's corner, pulled left/up if it is too big, never off the screen.
+        func origin(for s: CGSize) -> CGPoint {
+            var x = r.minX, y = r.minY
+            if x + s.width > r.maxX + 1 { x = r.maxX - s.width }
+            if y + s.height > r.maxY + 1 { y = r.maxY - s.height }
+            return CGPoint(x: min(max(x, bounds.minX), max(bounds.minX, bounds.maxX - s.width)),
+                           y: min(max(y, bounds.minY), max(bounds.minY, bounds.maxY - s.height)))
+        }
+        for attempt in 0..<4 {
             var sz = r.size
             if let v = AXValueCreate(.cgSize, &sz) { AXUIElementSetAttributeValue(win, kAXSizeAttribute as CFString, v) }
+            var o = origin(for: current()?.size ?? r.size)
             if let v = AXValueCreate(.cgPoint, &o) { AXUIElementSetAttributeValue(win, kAXPositionAttribute as CFString, v) }
+            Thread.sleep(forTimeInterval: attempt == 0 ? 0.05 : 0.15)
+            guard let c = current() else { break }
+            let want = origin(for: c.size)
+            let placed = abs(c.minX - want.x) < 4 && abs(c.minY - want.y) < 4
+            let sized = abs(c.width - r.width) < 4 && abs(c.height - r.height) < 4
+            if placed && (sized || attempt >= 1) { break }    // an app that can't get any smaller is accepted on the second look
         }
         if hadEnh { AXUIElementSetAttributeValue(app, "AXEnhancedUserInterface" as CFString, kCFBooleanTrue) }
     }
@@ -1053,18 +1044,6 @@ struct DraggingSettings: View {
                             Text("⌘ Command").tag("command")
                         }.labelsHidden().pickerStyle(.segmented).frame(width: 300)
                     }.opacity(optionDrag ? 1 : 0.45).disabled(!optionDrag)
-                }
-            }
-            Card {
-                HStack(alignment: .top, spacing: 10) {
-                    Image(systemName: "lock.fill").font(.system(size: 14, weight: .semibold)).foregroundStyle(accent)
-                        .frame(width: 30, height: 30).background(NeonBox(color: accent, radius: 8, strength: 0.5))
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Windows never land in a corner").font(.system(size: 13, weight: .heavy))
-                        Text("Fixed, always on. When you drop a window anywhere else on the desktop, it stays fully on that screen: it is never pushed into the screen corner or cut off by an edge, even with a second monitor or other windows already there.")
-                            .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                    }
-                    Spacer(minLength: 0)
                 }
             }
             DragZonesCard()
