@@ -83,9 +83,30 @@ final class OptionDrag: ObservableObject {
             showBadge(Prefs.bool("optionDrag") && e.flags.contains(modifier) && !inFullScreen(at: e.location), at: e.location)
             return Unmanaged.passUnretained(e)
         case .leftMouseDown:
-            guard Date() > Self.passThroughUntil, Prefs.bool("optionDrag"), e.flags.contains(modifier), !inFullScreen(at: e.location), grab(at: e.location) else { break }
+            stripWid = 0
+            guard Date() > Self.passThroughUntil, Prefs.bool("optionDrag"), e.flags.contains(modifier), !inFullScreen(at: e.location) else { break }
+            // Pressed on a Stage Manager thumbnail: let Stage Manager start pulling the window out, and take the drag over
+            // the moment it is out on the desktop (see below), so the key only has to be held once.
+            if !grab(at: e.location) { markStrip(at: e.location); break }
             active = true
             return nil
+        case .leftMouseDragged where !active && stripWid != 0:
+            let p = e.location
+            guard e.flags.contains(modifier), Prefs.bool("optionDrag"), hypot(p.x - stripDown.x, p.y - stripDown.y) > 90,
+                  grabStrip(at: p) else { return Unmanaged.passUnretained(e) }
+            // The window is out on the desktop: end Stage Manager's own drag (our marked mouse-up passes straight through)
+            // and carry on as a normal Control-drag, with the ring and snap circles.
+            let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: p, mouseButton: .left)
+            up?.setIntegerValueField(.eventSourceUserData, value: Self.marker)
+            up?.post(tap: .cghidEventTap)
+            stripWid = 0
+            showBadge(true, at: p)
+            return nil
+        case .leftMouseUp where !active:
+            stripWid = 0
+            return Unmanaged.passUnretained(e)
+        case .leftMouseUp where e.getIntegerValueField(.eventSourceUserData) == Self.marker:
+            return Unmanaged.passUnretained(e)
         case .leftMouseDragged where active:
             let p = e.location
             showBadge(true, at: p)
@@ -430,6 +451,41 @@ final class OptionDrag: ObservableObject {
     }
 
     private var lastOrigin = CGPoint.zero
+    /// Marks mouse events we post ourselves so our own tap lets them through.
+    static let marker: Int64 = 0x4D4C43
+    /// A window pressed in Stage Manager's side strip (Control held): taken over once it is out on the desktop.
+    private var stripWid: CGWindowID = 0
+    private var stripPid: pid_t = 0
+    private var stripDown = CGPoint.zero
+
+    /// Pressed on the strip? The strip draws a WindowManager window right over each thumbnail; the app's own window
+    /// sits just behind it with the same bounds. Remember that window.
+    private func markStrip(at p: CGPoint) {
+        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else { return }
+        func rect(_ w: [String: Any]) -> CGRect {
+            let b = (w[kCGWindowBounds as String] as? [String: Double]) ?? [:]
+            return CGRect(x: b["X"] ?? 0, y: b["Y"] ?? 0, width: b["Width"] ?? 0, height: b["Height"] ?? 0)
+        }
+        guard let i = list.firstIndex(where: { rect($0).contains(p) && ($0[kCGWindowLayer as String] as? Int) == 0 || (rect($0).contains(p) && ($0[kCGWindowOwnerName as String] as? String) == "WindowManager") }),
+              (list[i][kCGWindowOwnerName as String] as? String) == "WindowManager" else { return }
+        let r = rect(list[i])
+        guard r.width < 260, r.height < 300 else { return }
+        let me = ProcessInfo.processInfo.processIdentifier
+        guard let w = list[(i + 1)...].first(where: {
+            ($0[kCGWindowLayer as String] as? Int) == 0 && ($0[kCGWindowOwnerPID as String] as? pid_t) != me
+                && abs(rect($0).minX - r.minX) < 2 && abs(rect($0).minY - r.minY) < 2 && abs(rect($0).width - r.width) < 2
+        }), let wid = w[kCGWindowNumber as String] as? CGWindowID, let pid = w[kCGWindowOwnerPID as String] as? pid_t else { return }
+        stripWid = wid; stripPid = pid; stripDown = p
+    }
+
+    /// The strip's window, once Stage Manager has lifted it out to full size under the pointer: start our own drag on it.
+    private func grabStrip(at p: CGPoint) -> Bool {
+        guard let d = (CGWindowListCopyWindowInfo([.optionIncludingWindow], stripWid) as? [[String: Any]])?.first,
+              let b = d[kCGWindowBounds as String] as? [String: Double] else { return false }
+        let r = CGRect(x: b["X"] ?? 0, y: b["Y"] ?? 0, width: b["Width"] ?? 0, height: b["Height"] ?? 0)
+        guard r.width > 120, r.height > 100, r.insetBy(dx: -40, dy: -40).contains(p), !inFullScreen(at: p) else { return false }
+        return begin(pid: stripPid, wid: stripWid, rect: r, at: p)
+    }
     private var ghostID: UInt32 = 0
     private var ghost: NSPanel?
     private var ghostModel: GhostModel?
@@ -548,21 +604,26 @@ final class OptionDrag: ObservableObject {
             let r = CGRect(x: b["X"] ?? 0, y: b["Y"] ?? 0, width: b["Width"] ?? 0, height: b["Height"] ?? 0)
             guard r.contains(p) else { continue }
             guard pid != me else { return false }
-            let app = AXUIElementCreateApplication(pid)
-            var v: CFTypeRef?
-            AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &v)
-            guard let ax = (v as? [AXUIElement])?.first(where: { var n: CGWindowID = 0; _ = axWindowID($0, &n); return n == wid }),
-                  !SpaceMover.isFull(ax) else { return false }
-            self.pid = pid; self.wid = wid; win = ax
-            startMouse = p; startPos = r.origin; lastOrigin = r.origin
-            active = true
-            DispatchQueue.main.async { self.makeGhost(r, wid: wid, pid: pid); self.showRing(at: p, pid: pid) }
-            AXUIElementSetMessagingTimeout(ax, 0.25)
-            NSRunningApplication(processIdentifier: pid)?.activate()
-            AXUIElementPerformAction(ax, kAXRaiseAction as CFString)
-            return true
+            return begin(pid: pid, wid: wid, rect: r, at: p)
         }
         return false
+    }
+
+    /// Starts dragging this window from the pointer spot `p`.
+    private func begin(pid: pid_t, wid: CGWindowID, rect r: CGRect, at p: CGPoint) -> Bool {
+        let app = AXUIElementCreateApplication(pid)
+        var v: CFTypeRef?
+        AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &v)
+        guard let ax = (v as? [AXUIElement])?.first(where: { var n: CGWindowID = 0; _ = axWindowID($0, &n); return n == wid }),
+              !SpaceMover.isFull(ax) else { return false }
+        self.pid = pid; self.wid = wid; win = ax
+        startMouse = p; startPos = r.origin; lastOrigin = r.origin
+        active = true
+        DispatchQueue.main.async { self.makeGhost(r, wid: wid, pid: pid); self.showRing(at: p, pid: pid) }
+        AXUIElementSetMessagingTimeout(ax, 0.25)
+        NSRunningApplication(processIdentifier: pid)?.activate()
+        AXUIElementPerformAction(ax, kAXRaiseAction as CFString)
+        return true
     }
 }
 
@@ -680,8 +741,8 @@ struct DotsView: View {
                                 .frame(width: on ? 22 : 15, height: on ? 22 : 15)
                                 .overlay(Circle().strokeBorder(tint, lineWidth: on ? 3 : 2))
                                 .shadow(color: tint.opacity(0.9), radius: on ? 10 : 5)
-                            Text(title).font(.system(size: 11, weight: .bold)).foregroundStyle(.white)
-                                .lineLimit(1).minimumScaleFactor(0.8)
+                            Text(title).font(.system(size: 10, weight: .bold)).foregroundStyle(.white)
+                                .lineLimit(1).minimumScaleFactor(0.6)
                                 .padding(.horizontal, 8).padding(.vertical, 3)
                                 .background(Capsule().fill(Color.black.opacity(0.72)))
                         }
@@ -771,7 +832,7 @@ enum DragZone: String, CaseIterable {
         }
     }
     /// Size of each snap circle (points on the real screen).
-    static let radius: CGFloat = 62
+    static let radius: CGFloat = 43
     /// Centre of this spot's circle on a screen of `size` (top-left origin), kept fully on screen.
     func center(in size: CGSize) -> CGPoint {
         let r = Self.radius + 10

@@ -24,6 +24,15 @@ enum UpdateLog {
 
     /// Newest first.
     static let all: [AppUpdate] = [
+        AppUpdate(version: "2.54", date: "November 20th, 2026", title: "Control-drag straight out of Stage Manager, smaller snap circles",
+                  improvements: [
+                      "The snap circles are 30% smaller (the labels shrink to fit), so they're still easy to see but cover less of the screen.",
+                  ],
+                  fixes: [
+                      "Holding Control and dragging a window out of Stage Manager's side strip now works first time. Before, Stage Manager grabbed it, so you had to let go of Control, pick the window up again and press Control a second time. Now the app takes the drag over the moment the window is out on the desktop, with the ring and the snap circles ready.",
+                  ],
+                  features: [],
+                  icons: ["rectangle.lefthalf.inset.filled.arrow.left", "circle.dashed"], tint: blue),
         AppUpdate(version: "2.53", date: "November 20th, 2026", title: "One clean move for every snap",
                   improvements: [
                       "The \"never cut off\" notice moved from the Dragging page to Master Rules, reworded to say what it really means: windows can sit in a corner, they just never hang off the screen.",
