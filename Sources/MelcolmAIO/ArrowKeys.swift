@@ -38,7 +38,7 @@ final class ArrowKeys {
               !Hotkeys.paused, wants() else { return Unmanaged.passUnretained(e) }
         // Holding the key repeats, but one Space at a time reads smoother than a rush.
         let now = Date()
-        if now.timeIntervalSince(last) >= 0.14 { last = now; step(code == 123 ? -1 : 1) }
+        if now.timeIntervalSince(last) >= 0.14 { last = now; BrowserMedia.log("step key \(code)"); step(code == 123 ? -1 : 1) }
         return nil
     }
 }

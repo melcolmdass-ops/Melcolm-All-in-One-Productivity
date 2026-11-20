@@ -57,7 +57,7 @@ final class SpacesModel: ObservableObject {
         refresh()
         NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main
-        ) { [weak self] _ in self?.refresh() }
+        ) { [weak self] _ in BrowserMedia.log("step arrived"); self?.refresh() }
         NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
         ) { [weak self] _ in self?.refresh() }
@@ -69,7 +69,8 @@ final class SpacesModel: ObservableObject {
 
     /// Reads the spaces of the display the island sits on (the menu-bar screen).
     func refresh() {
-        if holding { return }   // a drag move is running; keep showing where it's going
+        if holding { return }
+        lastRefresh = Date()   // a drag move is running; keep showing where it's going
         guard let raw = CGSCopyManagedDisplaySpaces(_CGSDefaultConnection())?.takeRetainedValue() as? [NSDictionary],
               !raw.isEmpty else { return }
         let wanted = Self.uuid(of: screen())
@@ -84,7 +85,7 @@ final class SpacesModel: ObservableObject {
             guard let id = (s["ManagedSpaceID"] as? Int) ?? (s["id64"] as? Int) else { continue }
             let full = (s["type"] as? Int) == 4
             n += 1
-            items.append(SpaceItem(id: id, number: n, isFullscreen: full))
+            items.append(SpaceItem(id: id, number: n, isFullscreen: full, window: SpaceMover.wid(s)))
         }
         let cur = ((display["Current Space"] as? NSDictionary)?["ManagedSpaceID"] as? Int) ?? 0
         if items != spaces { spaces = items }
@@ -149,12 +150,28 @@ final class SpacesModel: ObservableObject {
 
     /// Goes to the Space, then brings the app forward there.
     func focus(_ app: SpaceApp, on space: SpaceItem) {
-        // Spaces on this island's display are stepped to; on other displays macOS follows the app.
-        let moved = space.id != currentID && spaces.contains(space)
-        if moved { switchTo(space) }
-        DispatchQueue.main.asyncAfter(deadline: .now() + (moved ? 0.45 : 0)) {
-            NSRunningApplication(processIdentifier: app.pid)?.activate()
+        // Spaces on this island's display are stepped to; on other displays the exact window is brought forward.
+        // (Compared by id: the bar's copy of a Space also carries its window number, so == never matched and
+        // every click fell back to "open the app", which picks the wrong window when an app has two Spaces.)
+        let here = spaces.contains { $0.id == space.id }
+        let current = here ? space.id == currentID : displays.contains { $0.currentID == space.id }
+        if !current { switchTo(space); return }
+        // Already there: bring that exact window forward (an app with two Spaces has two windows).
+        Self.bringWindow(pid: app.pid, wid: windowID(space))
+    }
+
+    /// The full-screen window that owns this Space (0 for desktops and some Split Views).
+    func windowID(_ space: SpaceItem) -> Int {
+        space.window != 0 ? space.window : (displays.flatMap(\.spaces).first { $0.id == space.id }?.window ?? 0)
+    }
+
+    /// Makes this window the app's main window, raises it and activates the app, so macOS shows its Space.
+    static func bringWindow(pid: pid_t, wid: Int) {
+        if wid != 0, let w = SpaceMover.window(pid: pid, wid: CGWindowID(wid)) {
+            AXUIElementSetAttributeValue(w, kAXMainAttribute as CFString, kCFBooleanTrue)
+            AXUIElementPerformAction(w, kAXRaiseAction as CFString)
         }
+        NSRunningApplication(processIdentifier: pid)?.activate()
     }
 
     /// While a dragged app is being moved, show it in its new place straight away.
@@ -219,26 +236,41 @@ final class SpacesModel: ObservableObject {
         }
     }
 
-    /// Steps left/right with the "Move left/right a space" shortcuts, which is
-    /// the route WhichSpace uses on macOS 27. Needs Accessibility permission.
+    /// Steps left/right with the "Move left/right a space" shortcuts (or the fast swipe), which is the route
+    /// WhichSpace uses on macOS 27. Needs Accessibility permission.
+    /// macOS switches Spaces on the display the POINTER is on, so when the pointer is on another screen it is
+    /// moved onto the right display for a moment and then put back. (Before, arrows switched the wrong screen,
+    /// or nothing, and the app kept retrying: the lag.) Works for Spaces on any display.
     func switchTo(_ space: SpaceItem) {
-        if !spaces.contains(space), let app = apps[space.id]?.first {
-            NSRunningApplication(processIdentifier: app.pid)?.activate(); return
-        }
-        guard let from = currentIndex, let to = spaces.firstIndex(of: space), from != to else { return }
+        refreshIfStale()
+        guard let g = displays.first(where: { $0.spaces.contains { $0.id == space.id } }),
+              let to = g.spaces.firstIndex(where: { $0.id == space.id }),
+              let from = g.spaces.firstIndex(where: { $0.id == g.currentID }), from != to else { return }
         guard Self.ensureAccessibility() else { return }
         let right = to > from
         let steps = abs(to - from)
+        let target = NSScreen.screens.first { Self.uuid(of: $0) == g.id } ?? (displays.count == 1 ? NSScreen.screens.first : nil)
+        var restore: CGPoint?
+        if let t = target, !t.frame.contains(NSEvent.mouseLocation) {
+            restore = CGEvent(source: nil)?.location
+            let h = NSScreen.screens.first?.frame.height ?? 0
+            CGWarpMouseCursorPosition(CGPoint(x: t.frame.midX, y: h - t.frame.maxY + t.frame.height * 0.4))
+        }
+        BrowserMedia.log("step switch \(from)->\(to) steps=\(steps) display=\(g.number) warped=\(restore != nil)")
         if Prefs.bool("classicSwitching") || !FastSwitch.available {
             for _ in 0 ..< steps { Self.postHotKey(right ? 81 : 79) }
         } else {
             for _ in 0 ..< steps { FastSwitch.step(right: right, scale: Double(steps)) }
         }
-        currentID = space.id // optimistic; refresh confirms
+        if let r = restore { DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { CGWarpMouseCursorPosition(r) } }
+        if spaces.contains(where: { $0.id == space.id }) { currentID = space.id } // optimistic; refresh confirms
         // Move the outline now, so it slides over while macOS is still switching.
-        displays = displays.map { g in g.spaces.contains(space) ? DisplayGroup(id: g.id, number: g.number, spaces: g.spaces, currentID: space.id) : g }
+        displays = displays.map { d in d.id == g.id ? DisplayGroup(id: d.id, number: d.number, spaces: d.spaces, currentID: space.id) : d }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { self.refresh() }
     }
+
+    private var lastRefresh = Date.distantPast
+    private func refreshIfStale() { if Date().timeIntervalSince(lastRefresh) > 0.3 { refresh() } }
 
     private static var prompted = false
 

@@ -321,6 +321,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 SpaceMover.move(pid: app.processIdentifier, wid: wid, display: uuid, index: 999)
             }
         }
+        // For testing: `-debugClickSpaces "1,2,0"` clicks those Spaces' icons on the bar (this display, 0 = first),
+        // one every 2.5 s, and logs where macOS really ended up.
+        if let list = UserDefaults.standard.string(forKey: "debugClickSpaces"), let i = islands.first {
+            for (k, n) in list.split(separator: ",").compactMap({ Int($0) }).enumerated() {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2 + Double(k) * 2.5) {
+                    let m = i.spaces; m.refresh()
+                    guard let g = m.displays.first(where: { $0.spaces.contains { s in s.id == m.currentID } }) ?? m.displays.last,
+                          g.spaces.indices.contains(n) else { return }
+                    let sp = g.spaces[n]
+                    if let app = m.apps[sp.id]?.first { m.focus(app, on: sp) } else { m.switchTo(sp) }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
+                        m.refresh()
+                        BrowserMedia.log("clicktest wanted \(n) (\(sp.id) \(m.apps[sp.id]?.first?.name ?? "desktop")) now=\(g.spaces.firstIndex { $0.id == m.currentID } ?? -1) front=\(NSWorkspace.shared.frontmostApplication?.localizedName ?? "")")
+                    }
+                }
+            }
+        }
         // For testing: `-debugSettingsTiming YES` opens Settings, visits every tab twice and writes how long each
         // took to lay out and draw to /tmp/melcolm-settings-timing.log.
         if UserDefaults.standard.bool(forKey: "debugSettingsTiming"), let i = islands.first {

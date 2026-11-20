@@ -24,6 +24,15 @@ enum UpdateLog {
 
     /// Newest first.
     static let all: [AppUpdate] = [
+        AppUpdate(version: "2.49", date: "November 20th, 2026", title: "Same app in two Spaces, smoother arrows",
+                  improvements: [],
+                  fixes: [
+                      "Clicking an app on the bar now always goes to THAT Space, even when the same app (like two Chromes) has more than one. Before, the click just opened the app, and macOS picked whichever of its windows it liked.",
+                      "← and → now switch the display the bar is showing, even when your pointer is on another screen. macOS changes Spaces on the screen under the pointer, so the pointer hops over for a moment and comes straight back. Before, the arrows switched the wrong screen (or nothing) and kept retrying, which felt laggy.",
+                      "Clicking a Space on another display goes to that exact Space too.",
+                  ],
+                  features: [],
+                  icons: ["arrow.left.arrow.right", "square.on.square", "display.2"], tint: cyan),
         AppUpdate(version: "2.48", date: "November 19th, 2026", title: "Bug sweep: Stage Manager window views, quieter background work",
                   improvements: ["When the browser's JavaScript setting is off, the app stops re-asking every music tab every few seconds; it tries again every 30 seconds instead."],
                   fixes: [
