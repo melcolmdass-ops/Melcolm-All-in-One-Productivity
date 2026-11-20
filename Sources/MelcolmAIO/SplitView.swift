@@ -136,13 +136,14 @@ enum WindowView: String, CaseIterable, Identifiable {
             let wins = [Win(pid: pid, wid: wid)] + others.prefix(count - 1)
             // Only the windows that are really there share the screen: two windows in Triple view split it in halves,
             // never one in the left third and one in the middle with an empty gap on the right.
-            let spots = Self.fitted(count: wins.count, in: visible, gap: gap, base: self)
+            // Exactly the view you chose: Triple always makes three spots, even with fewer windows open.
+            let spots = self.slots(in: visible, gap: gap)
             BrowserMedia.log("views \(self.rawValue) stage=\(stage) wins=\(wins.map { "\($0.wid)\($0.thumb != nil ? "T" : "")" })")
             func place() {
                 // Back to front, so the dropped window ends up on top.
                 for (w, r) in zip(wins, spots).reversed() {
                     guard let ax = SpaceMover.window(pid: w.pid, wid: w.wid) else { continue }
-                    OptionDrag.setFrame(ax, app: AXUIElementCreateApplication(w.pid), to: r)
+                    OptionDrag.setFrame(ax, app: AXUIElementCreateApplication(w.pid), to: r, within: visible)
                 }
             }
             place()

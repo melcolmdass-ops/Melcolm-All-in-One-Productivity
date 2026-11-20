@@ -151,7 +151,8 @@ final class OptionDrag: ObservableObject {
                 let zone = snap.rect
                 // Snapped to a zone: the copy glides into the spot while the window takes it.
                 let app = AXUIElementCreateApplication(pid)
-                mover.async { Self.setFrame(win, app: app, to: zone) }
+                let scr = snap.vis
+                mover.async { Self.setFrame(win, app: app, to: zone, within: scr == .zero ? nil : scr) }
                 DispatchQueue.main.async { self.flyGhost(to: zone) }
             } else if target == nil, win != nil {
                 // Never lands in a corner or half off the screen: the final spot is kept inside the display under the pointer.
@@ -191,7 +192,7 @@ final class OptionDrag: ObservableObject {
     /// turn on "enhanced user interface", which makes them ignore or undo size changes, so it's
     /// switched off for the move and back on after. Checks the result and tries again if the app pushed back.
     private static var stageManager: Bool { WindowView.stageManager }
-    static func setFrame(_ win: AXUIElement, app: AXUIElement, to r: CGRect) {
+    static func setFrame(_ win: AXUIElement, app: AXUIElement, to r: CGRect, within screen: CGRect? = nil) {
         AXUIElementSetMessagingTimeout(win, 1)
         var enh: CFTypeRef?
         let hadEnh = AXUIElementCopyAttributeValue(app, "AXEnhancedUserInterface" as CFString, &enh) == .success && (enh as? Bool) == true
@@ -217,20 +218,25 @@ final class OptionDrag: ObservableObject {
             guard let c = current() else { break }
             if fits(c) { break }
         }
-        // An app with a minimum size (or Stage Manager still animating) can end up bigger or shifted: look again after a
-        // moment, and if it still sticks out past its spot, slide it back in so nothing is ever cut off at the edge.
-        Thread.sleep(forTimeInterval: stageManager ? 0.35 : 0.12)
-        if let c = current(), !fits(c) {
-            apply(); Thread.sleep(forTimeInterval: 0.1)
-            if let c = current() {
-                var x = c.minX, y = c.minY
-                if c.maxX > r.maxX + 1 { x = max(r.minX, r.maxX - c.width) }
-                if c.maxY > r.maxY + 1 { y = max(r.minY, r.maxY - c.height) }
-                if x != c.minX || y != c.minY {
-                    var o = CGPoint(x: x, y: y)
-                    if let v = AXValueCreate(.cgPoint, &o) { AXUIElementSetAttributeValue(win, kAXPositionAttribute as CFString, v) }
-                }
-            }
+        // An app with a minimum size (or Stage Manager still animating) can end up bigger or shifted. Look again after a
+        // moment, and if any edge is past its spot, pull it back: first into the spot, and if the window simply can't be
+        // that small, at least fully onto the screen, so no edge is ever off the display.
+        let bounds = screen ?? r
+        for _ in 0..<3 {
+            Thread.sleep(forTimeInterval: stageManager ? 0.35 : 0.12)
+            guard let c = current() else { break }
+            if fits(c) { break }
+            var x = r.minX, y = r.minY                                                  // shifted: back to its corner
+            if x + c.width > r.maxX + 1 { x = r.maxX - c.width }                        // too wide for the spot: grow leftwards
+            if y + c.height > r.maxY + 1 { y = r.maxY - c.height }
+            x = min(max(x, bounds.minX), max(bounds.minX, bounds.maxX - c.width))       // never off the screen
+            y = min(max(y, bounds.minY), max(bounds.minY, bounds.maxY - c.height))
+            var o = CGPoint(x: x, y: y)
+            if let v = AXValueCreate(.cgPoint, &o) { AXUIElementSetAttributeValue(win, kAXPositionAttribute as CFString, v) }
+            // Ask for the size once more now that it sits inside the screen (a window can't grow past an edge it is touching).
+            var sz = r.size
+            if let v = AXValueCreate(.cgSize, &sz) { AXUIElementSetAttributeValue(win, kAXSizeAttribute as CFString, v) }
+            if let v = AXValueCreate(.cgPoint, &o) { AXUIElementSetAttributeValue(win, kAXPositionAttribute as CFString, v) }
         }
         if hadEnh { AXUIElementSetAttributeValue(app, "AXEnhancedUserInterface" as CFString, kCFBooleanTrue) }
     }
@@ -328,7 +334,7 @@ final class OptionDrag: ObservableObject {
             return Snap(rect: first, title: view.title, id: view.rawValue, zone: zone.rawValue, display: s.id, vis: v, full: s.cg)
         }
         guard let wl = WindowLayout.all.first(where: { $0.id == lay[i] }) else { return nil }
-        return Snap(rect: CGRect(x: v.minX + v.width * wl.x, y: v.minY + v.height * wl.y, width: v.width * wl.w, height: v.height * wl.h).integral, title: wl.title, id: wl.id, zone: zone.rawValue, display: s.id)
+        return Snap(rect: CGRect(x: v.minX + v.width * wl.x, y: v.minY + v.height * wl.y, width: v.width * wl.w, height: v.height * wl.h).integral, title: wl.title, id: wl.id, zone: zone.rawValue, display: s.id, vis: v, full: s.cg)
     }
 
     // The glowing preview of where the window will snap.
@@ -854,7 +860,7 @@ struct DragZonesCard: View {
                                 ForEach(WindowView.allCases) { v in chip(v.rawValue, v.title, nil) }
                             }
                             if let v = WindowView(rawValue: layout(sel)) {
-                                Text(v.blurb + " Fewer windows open? Only the ones there are get placed.")
+                                Text(v.blurb + "")
                                     .font(.system(size: 10.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                             }
                             HStack(spacing: 10) {

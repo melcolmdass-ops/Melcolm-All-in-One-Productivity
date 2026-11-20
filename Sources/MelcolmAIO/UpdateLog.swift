@@ -24,6 +24,14 @@ enum UpdateLog {
 
     /// Newest first.
     static let all: [AppUpdate] = [
+        AppUpdate(version: "2.52", date: "November 20th, 2026", title: "Snaps fit the screen edge, views do exactly what you pick",
+                  improvements: [],
+                  fixes: [
+                      "Snapping to the right third (or any spot) could leave part of the window past the screen edge. If an app can't get as small as the spot, it now grows leftwards and stays fully on the display, and the size is asked for again once it's inside.",
+                      "Triple view with only two windows open made a Split view. It now makes exactly the view you drop on: the dropped window takes the first spot and the next window the second. The same goes for Split and Quad.",
+                  ],
+                  features: [],
+                  icons: ["rectangle.righthalf.inset.filled", "rectangle.split.3x1"], tint: blue),
         AppUpdate(version: "2.51", date: "November 20th, 2026", title: "Two more snap circles and Minimize",
                   improvements: [],
                   fixes: [],
@@ -752,7 +760,7 @@ struct MasterRule: Identifiable {
         MasterRule(icon: "keyboard.badge.ellipsis", title: "Setting a hotkey pauses every other shortcut",
                    detail: "While a Custom hotkey is waiting for your keys, all hotkeys, double-taps and the arrow keys are off, so the keys you press only set the new hotkey. Press keys to save it, or click anywhere (or press Esc) to cancel. Everything switches back on straight away."),
         MasterRule(icon: "rectangle.dashed", title: "Dropped windows stay on the screen",
-                   detail: "When you drag a window out onto the desktop it always lands fully on the screen you dropped it on, never in the corner and never cut off by an edge. When you snap windows into a Split, Triple or Quad view, only the windows that are really there share the screen, and anything that sticks out past its spot is slid back in. Stage Manager's side strip is never touched."),
+                   detail: "When you drag a window out onto the desktop it always lands fully on the screen you dropped it on, never in the corner and never cut off by an edge. When you snap a window to a spot or into a Split, Triple or Quad view, you get exactly the layout you chose, and any window that can't get small enough is slid back so no edge is ever off the screen. Stage Manager's side strip is never touched."),
     ]
 }
 
