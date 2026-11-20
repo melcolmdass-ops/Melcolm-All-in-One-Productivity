@@ -99,6 +99,7 @@ final class OptionDrag: ObservableObject {
             let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: p, mouseButton: .left)
             up?.setIntegerValueField(.eventSourceUserData, value: Self.marker)
             up?.post(tap: .cghidEventTap)
+            Self.settleUntil = Date().addingTimeInterval(0.6)      // Stage Manager is still putting the window down
             stripWid = 0
             showBadge(true, at: p)
             return nil
@@ -183,6 +184,7 @@ final class OptionDrag: ObservableObject {
                 let spot = lastOrigin
                 mover.async { [weak self] in
                     guard let self, let w else { return }
+                    Self.waitSettled()
                     pending = Self.keptOnScreen(origin: spot, window: w, pointer: drop, screens: scr.map { ($0.cg, $0.vis) })
                     pump()
                 }
@@ -217,6 +219,7 @@ final class OptionDrag: ObservableObject {
     /// so the window is never seen cut off at an edge and never shuffled. Only if the app pushes back does it try again.
     /// A window too big for its spot grows leftwards/upwards and always stays fully on `screen`.
     static func setFrame(_ win: AXUIElement, app: AXUIElement, to r: CGRect, within screen: CGRect? = nil) {
+        waitSettled()
         AXUIElementSetMessagingTimeout(win, 1)
         var enh: CFTypeRef?
         let hadEnh = AXUIElementCopyAttributeValue(app, "AXEnhancedUserInterface" as CFString, &enh) == .success && (enh as? Bool) == true
@@ -238,12 +241,12 @@ final class OptionDrag: ObservableObject {
             return CGPoint(x: min(max(x, bounds.minX), max(bounds.minX, bounds.maxX - s.width)),
                            y: min(max(y, bounds.minY), max(bounds.minY, bounds.maxY - s.height)))
         }
-        for attempt in 0..<4 {
+        for attempt in 0..<(WindowView.stageManager ? 7 : 4) {
             var sz = r.size
             if let v = AXValueCreate(.cgSize, &sz) { AXUIElementSetAttributeValue(win, kAXSizeAttribute as CFString, v) }
             var o = origin(for: current()?.size ?? r.size)
             if let v = AXValueCreate(.cgPoint, &o) { AXUIElementSetAttributeValue(win, kAXPositionAttribute as CFString, v) }
-            Thread.sleep(forTimeInterval: attempt == 0 ? 0.05 : 0.15)
+            Thread.sleep(forTimeInterval: attempt == 0 ? 0.05 : WindowView.stageManager ? 0.25 : 0.15)
             guard let c = current() else { break }
             let want = origin(for: c.size)
             let placed = abs(c.minX - want.x) < 4 && abs(c.minY - want.y) < 4
@@ -453,6 +456,9 @@ final class OptionDrag: ObservableObject {
     private var lastOrigin = CGPoint.zero
     /// Marks mouse events we post ourselves so our own tap lets them through.
     static let marker: Int64 = 0x4D4C43
+    /// After taking a window over from Stage Manager, moves wait until this time so its own drop animation can't undo them.
+    static var settleUntil = Date.distantPast
+    static func waitSettled() { let w = settleUntil.timeIntervalSinceNow; if w > 0 { Thread.sleep(forTimeInterval: min(w, 0.8)) } }
     /// A window pressed in Stage Manager's side strip (Control held): taken over once it is out on the desktop.
     private var stripWid: CGWindowID = 0
     private var stripPid: pid_t = 0
@@ -471,11 +477,16 @@ final class OptionDrag: ObservableObject {
         let r = rect(list[i])
         guard r.width < 260, r.height < 300 else { return }
         let me = ProcessInfo.processInfo.processIdentifier
+        // The strip slides about while it settles, so match loosely: the app window just behind the overlay, under the pointer.
         guard let w = list[(i + 1)...].first(where: {
-            ($0[kCGWindowLayer as String] as? Int) == 0 && ($0[kCGWindowOwnerPID as String] as? pid_t) != me
-                && abs(rect($0).minX - r.minX) < 2 && abs(rect($0).minY - r.minY) < 2 && abs(rect($0).width - r.width) < 2
-        }), let wid = w[kCGWindowNumber as String] as? CGWindowID, let pid = w[kCGWindowOwnerPID as String] as? pid_t else { return }
+            let q = rect($0)
+            return ($0[kCGWindowLayer as String] as? Int) == 0 && ($0[kCGWindowOwnerPID as String] as? pid_t) != me
+                && ($0[kCGWindowOwnerName as String] as? String) != "WindowManager"
+                && q.insetBy(dx: -6, dy: -6).contains(p) && q.width < 260 && q.height < 300
+        }), let wid = w[kCGWindowNumber as String] as? CGWindowID, let pid = w[kCGWindowOwnerPID as String] as? pid_t else {
+            BrowserMedia.log("strip press at \(p): overlay found but no window behind it"); return }
         stripWid = wid; stripPid = pid; stripDown = p
+        BrowserMedia.log("strip press at \(p): window \(wid)")
     }
 
     /// The strip's window, once Stage Manager has lifted it out to full size under the pointer: start our own drag on it.
@@ -483,7 +494,9 @@ final class OptionDrag: ObservableObject {
         guard let d = (CGWindowListCopyWindowInfo([.optionIncludingWindow], stripWid) as? [[String: Any]])?.first,
               let b = d[kCGWindowBounds as String] as? [String: Double] else { return false }
         let r = CGRect(x: b["X"] ?? 0, y: b["Y"] ?? 0, width: b["Width"] ?? 0, height: b["Height"] ?? 0)
-        guard r.width > 120, r.height > 100, r.insetBy(dx: -40, dy: -40).contains(p), !inFullScreen(at: p) else { return false }
+        guard r.width > 120, r.height > 100, !inFullScreen(at: p) else { return false }
+        // Stage Manager carries the window by its grip, so it can sit a little off the pointer: allow plenty of slack.
+        guard r.insetBy(dx: -120, dy: -120).contains(p) else { return false }
         return begin(pid: stripPid, wid: stripWid, rect: r, at: p)
     }
     private var ghostID: UInt32 = 0
@@ -611,18 +624,27 @@ final class OptionDrag: ObservableObject {
 
     /// Starts dragging this window from the pointer spot `p`.
     private func begin(pid: pid_t, wid: CGWindowID, rect r: CGRect, at p: CGPoint) -> Bool {
+        // This runs inside the mouse-event handler, so it must never wait on a slow app: short timeouts on every query.
+        let t0 = Date()
         let app = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(app, 0.3)
         var v: CFTypeRef?
         AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &v)
-        guard let ax = (v as? [AXUIElement])?.first(where: { var n: CGWindowID = 0; _ = axWindowID($0, &n); return n == wid }),
-              !SpaceMover.isFull(ax) else { return false }
+        guard let ax = (v as? [AXUIElement])?.first(where: { var n: CGWindowID = 0; _ = axWindowID($0, &n); return n == wid }) else { return false }
+        AXUIElementSetMessagingTimeout(ax, 0.3)
+        guard !SpaceMover.isFull(ax) else { return false }
         self.pid = pid; self.wid = wid; win = ax
         startMouse = p; startPos = r.origin; lastOrigin = r.origin
         active = true
         DispatchQueue.main.async { self.makeGhost(r, wid: wid, pid: pid); self.showRing(at: p, pid: pid) }
-        AXUIElementSetMessagingTimeout(ax, 0.25)
-        NSRunningApplication(processIdentifier: pid)?.activate()
-        AXUIElementPerformAction(ax, kAXRaiseAction as CFString)
+        // Bringing the app forward can take a moment: done off this thread, in order, before any move.
+        mover.async { [weak self] in
+            AXUIElementSetMessagingTimeout(ax, 0.25)
+            DispatchQueue.main.async { NSRunningApplication(processIdentifier: pid)?.activate() }
+            AXUIElementPerformAction(ax, kAXRaiseAction as CFString)
+            _ = self
+        }
+        BrowserMedia.log("grab \(wid) took \(Int(Date().timeIntervalSince(t0) * 1000)) ms")
         return true
     }
 }

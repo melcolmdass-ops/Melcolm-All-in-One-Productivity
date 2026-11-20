@@ -24,6 +24,13 @@ enum UpdateLog {
 
     /// Newest first.
     static let all: [AppUpdate] = [
+        AppUpdate(version: "2.55", date: "November 20th, 2026", title: "No more freeze when dragging out of Stage Manager",
+                  improvements: [],
+                  fixes: [
+                      "Dragging a window out of Stage Manager's strip onto a snap circle could leave it frozen where it was, so you had to pick it up and place it by hand. Two causes are fixed: picking the window up waited on the app, which could stall the pointer for a moment, and the snap was applied while Stage Manager was still putting the window down, which undid it. Now the pick-up never waits, the snap waits for Stage Manager to finish, and with Stage Manager on the app keeps checking and re-placing the window until it really is in its spot.",
+                  ],
+                  features: [],
+                  icons: ["snowflake", "rectangle.righthalf.inset.filled"], tint: blue),
         AppUpdate(version: "2.54", date: "November 20th, 2026", title: "Control-drag straight out of Stage Manager, smaller snap circles",
                   improvements: [
                       "The snap circles are 30% smaller (the labels shrink to fit), so they're still easy to see but cover less of the screen.",
