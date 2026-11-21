@@ -89,12 +89,19 @@ final class OptionDrag: ObservableObject {
             guard Date() > Self.passThroughUntil, Prefs.bool("optionDrag"), e.flags.contains(modifier), !inFullScreen(at: e.location) else { break }
             // Pressed on a Stage Manager thumbnail: Stage Manager carries the window out itself (we send it no fake events);
             // the snap circles show while it's carried, and the snap is applied the moment it's dropped (see mouse-up below).
-            if markStrip(at: e.location) { break }
+            if markStrip(at: e.location) {
+                // Control+click is a right-click on a Mac, so Stage Manager would never pick the window up. Hand it a plain
+                // click (the key is taken off this press and the drag that follows), and show the snap circles at once.
+                e.flags.remove(CGEventFlags(rawValue: modifier.rawValue))
+                showBadge(true, at: e.location)
+                return Unmanaged.passUnretained(e)
+            }
             if !grab(at: e.location) { break }
             active = true
             return nil
         case .leftMouseDragged where !active && stripWid != 0:
             let p = e.location
+            e.flags.remove(CGEventFlags(rawValue: modifier.rawValue))
             guard Prefs.bool("optionDrag"), !inFullScreen(at: p) else { return Unmanaged.passUnretained(e) }
             showBadge(true, at: p)
             let z = zoneRect(at: p)
@@ -105,6 +112,7 @@ final class OptionDrag: ObservableObject {
             let (wid, pid) = (stripWid, stripPid)
             stripWid = 0
             guard wid != 0 else { return Unmanaged.passUnretained(e) }
+            e.flags.remove(CGEventFlags(rawValue: modifier.rawValue))
             let zone = zoneRect(at: p) ?? lastZone; lastZone = nil
             showBadge(e.flags.contains(modifier), at: p)
             DispatchQueue.main.async { self.showZone(nil); self.dots.active = "" }

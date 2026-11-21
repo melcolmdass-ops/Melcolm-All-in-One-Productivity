@@ -24,6 +24,17 @@ enum UpdateLog {
 
     /// Newest first.
     static let all: [AppUpdate] = [
+        AppUpdate(version: "2.57", date: "November 20th, 2026", title: "Instant play/pause, Personal Hotspot, Control-drag from Stage Manager",
+                  improvements: [
+                      "Play and Pause now flip the button the instant you press them. The slow part (talking to the browser) happens in the background instead of before the button changes.",
+                  ],
+                  fixes: [
+                      "Control-drag from Stage Manager: holding Control while pressing a thumbnail made macOS treat it as a right-click, so Stage Manager never picked the window up and no snap circles showed. The Control key is now taken off that press and drag, so the window comes out with the snap circles ready.",
+                  ],
+                  features: [
+                      "Wi-Fi now has a Personal Hotspot section, like Control Center: hotspot networks in range and your paired iPhones and iPads, each with a Connect button.",
+                  ],
+                  icons: ["personalhotspot", "playpause.fill", "rectangle.lefthalf.inset.filled.arrow.left"], tint: cyan),
         AppUpdate(version: "2.56", date: "November 20th, 2026", title: "Control-drag from Stage Manager, rebuilt",
                   improvements: [
                       "The area that catches a drop is a little bigger than the (now smaller) drawn circle, so you don't have to hit it dead centre.",

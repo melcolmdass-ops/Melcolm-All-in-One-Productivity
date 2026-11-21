@@ -118,10 +118,20 @@ final class NetworkModel: NSObject, ObservableObject, CLLocationManagerDelegate 
             DispatchQueue.main.async {
                 self.joining = nil
                 if ok { self.askPassword = nil; self.password = "" }
-                else { self.error = "Couldn't join \(ssid)." }
+                else { self.error = "Couldn't join \(ssid). Check Personal Hotspot is on and the phone is nearby and unlocked." }
                 self.scan()
             }
         }
+    }
+
+    /// Paired iPhones / iPads: each one can share its Personal Hotspot (Instant Hotspot).
+    var phones: [Device] { devices.filter { $0.icon == "iphone" || $0.icon == "ipad" } }
+
+    /// Joins a phone's hotspot by its name. Works while the phone is close and Personal Hotspot is on.
+    func joinPhone(_ d: Device) {
+        error = nil
+        if let n = nets.first(where: { $0.ssid == d.name }) { join(n); return }
+        connect(d.name, password: nil)
     }
 
     func disconnect() { iface?.disassociate(); DispatchQueue.main.asyncAfter(deadline: .now() + 1) { self.scan() } }
@@ -260,7 +270,7 @@ struct WifiPage: View {
             if system.wifiOn {
                 let current = system.wifiName
                 // One list: known and hotspots first, then by signal. Top 5, then "Show all".
-                let rest = net.nets.filter { $0.ssid != current }
+                let rest = net.nets.filter { $0.ssid != current && !$0.hotspot }
                     .sorted { ($0.known || $0.hotspot ? 0 : 1, -$0.bars, $0.ssid) < ($1.known || $1.hotspot ? 0 : 1, -$1.bars, $1.ssid) }
                 if let current {
                     Card {
@@ -270,6 +280,7 @@ struct WifiPage: View {
                         }
                     }
                 }
+                hotspotSection(current: current)
                 HStack {
                     sectionLabel("NETWORKS")
                     Spacer()
@@ -291,7 +302,48 @@ struct WifiPage: View {
             }
             SettingsLink(title: "Wi-Fi Settings", pane: "com.apple.wifi-settings-extension")
         }
-        .onAppear { net.scan() }
+        .onAppear { net.scan(); net.refreshDevices() }
+    }
+
+    /// Personal Hotspot: phones that can share their connection, plus any hotspot networks in range.
+    @ViewBuilder func hotspotSection(current: String?) -> some View {
+        let spots = net.nets.filter { $0.hotspot && $0.ssid != current }
+        let phones = net.phones.filter { p in p.name != current && !spots.contains { $0.ssid == p.name } }
+        VStack(spacing: 6) {
+            HStack { sectionLabel("PERSONAL HOTSPOT"); Spacer() }
+            if spots.isEmpty && phones.isEmpty {
+                Text("No hotspot found. Turn on Personal Hotspot on your phone and keep it close.")
+                    .font(.system(size: 11)).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                Card {
+                    VStack(spacing: 0) {
+                        ForEach(spots) { n in
+                            if n.id != spots.first?.id { Hairline() }
+                            NetRow(icon: "personalhotspot", on: false, title: n.ssid, action: { net.join(n) }) {
+                                HStack(spacing: 6) {
+                                    if net.joining == n.ssid { ProgressView().controlSize(.mini) }
+                                    if n.secure { Image(systemName: "lock.fill").font(.system(size: 9)).foregroundStyle(.secondary) }
+                                    Image(systemName: "wifi").font(.system(size: 11)).foregroundStyle(.white.opacity(n.bars >= 2 ? 0.8 : 0.4))
+                                }
+                            }
+                            if net.askPassword == n.ssid {
+                                HStack(spacing: 8) {
+                                    SecureField("Password", text: $net.password).textFieldStyle(.roundedBorder).onSubmit { net.submitPassword() }
+                                    Pill("Join", filled: true) { net.submitPassword() }
+                                }.padding(.bottom, 6)
+                            }
+                        }
+                        ForEach(phones) { p in
+                            if !spots.isEmpty || p.id != phones.first?.id { Hairline() }
+                            NetRow(icon: "personalhotspot", on: false, title: p.name, subtitle: "Personal Hotspot", action: { net.joinPhone(p) }) {
+                                if net.joining == p.name { ProgressView().controlSize(.mini) }
+                                else { Text("Connect").font(.system(size: 11, weight: .semibold)).foregroundStyle(AnyShapeStyle(accent)) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     func section(_ title: String, _ list: [NetworkModel.Net], hotspot: Bool = false) -> some View {

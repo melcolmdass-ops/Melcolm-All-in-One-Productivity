@@ -368,55 +368,55 @@ final class NowPlayingModel: ObservableObject {
     }
 
     /// Plays or pauses exactly that tab. Others keep doing what they were doing.
+    /// The button flips the instant you press it; the slow part (talking to the browser) runs in the background.
     func toggle(_ r: BrowserMedia.Result) {
         axRetries = 0          // you pressed something: allow a fresh round of quick re-reads
-        // The page's own button says the truth: "pause" showing means it is playing right now.
-        var button = ax[r.id]?.found.play
-        // A saved button can go stale (new song, page redrawn): if it no longer answers, find it again now.
-        if button.flatMap(WebAX.label) == nil, let pid = BrowserMedia.pid(r),
-           let f = WebAX.find(pid: pid, title: r.pwa != 0 ? "" : r.title, anyPlayer: soloInProcess(r)) {
-            ax[r.id] = (f, Date()); button = f.play
-        }
-        let liveLabel = button.flatMap(WebAX.label)
-        let was = liveLabel.map { $0.hasPrefix("pause") } ?? isPlaying(r)
-        // Never bring the tab forward: only the artwork does that. The page's own Play/Pause button
-        // (accessibility) first, then page JavaScript, then the keyboard's play/pause key.
-        var viaAX = WebAX.press(button)
-        // The page sometimes answers "failed" even though the press worked: believe the button instead.
-        if !viaAX, let btn = button, let before = liveLabel {
-            Thread.sleep(forTimeInterval: 0.15)
-            let after = WebAX.label(btn)
-            BrowserMedia.log("toggle press said failed; label before=\(before) after=\(after ?? "nil")")
-            if let after, after != before { viaAX = true }
-        } else if !viaAX { BrowserMedia.log("toggle no button: button=\(button != nil) label=\(liveLabel ?? "nil")") }
-        let viaJS = !viaAX && BrowserMedia.togglePlay(r)
-        // The keyboard play key goes to whatever macOS thinks is playing, so it is only safe
-        // when there is just one player. With two or more it would start the WRONG one: never.
-        if !viaAX && !viaJS {
-            if others.count <= 1 { Self.mediaKey(16) }
-            else { BrowserMedia.log("toggle \(r.id): no own button reachable, not sending the play key (would hit another player)") }
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { self.refresh() }
-        BrowserMedia.log("toggle \(r.id) was=\(was) ax=\(viaAX) js=\(viaJS) axAge=\(ax[r.id].map { Date().timeIntervalSince($0.at) } ?? -1)")
-        if let f = ax[r.id] { ax[r.id] = (f.found, .distantPast) }   // keep the button, drop its old play state
-        forced[r.id] = !was
+        let guess = !isPlaying(r)                 // what the button will show, right now
         pressedAt[r.id] = Date()
-        if let i = others.firstIndex(where: { $0.id == r.id }) { others[i].playing = !was }
-        if mainID == r.id { playing = !was }
-        // Check right away (0.3 s) on the very button that was pressed: show what the page now says,
-        // and press once more only if the button didn't change at all.
-        if viaAX, let btn = button, let before = WebAX.label(btn) {
-            let stamp = pressedAt[r.id]
-            browserQueue.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+        setShown(r.id, playing: guess)
+        let stamp = pressedAt[r.id]
+        let saved = ax[r.id]?.found.play
+        let solo = soloInProcess(r), count = others.count
+        if let f = ax[r.id] { ax[r.id] = (f.found, .distantPast) }   // keep the button, drop its old play state
+        browserQueue.async { [weak self] in
+            guard let self else { return }
+            var button = saved
+            // A saved button can go stale (new song, page redrawn): if it no longer answers, find it again now.
+            if button.flatMap(WebAX.label) == nil, let pid = BrowserMedia.pid(r),
+               let f = WebAX.find(pid: pid, title: r.pwa != 0 ? "" : r.title, anyPlayer: solo) {
+                DispatchQueue.main.async { self.ax[r.id] = (f, .distantPast) }; button = f.play
+            }
+            // The page's own button says the truth: "pause" showing means it is playing right now.
+            let before = button.flatMap(WebAX.label)
+            let was = before.map { $0.hasPrefix("pause") } ?? !guess
+            var viaAX = WebAX.press(button)
+            // The page sometimes answers "failed" even though the press worked: believe the button instead.
+            if !viaAX, let btn = button, let before {
+                Thread.sleep(forTimeInterval: 0.1)
+                if let after = WebAX.label(btn), after != before { viaAX = true }
+            }
+            let viaJS = !viaAX && BrowserMedia.togglePlay(r)
+            // The keyboard play key goes to whatever macOS thinks is playing: only safe with one player.
+            if !viaAX && !viaJS {
+                if count <= 1 { Self.mediaKey(16) }
+                else { BrowserMedia.log("toggle \(r.id): no own button reachable, not sending the play key (would hit another player)") }
+            }
+            BrowserMedia.log("toggle \(r.id) was=\(was) ax=\(viaAX) js=\(viaJS)")
+            DispatchQueue.main.async {
+                // Pressed again since: leave it. If the page's real state differed from our guess, correct the button.
+                guard self.pressedAt[r.id] == stamp else { return }
+                if was == guess { self.setShown(r.id, playing: !was) }
+            }
+            // Check shortly after on the very button that was pressed; press once more only if it didn't change at all.
+            if viaAX, let btn = button, let before {
+                Thread.sleep(forTimeInterval: 0.25)
                 let after = WebAX.label(btn)
                 DispatchQueue.main.async {
-                    guard let self, self.pressedAt[r.id] == stamp else { return }   // pressed again since: leave it
+                    guard self.pressedAt[r.id] == stamp else { return }
                     if let after, after == before {
                         BrowserMedia.log("toggle retry \(r.id) button still '\(after)'")
-                        WebAX.press(btn)
-                    } else if let after {
-                        self.setShown(r.id, playing: after.hasPrefix("pause"))
-                    }
+                        self.browserQueue.async { WebAX.press(btn) }
+                    } else if let after { self.setShown(r.id, playing: after.hasPrefix("pause")) }
                 }
             }
         }
