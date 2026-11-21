@@ -24,6 +24,15 @@ enum UpdateLog {
 
     /// Newest first.
     static let all: [AppUpdate] = [
+        AppUpdate(version: "2.59", date: "November 20th, 2026", title: "Control-drag from Stage Manager keeps what's on the desktop",
+                  improvements: [
+                      "Dropping a Stage Manager window on Split, Triple or Quad view: windows already open on the desktop stay on their own side, and the new window takes the free spot.",
+                  ],
+                  fixes: [
+                      "A window taken out of the strip for a snap circle is now added to the stage (like a shift-click) instead of activated, so the app already on your desktop (for example Claude on one half) is no longer sent to the strip.",
+                  ],
+                  features: [],
+                  icons: ["rectangle.split.2x1", "circle.dashed"], tint: blue),
         AppUpdate(version: "2.58", date: "November 20th, 2026", title: "Stage Manager drag, taken over for real; split and triple view fixed",
                   improvements: [],
                   fixes: [

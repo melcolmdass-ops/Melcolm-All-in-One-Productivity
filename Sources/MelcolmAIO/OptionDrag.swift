@@ -507,19 +507,22 @@ final class OptionDrag: ObservableObject {
     private func takeFromStrip(_ snap: Snap?, pid: pid_t, wid: CGWindowID, at p: CGPoint) {
         let app = AXUIElementCreateApplication(pid)
         AXUIElementSetMessagingTimeout(app, 1)
-        DispatchQueue.main.sync { _ = NSRunningApplication(processIdentifier: pid)?.activate(options: [.activateAllWindows]) }
-        var v: CFTypeRef?
-        AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &v)
-        if let ax = (v as? [AXUIElement])?.first(where: { var n: CGWindowID = 0; _ = axWindowID($0, &n); return n == wid }) {
-            AXUIElementPerformAction(ax, kAXRaiseAction as CFString)
-        }
-        Thread.sleep(forTimeInterval: 0.5)
-        // Still a thumbnail? Do what Stage Manager does for a shift-click: add it to this stage.
-        if let b = WindowView.bounds(wid), b.width < 260 {
-            let h = NSScreen.screens.first?.frame.height ?? 0
-            let disp = NSScreen.screens.map { CGRect(x: $0.frame.minX, y: h - $0.frame.maxY, width: $0.frame.width, height: $0.frame.height) }
-                .first { $0.contains(b.origin) } ?? snap?.full ?? .zero
+        // With a snap circle: ADD the window to the stage (Stage Manager's shift-click) so what's already on the desktop
+        // stays there. Activating the app would send those windows to the strip.
+        let h = NSScreen.screens.first?.frame.height ?? 0
+        let screens = NSScreen.screens.map { CGRect(x: $0.frame.minX, y: h - $0.frame.maxY, width: $0.frame.width, height: $0.frame.height) }
+        if snap != nil, let b = WindowView.bounds(wid), b.width < 260 {
+            let disp = screens.first { $0.contains(b.origin) || $0.contains(p) } ?? snap?.full ?? .zero
             WindowView.addToStage(wid, display: disp)
+        }
+        if let b = WindowView.bounds(wid), b.width < 260 {      // plain click, or the add didn't take: bring it forward like a click
+            DispatchQueue.main.sync { _ = NSRunningApplication(processIdentifier: pid)?.activate(options: [.activateAllWindows]) }
+            var v: CFTypeRef?
+            AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &v)
+            if let ax = (v as? [AXUIElement])?.first(where: { var n: CGWindowID = 0; _ = axWindowID($0, &n); return n == wid }) {
+                AXUIElementPerformAction(ax, kAXRaiseAction as CFString)
+            }
+            Thread.sleep(forTimeInterval: 0.5)
         }
         BrowserMedia.log("strip take wid=\(wid) bounds=\(String(describing: WindowView.bounds(wid))) zone=\(snap?.id ?? "none")")
         if let snap { snapDropped(snap, pid: pid, wid: wid) }
@@ -551,7 +554,7 @@ final class OptionDrag: ObservableObject {
         } else if snap.id == "minimize" {
             _ = AXUIElementSetAttributeValue(win, kAXMinimizedAttribute as CFString, kCFBooleanTrue)
         } else if let view = WindowView(rawValue: snap.id) {
-            view.arrange(pid: pid, wid: wid, visible: snap.vis, display: snap.full)
+            view.arrange(pid: pid, wid: wid, visible: snap.vis, display: snap.full, keepInPlace: true)
         } else {
             Self.setFrame(win, app: app, to: snap.rect, within: snap.vis == .zero ? nil : snap.vis)
         }

@@ -123,7 +123,7 @@ enum WindowView: String, CaseIterable, Identifiable {
 
     /// Arranges the dropped window plus the most recent others into this view. `visible` is the
     /// display's usable area and `display` the whole display, both in top-left screen coords.
-    func arrange(pid: pid_t, wid: CGWindowID, visible: CGRect, display: CGRect) {
+    func arrange(pid: pid_t, wid: CGWindowID, visible: CGRect, display: CGRect, keepInPlace: Bool = false) {
         let gap: CGFloat = Prefs.bool("viewGaps") ? Self.gap : 0
         DispatchQueue.global(qos: .userInitiated).async {
             let stage = Self.stageManager
@@ -145,8 +145,21 @@ enum WindowView: String, CaseIterable, Identifiable {
                 for w in wins.dropFirst() { Self.addToStage(w.wid, display: display) }
                 CGWarpMouseCursorPosition(back)
             }
+            // Windows already on the desktop stay where they are: each takes the spot nearest to it, and the window you
+            // dropped (then the ones from the strip) takes the spots that are left, leftmost first.
+            var order = [Win?](repeating: nil, count: spots.count)
+            if keepInPlace {
+                for w in wins.dropFirst() where w.thumb == nil {
+                    guard let b = Self.bounds(w.wid) else { continue }
+                    let free = spots.indices.filter { order[$0] == nil }
+                    if let i = free.min(by: { hypot(spots[$0].midX - b.midX, spots[$0].midY - b.midY) < hypot(spots[$1].midX - b.midX, spots[$1].midY - b.midY) }) { order[i] = w }
+                }
+            }
+            var rest = wins.filter { w in !order.contains { $0?.wid == w.wid } }
+            for i in order.indices where order[i] == nil && !rest.isEmpty { order[i] = rest.removeFirst() }
+            let placed: [(Win, CGRect)] = zip(order, spots).compactMap { o, r in o.map { ($0, r) } }
             // One movement each, back to front so the dropped window ends up on top.
-            for (w, r) in zip(wins, spots).reversed() {
+            for (w, r) in placed.filter({ $0.0.wid != wid }) + placed.filter({ $0.0.wid == wid }) {
                 guard let ax = SpaceMover.window(pid: w.pid, wid: w.wid) else { continue }
                 OptionDrag.setFrame(ax, app: AXUIElementCreateApplication(w.pid), to: r, within: visible)
             }
