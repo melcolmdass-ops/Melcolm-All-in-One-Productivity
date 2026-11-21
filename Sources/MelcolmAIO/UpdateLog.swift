@@ -24,6 +24,14 @@ enum UpdateLog {
 
     /// Newest first.
     static let all: [AppUpdate] = [
+        AppUpdate(version: "2.58", date: "November 20th, 2026", title: "Stage Manager drag, taken over for real; split and triple view fixed",
+                  improvements: [],
+                  fixes: [
+                      "Control-drag from Stage Manager now works without relying on Stage Manager's own drag (Control+click is a right-click, so it never started). The app takes the press itself: the pointer circle with the app's icon rides with you, the snap circles show, and when you let go the window is brought onto the stage and snapped into the circle under the pointer.",
+                      "Split, Triple and Quad view while holding Control: the clicks the app sends to pull the other windows out of Stage Manager no longer pick up the Control key you are still holding (which turned them into right-clicks), so the other windows now come in and fill the spots.",
+                  ],
+                  features: [],
+                  icons: ["rectangle.split.3x1", "circle.dashed"], tint: blue),
         AppUpdate(version: "2.57", date: "November 20th, 2026", title: "Instant play/pause, Personal Hotspot, Control-drag from Stage Manager",
                   improvements: [
                       "Play and Pause now flip the button the instant you press them. The slow part (talking to the browser) happens in the background instead of before the button changes.",

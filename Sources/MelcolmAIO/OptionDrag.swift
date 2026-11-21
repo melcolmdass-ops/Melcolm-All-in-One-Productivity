@@ -90,38 +90,38 @@ final class OptionDrag: ObservableObject {
             // Pressed on a Stage Manager thumbnail: Stage Manager carries the window out itself (we send it no fake events);
             // the snap circles show while it's carried, and the snap is applied the moment it's dropped (see mouse-up below).
             if markStrip(at: e.location) {
-                // Control+click is a right-click on a Mac, so Stage Manager would never pick the window up. Hand it a plain
-                // click (the key is taken off this press and the drag that follows), and show the snap circles at once.
-                e.flags.remove(CGEventFlags(rawValue: modifier.rawValue))
-                showBadge(true, at: e.location)
-                return Unmanaged.passUnretained(e)
+                if stripWid == 0 { e.flags.remove(modifier); return Unmanaged.passUnretained(e) }
+                // We carry the window ourselves (Control+click would be a right-click, and Stage Manager would not pick it up):
+                // the press is swallowed, the pointer circle with the app's icon rides along, and the snap circles show.
+                let (p, pid) = (e.location, stripPid)
+                DispatchQueue.main.async { self.showRing(at: p, pid: pid) }
+                showBadge(true, at: p)
+                return nil
             }
             if !grab(at: e.location) { break }
             active = true
             return nil
         case .leftMouseDragged where !active && stripWid != 0:
             let p = e.location
-            e.flags.remove(CGEventFlags(rawValue: modifier.rawValue))
-            guard Prefs.bool("optionDrag"), !inFullScreen(at: p) else { return Unmanaged.passUnretained(e) }
             showBadge(true, at: p)
+            lock.lock(); let rid = ringID; lock.unlock()
+            if rid != 0 { var ro = CGPoint(x: p.x - Self.ringSize / 2, y: p.y - Self.ringSize / 2); _ = CGSMoveWindow(cid, rid, &ro) }
             let z = zoneRect(at: p)
-            if z != lastZone { lastZone = z; DispatchQueue.main.async { self.showZone(z); self.dots.active = z?.zone ?? ""; self.dots.screen = z?.display ?? 0 } }
-            return Unmanaged.passUnretained(e)
+            if z != lastZone { lastZone = z; DispatchQueue.main.async { self.showZone(z); self.dots.active = z?.zone ?? ""; self.dots.screen = z?.display ?? 0
+                self.ringModel.tint = z == nil ? nil : (z?.id == "space" ? Color(red: 0.25, green: 0.88, blue: 1.0) : accent) } }
+            return nil
         case .leftMouseUp where !active:
             let p = e.location
             let (wid, pid) = (stripWid, stripPid)
             stripWid = 0
             guard wid != 0 else { return Unmanaged.passUnretained(e) }
-            e.flags.remove(CGEventFlags(rawValue: modifier.rawValue))
             let zone = zoneRect(at: p) ?? lastZone; lastZone = nil
             showBadge(e.flags.contains(modifier), at: p)
-            DispatchQueue.main.async { self.showZone(nil); self.dots.active = "" }
-            if let zone {
-                // Stage Manager now drops the window where it is. Give it a moment to finish, then snap it.
-                Self.settleUntil = Date().addingTimeInterval(0.6)
-                mover.async { [weak self] in self?.snapDropped(zone, pid: pid, wid: wid) }
-            }
-            return Unmanaged.passUnretained(e)
+            DispatchQueue.main.async { self.dropRing(into: zone?.rect); self.showZone(nil); self.dots.active = "" }
+            // Bring the window out of the strip, then (if you let go on a snap circle) put it there.
+            Self.settleUntil = Date().addingTimeInterval(0.6)
+            mover.async { [weak self] in self?.takeFromStrip(zone, pid: pid, wid: wid, at: p) }
+            return nil
         case .leftMouseDragged where active:
             let p = e.location
             showBadge(true, at: p)
@@ -444,7 +444,7 @@ final class OptionDrag: ObservableObject {
         return p
     }()
     private func showRing(at pt: CGPoint, pid: pid_t) {
-        guard active else { return }
+        guard active || stripWid != 0 else { return }
         ringModel.icon = NSRunningApplication(processIdentifier: pid)?.icon
         let h = NSScreen.screens.first?.frame.height ?? 0, d = Self.ringSize
         ringModel.tint = nil; ringModel.dropping = false
@@ -501,6 +501,28 @@ final class OptionDrag: ObservableObject {
             BrowserMedia.log("strip press at \(p): window \(wid)")
         }
         return true
+    }
+
+    /// Brings a Stage Manager thumbnail's window onto the stage (what clicking it does), then snaps it if you let go on a circle.
+    private func takeFromStrip(_ snap: Snap?, pid: pid_t, wid: CGWindowID, at p: CGPoint) {
+        let app = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(app, 1)
+        DispatchQueue.main.sync { _ = NSRunningApplication(processIdentifier: pid)?.activate(options: [.activateAllWindows]) }
+        var v: CFTypeRef?
+        AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &v)
+        if let ax = (v as? [AXUIElement])?.first(where: { var n: CGWindowID = 0; _ = axWindowID($0, &n); return n == wid }) {
+            AXUIElementPerformAction(ax, kAXRaiseAction as CFString)
+        }
+        Thread.sleep(forTimeInterval: 0.5)
+        // Still a thumbnail? Do what Stage Manager does for a shift-click: add it to this stage.
+        if let b = WindowView.bounds(wid), b.width < 260 {
+            let h = NSScreen.screens.first?.frame.height ?? 0
+            let disp = NSScreen.screens.map { CGRect(x: $0.frame.minX, y: h - $0.frame.maxY, width: $0.frame.width, height: $0.frame.height) }
+                .first { $0.contains(b.origin) } ?? snap?.full ?? .zero
+            WindowView.addToStage(wid, display: disp)
+        }
+        BrowserMedia.log("strip take wid=\(wid) bounds=\(String(describing: WindowView.bounds(wid))) zone=\(snap?.id ?? "none")")
+        if let snap { snapDropped(snap, pid: pid, wid: wid) }
     }
 
     /// After Stage Manager has dropped a window it carried out of the strip: put it in the snap spot you let go on.

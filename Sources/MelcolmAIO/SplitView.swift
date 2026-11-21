@@ -94,8 +94,9 @@ enum WindowView: String, CaseIterable, Identifiable {
     /// Posts a pointer event (our own: the drag tap lets it through).
     private static func mouse(_ t: CGEventType, _ p: CGPoint, shift: Bool = false) {
         OptionDrag.passThroughUntil = Date().addingTimeInterval(1)
-        let e = CGEvent(mouseEventSource: nil, mouseType: t, mouseCursorPosition: p, mouseButton: .left)
-        if shift { e?.flags = .maskShift }
+        // A private source: the Control key you are still holding must not leak into these clicks (it would make them right-clicks).
+        let e = CGEvent(mouseEventSource: CGEventSource(stateID: .privateState), mouseType: t, mouseCursorPosition: p, mouseButton: .left)
+        e?.flags = shift ? .maskShift : []
         e?.post(tap: .cghidEventTap)
     }
 
